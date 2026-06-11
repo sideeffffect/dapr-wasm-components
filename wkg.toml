@@ -1,0 +1,6 @@
+[metadata]
+authors = "Ondra Pelech"
+description = "WebAssembly component interfaces for Dapr building blocks"
+license = "Apache-2.0"
+homepage = "https://github.com/sideeffffect/dapr-wasm-components"
+repository = "https://github.com/sideeffffect/dapr-wasm-components"

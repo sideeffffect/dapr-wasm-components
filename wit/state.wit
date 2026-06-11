@@ -1,0 +1,61 @@
+/// Dapr state management building block.
+/// https://docs.dapr.io/developing-applications/building-blocks/state-management/
+interface state {
+  use types.{metadata, error};
+
+  /// Concurrency mode for write operations.
+  enum concurrency {
+    unspecified,
+    first-write,
+    last-write,
+  }
+
+  /// Consistency mode for read/write operations.
+  enum consistency {
+    unspecified,
+    eventual,
+    strong,
+  }
+
+  record state-options {
+    concurrency: concurrency,
+    consistency: consistency,
+  }
+
+  /// A single key/value entry for bulk save operations.
+  record state-item {
+    key: string,
+    value: list<u8>,
+    /// Entity tag for optimistic concurrency control.
+    etag: option<string>,
+    metadata: metadata,
+    options: option<state-options>,
+  }
+
+  record get-state-response {
+    /// Note: Dapr returns empty `data` (and no etag) when the key does not
+    /// exist; a missing key is not an error.
+    data: list<u8>,
+    etag: option<string>,
+    metadata: metadata,
+  }
+
+  /// Get the value of `key` from the state store named `store-name`.
+  get: func(store-name: string, key: string, metadata: metadata) -> result<get-state-response, error>;
+
+  /// Save a single key/value pair.
+  save: func(
+    store-name: string,
+    key: string,
+    value: list<u8>,
+    etag: option<string>,
+    metadata: metadata,
+    options: option<state-options>,
+  ) -> result<_, error>;
+
+  /// Save several key/value pairs in one request (not transactional).
+  save-bulk: func(store-name: string, items: list<state-item>) -> result<_, error>;
+
+  /// Delete the value of `key`.
+  delete: func(store-name: string, key: string, metadata: metadata) -> result<_, error>;
+}

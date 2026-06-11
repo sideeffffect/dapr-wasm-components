@@ -1,0 +1,20 @@
+/// Dapr bindings building block — output (outbound) bindings.
+/// Input bindings are not exposed yet: the Dapr Rust SDK's gRPC binding-event
+/// callbacks are currently unimplemented stubs.
+/// https://docs.dapr.io/developing-applications/building-blocks/bindings/
+interface bindings {
+  use types.{metadata, error};
+
+  record invoke-binding-response {
+    data: list<u8>,
+    metadata: metadata,
+  }
+
+  /// Invoke `operation` (e.g. "create", "get") on the output binding `name`.
+  invoke-binding: func(
+    name: string,
+    operation: string,
+    data: list<u8>,
+    metadata: metadata,
+  ) -> result<invoke-binding-response, error>;
+}

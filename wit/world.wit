@@ -1,0 +1,24 @@
+/// A guest that only consumes Dapr building blocks (no callbacks).
+world library {
+  import types;
+  import state;
+  import pubsub;
+  import secrets;
+  import bindings;
+  import invocation;
+  import configuration;
+}
+
+/// A runnable Dapr application component: consumes building blocks,
+/// receives pub/sub deliveries, and has an entry point the host invokes
+/// after instantiation.
+world app {
+  include library;
+
+  export topic-handler;
+
+  /// Entry point called by the host once the component is instantiated
+  /// and connected to the Dapr sidecar. Returns a human-readable summary
+  /// or an error message.
+  export run: func() -> result<string, string>;
+}

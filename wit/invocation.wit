@@ -1,0 +1,14 @@
+/// Dapr service invocation building block (gRPC transport).
+/// https://docs.dapr.io/developing-applications/building-blocks/service-invocation/
+interface invocation {
+  use types.{error};
+
+  record invocation-response {
+    data: list<u8>,
+    content-type: string,
+  }
+
+  /// Invoke `method` on the application `app-id` via its Dapr sidecar.
+  /// `data` is passed as the serialized request payload.
+  invoke: func(app-id: string, method: string, data: list<u8>) -> result<invocation-response, error>;
+}

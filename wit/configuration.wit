@@ -1,0 +1,17 @@
+/// Dapr configuration building block (read side).
+/// Subscriptions (watch) are not exposed yet — they require a streaming
+/// interface, which is deferred until WASI 0.3 async/streams are adopted.
+/// https://docs.dapr.io/developing-applications/building-blocks/configuration/
+interface configuration {
+  use types.{metadata, error};
+
+  record configuration-item {
+    value: string,
+    version: string,
+    metadata: metadata,
+  }
+
+  /// Get the configuration items named `keys` (all items when empty)
+  /// from the configuration store `store-name`, as (key, item) pairs.
+  get: func(store-name: string, keys: list<string>, metadata: metadata) -> result<list<tuple<string, configuration-item>>, error>;
+}

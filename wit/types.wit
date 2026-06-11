@@ -1,0 +1,27 @@
+package dapr:client@0.1.0;
+
+/// Shared types used by all Dapr building-block interfaces.
+interface types {
+  /// Free-form string key/value pairs passed through to the Dapr runtime
+  /// (mirrors the `map<string, string> metadata` fields of the Dapr gRPC API).
+  type metadata = list<tuple<string, string>>;
+
+  /// Errors surfaced from the Dapr sidecar or the host bridge.
+  /// The cases loosely follow gRPC status codes.
+  variant error {
+    /// A request argument was rejected by the sidecar or a component.
+    invalid-argument(string),
+    /// The named store/component/resource does not exist.
+    not-found(string),
+    /// Authentication or authorization failure.
+    permission-denied(string),
+    /// The operation was aborted, e.g. an etag/concurrency conflict.
+    aborted(string),
+    /// The sidecar is unreachable or not ready.
+    unavailable(string),
+    /// An internal error in the sidecar or a component.
+    internal(string),
+    /// Anything that does not fit the cases above.
+    other(string),
+  }
+}
