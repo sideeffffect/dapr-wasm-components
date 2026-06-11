@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            examples -> examples/target
+
+      - name: Install wkg and wasm-tools
+        uses: cargo-bins/cargo-binstall@main
+
+      - run: cargo binstall -y wkg wasm-tools
+
+      - name: Check formatting
+        run: |
+          cargo fmt --all --check
+          cargo fmt --all --check --manifest-path examples/Cargo.toml
+
+      - name: Validate WIT package
+        run: |
+          wasm-tools component wit wit/ > /dev/null
+          wkg wit build --wit-dir wit -o dapr-client-wit.wasm
+
+      - name: Build example component
+        run: cargo build --release --target wasm32-wasip2 --manifest-path examples/Cargo.toml
+
+      - name: Validate example component
+        run: wasm-tools validate examples/target/wasm32-wasip2/release/kv_demo.wasm
+
+      - name: Clippy
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo clippy --target wasm32-wasip2 --manifest-path examples/Cargo.toml -- -D warnings
+
+      - name: Build host
+        run: cargo build
+
+      - name: Test (runs the example component against the in-memory backend)
+        run: cargo test
+
+  publish:
+    # Publish the WIT interfaces package and the example component to this
+    # repository's OCI registry (ghcr.io) with wkg.
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      WKG_CONFIG_FILE: .wkg/config.toml
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            examples -> examples/target
+
+      - name: Install wkg
+        uses: cargo-bins/cargo-binstall@main
+
+      - run: cargo binstall -y wkg
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine package version
+        id: version
+        run: echo "version=$(grep -oP 'package dapr:client@\K[0-9a-zA-Z.+-]+' wit/types.wit)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish WIT interfaces package (dapr:client)
+        run: |
+          wkg wit build --wit-dir wit -o dapr-client-wit.wasm
+          wkg publish dapr-client-wit.wasm
+
+      - name: Publish example component (dapr:kv-demo)
+        run: |
+          cargo build --release --target wasm32-wasip2 --manifest-path examples/Cargo.toml
+          wkg publish examples/target/wasm32-wasip2/release/kv_demo.wasm \
+            --package "dapr:kv-demo@${{ steps.version.outputs.version }}"

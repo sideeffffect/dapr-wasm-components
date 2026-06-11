@@ -1,0 +1,19 @@
+[package]
+name = "dapr-wasm-host"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+description = "Wasmtime host that implements the dapr:client WIT interfaces with the Dapr Rust SDK"
+repository = "https://github.com/sideeffffect/dapr-wasm-components"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+clap = { version = "4", features = ["derive"] }
+dapr-sdk = { package = "dapr", version = "0.17" }
+prost-types = "0.13"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync"] }
+tonic = "0.12"
+wasmtime = "45"
+wasmtime-wasi = "45"

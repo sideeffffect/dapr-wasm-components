@@ -1,0 +1,7 @@
+# wkg configuration used by CI to publish to this repository's OCI registry.
+# Maps the `dapr` WIT namespace to ghcr.io/sideeffffect/dapr-wasm-components/,
+# so e.g. dapr:client@0.1.0 -> ghcr.io/sideeffffect/dapr-wasm-components/dapr/client:0.1.0
+# Authentication comes from the docker credential store (docker/login-action in CI).
+
+[namespace_registries]
+dapr = { registry = "dapr-wasm-components", metadata = { preferredProtocol = "oci", oci = { registry = "ghcr.io", namespacePrefix = "sideeffffect/dapr-wasm-components/" } } }
