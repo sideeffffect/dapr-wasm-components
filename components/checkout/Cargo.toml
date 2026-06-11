@@ -1,0 +1,11 @@
+[package]
+name = "checkout"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "E2E microservice: publishes orders via Dapr pub/sub and verifies processing through service invocation"
+publish = false
+
+[dependencies]
+serde_json = "1"
+wit-bindgen = "0.58"

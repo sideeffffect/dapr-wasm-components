@@ -33,6 +33,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "checkout"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "wit-bindgen 0.58.0",
+]
+
+[[package]]
 name = "dapr-wasm-components-wasi-http"
 version = "0.1.0"
 dependencies = [
@@ -207,6 +215,15 @@ name = "memchr"
 version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
+
+[[package]]
+name = "order-processor"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "wit-bindgen 0.58.0",
+ "wstd",
+]
 
 [[package]]
 name = "parking"

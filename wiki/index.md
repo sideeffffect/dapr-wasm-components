@@ -16,7 +16,7 @@ Dapr distributed application runtime: HTTP API, Rust SDK, and Wasm integration.
 | Article | Summary | Updated |
 |---------|---------|---------|
 | [Dapr HTTP API](dapr/dapr-http-api.md) | Sidecar REST API: version-prefix map (stable/alpha1/alpha2) and field-naming traps | 2026-06-11 |
-| [dapr-wasm-components Architecture](dapr/dapr-wasm-components-architecture.md) | v2 design: interface package + pure-wasm wasi:http implementation, composition, OCI publishing, limitations | 2026-06-11 |
+| [dapr-wasm-components Architecture](dapr/dapr-wasm-components-architecture.md) | v2 design: interface package + pure-wasm wasi:http implementation, composition, OCI publishing, real-Dapr E2E | 2026-06-12 |
 | [Dapr Rust SDK](dapr/dapr-rust-sdk.md) | Alpha async (tokio/tonic) client: versions, building-block matrix, app-callback server (no longer used by this project) | 2026-06-11 |
 | [Dapr × Wasm Prior Art](dapr/dapr-wasm-prior-art.md) | Existing Dapr+Wasm work (http-wasm middleware, DeisLabs, WasmEdge) — none uses WIT; space is open | 2026-06-11 |
 

@@ -20,6 +20,8 @@
 - Updated: Wasmtime Host Embedding
 - Updated: wasm-pkg-tools (wkg)
 
+## [2026-06-12] ingest | dapr-wasm-components Architecture (real-Dapr E2E: daprd flags, sqlite nameres, pipe-drain trap)
+
 ## [2026-06-11] ingest | Dapr HTTP API
 - Updated: dapr-wasm-components Architecture (v2 redesign: pure-wasm wasi:http implementation)
 - Updated: Dapr Rust SDK (no longer used by this project)

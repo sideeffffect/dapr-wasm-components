@@ -58,10 +58,52 @@ jobs:
       - name: Test (provider + composed app against a mock sidecar)
         run: cargo test
 
+  dapr-e2e:
+    # Real end-to-end: two wasm microservices, each behind an actual daprd
+    # sidecar, with Redis pub/sub between them.
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      DAPR_VERSION: "1.18.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            components -> components/target
+
+      - name: Install wasmtime CLI
+        run: |
+          curl -sSf https://wasmtime.dev/install.sh | bash
+          echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+
+      - name: Install daprd
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sL "https://github.com/dapr/dapr/releases/download/v${DAPR_VERSION}/daprd_linux_amd64.tar.gz" \
+            | tar xz -C "$HOME/.local/bin" daprd
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build components
+        run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+
+      - name: Run real-Dapr E2E (wasm microservices through daprd sidecars)
+        run: cargo test --test dapr -- --ignored --nocapture
+
   publish:
     # Push both modules to this repository's OCI registry (ghcr.io) with wkg:
     # tag `latest` on pushes to main, the release version on GitHub releases.
-    needs: test
+    needs: [test, dapr-e2e]
     if: github.event_name == 'push' || github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:

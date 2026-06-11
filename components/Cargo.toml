@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["wasi-http", "kv-demo"]
+members = ["wasi-http", "kv-demo", "order-processor", "checkout"]
 
 [profile.release]
 strip = "debuginfo"

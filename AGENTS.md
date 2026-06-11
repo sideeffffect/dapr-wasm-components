@@ -12,7 +12,7 @@ Architectural decisions and their rationale live in [wiki/dapr/dapr-wasm-compone
 
 - `wit/` — the `dapr-wasm-components:interfaces` WIT package (sync functions only; WASI 0.2; published to OCI as `dapr-wasm-components-interface`).
 - `components/wasi-http/` — the implementation component (published as `dapr-wasm-components-wasi-http`); `components/kv-demo/` — example app. A **separate cargo workspace** (wasm-only crates — keep it that way).
-- `e2e/` — native test harness (root workspace): mock Dapr HTTP sidecar (axum) + wasmtime + wac-graph composition.
+- `e2e/` — native test harness (root workspace): mock Dapr HTTP sidecar (axum) + wasmtime + wac-graph composition, plus the real-Dapr E2E (`tests/dapr.rs`, ignored by default) orchestrating `components/order-processor` + `components/checkout` through two actual daprd sidecars with Redis pub/sub.
 - `.github/workflows/ci.yml` — checks + `wkg oci push` of both modules to ghcr.io (`latest` on main, semver on GitHub releases; release tag must match the WIT package version).
 
 ## Checks (run after every change, in this order)
@@ -24,6 +24,8 @@ cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.to
 cargo clippy --all-targets -- -D warnings
 cargo clippy --target wasm32-wasip2 --manifest-path components/Cargo.toml -- -D warnings
 cargo test                                                                 # e2e: provider + composed kv-demo vs mock sidecar
+# real-Dapr E2E (needs daprd, wasmtime CLI, redis on 6379 — see e2e/tests/dapr.rs docs):
+cargo test --test dapr -- --ignored
 ```
 
 ## Conventions

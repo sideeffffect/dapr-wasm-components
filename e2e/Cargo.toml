@@ -17,3 +17,7 @@ wac-graph = "0.10"
 wasmtime = "45"
 wasmtime-wasi = "45"
 wasmtime-wasi-http = "45"
+
+[dev-dependencies]
+tempfile = "3"
+ureq = { version = "2", features = ["json"] }

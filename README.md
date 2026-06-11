@@ -99,7 +99,8 @@ The implementation resolves the sidecar like other Dapr SDKs: `DAPR_HTTP_ENDPOIN
 | `wit/` | The `dapr-wasm-components:interfaces` WIT package |
 | `components/wasi-http/` | The wasi:http implementation component |
 | `components/kv-demo/` | Example app component (`wasi:cli` command) |
-| `e2e/` | Test harness: mock Dapr sidecar + wasmtime + wac composition |
+| `components/order-processor/`, `components/checkout/` | E2E microservices: pub/sub consumer (`wasi:http` server) and publisher/invoker |
+| `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2E |
 | `wiki/`, `raw/` | LLM-maintained knowledge base with the research behind the design |
 
 ## Development
@@ -113,6 +114,18 @@ cargo clippy --all-targets -- -D warnings
 cargo clippy --target wasm32-wasip2 --manifest-path components/Cargo.toml -- -D warnings
 cargo test    # provider tests + composed kv-demo, against a mock sidecar
 ```
+
+### Real-Dapr end-to-end test
+
+`e2e/tests/dapr.rs` orchestrates two wasm microservices through two **actual `daprd` sidecars**: `checkout` publishes orders via Redis pub/sub, `order-processor` (served by `wasmtime serve`) consumes them into a state store with etag CAS, and `checkout` verifies the result through Dapr service invocation (sqlite name resolution between sidecars). It needs `daprd`, the `wasmtime` CLI, and Redis:
+
+```sh
+docker run -d --name dapr-e2e-redis -p 6379:6379 redis:7-alpine
+cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+cargo test --test dapr -- --ignored
+```
+
+CI runs this on every push (the `dapr-e2e` job).
 
 ## Status & limitations
 

@@ -1,0 +1,12 @@
+[package]
+name = "order-processor"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "E2E microservice: consumes orders from pub/sub, counts them in a state store, answers summary invocations"
+publish = false
+
+[dependencies]
+serde_json = "1"
+wit-bindgen = "0.58"
+wstd = "0.6"
