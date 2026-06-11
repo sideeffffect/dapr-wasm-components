@@ -12,15 +12,15 @@
 //! - Pub/sub: Redis (cross-sidecar); state: in-memory; name resolution:
 //!   sqlite (shared db file).
 //!
-//! Ignored by default — requires `daprd`, `wasmtime`, and Redis:
+//! Ignored by default — requires `daprd`, `wasmtime`, and Docker (Redis is
+//! started automatically via testcontainers):
 //!
 //! ```sh
-//! docker run -d --name dapr-e2e-redis -p 6379:6379 redis:7-alpine
 //! cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
 //! cargo test --test dapr -- --ignored
 //! ```
 //!
-//! Overrides: DAPRD_BIN, WASMTIME_BIN, REDIS_HOST (default 127.0.0.1:6379).
+//! Overrides: DAPRD_BIN, WASMTIME_BIN, REDIS_HOST (skips the testcontainer).
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -220,7 +220,25 @@ fn daprd_command(
 fn microservices_through_real_dapr() {
     let daprd = binary("DAPRD_BIN", "daprd");
     let wasmtime = binary("WASMTIME_BIN", "wasmtime");
-    let redis_host = binary("REDIS_HOST", "127.0.0.1:6379");
+
+    // Redis backs cross-sidecar pub/sub. Started via testcontainers unless
+    // REDIS_HOST points at an existing instance. The container handle must
+    // stay alive for the duration of the test.
+    let mut _redis_container = None;
+    let redis_host = match std::env::var("REDIS_HOST") {
+        Ok(host) => host,
+        Err(_) => {
+            use testcontainers_modules::testcontainers::runners::SyncRunner;
+            let container = testcontainers_modules::redis::Redis::default()
+                .start()
+                .expect("failed to start Redis testcontainer (is Docker running?)");
+            let port = container
+                .get_host_port_ipv4(6379)
+                .expect("no mapped Redis port");
+            _redis_container = Some(container);
+            format!("127.0.0.1:{port}")
+        }
+    };
 
     // Compose both microservices with the wasi-http provider.
     let provider = std::fs::read(dapr_wasm_components_e2e::provider_path())

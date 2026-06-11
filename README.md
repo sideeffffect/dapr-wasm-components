@@ -117,10 +117,9 @@ cargo test    # provider tests + composed kv-demo, against a mock sidecar
 
 ### Real-Dapr end-to-end test
 
-`e2e/tests/dapr.rs` orchestrates two wasm microservices through two **actual `daprd` sidecars**: `checkout` publishes orders via Redis pub/sub, `order-processor` (served by `wasmtime serve`) consumes them into a state store with etag CAS, and `checkout` verifies the result through Dapr service invocation (sqlite name resolution between sidecars). It needs `daprd`, the `wasmtime` CLI, and Redis:
+`e2e/tests/dapr.rs` orchestrates two wasm microservices through two **actual `daprd` sidecars**: `checkout` publishes orders via Redis pub/sub, `order-processor` (served by `wasmtime serve`) consumes them into a state store with etag CAS, and `checkout` verifies the result through Dapr service invocation (sqlite name resolution between sidecars). Redis is started automatically with [testcontainers](https://rust.testcontainers.org/); you only need `daprd`, the `wasmtime` CLI, and Docker:
 
 ```sh
-docker run -d --name dapr-e2e-redis -p 6379:6379 redis:7-alpine
 cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
 cargo test --test dapr -- --ignored
 ```

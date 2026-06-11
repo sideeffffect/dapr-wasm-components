@@ -24,7 +24,7 @@ cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.to
 cargo clippy --all-targets -- -D warnings
 cargo clippy --target wasm32-wasip2 --manifest-path components/Cargo.toml -- -D warnings
 cargo test                                                                 # e2e: provider + composed kv-demo vs mock sidecar
-# real-Dapr E2E (needs daprd, wasmtime CLI, redis on 6379 — see e2e/tests/dapr.rs docs):
+# real-Dapr E2E (needs daprd, wasmtime CLI, Docker — Redis comes from testcontainers):
 cargo test --test dapr -- --ignored
 ```
 

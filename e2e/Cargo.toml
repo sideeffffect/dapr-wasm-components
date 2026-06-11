@@ -20,4 +20,5 @@ wasmtime-wasi-http = "45"
 
 [dev-dependencies]
 tempfile = "3"
+testcontainers-modules = { version = "0.15", features = ["redis", "blocking"] }
 ureq = { version = "2", features = ["json"] }
