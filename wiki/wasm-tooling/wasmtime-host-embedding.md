@@ -32,6 +32,15 @@ Flags: `async`, `store`, `tracing`, `verbose_tracing`, `trappable`, `ignore_wit`
 - Futures are `Send` when store data is `Send`; tune `Config::async_stack_size`.
 - WASI 0.2 imports: `wasmtime_wasi::add_to_linker_async`.
 
+## More verified-in-practice notes (2026-06-11, v2 redesign)
+
+- `wasmtime-wasi-http` 45 mirrors wasi's view pattern: `p2::WasiHttpView { fn http(&mut self) -> WasiHttpCtxView<'_> }` with fields `ctx`, `table`, `hooks: Default::default()`; linker fn is `p2::add_only_http_to_linker_async`. Its default outgoing handler does **real** HTTP — ideal for testing wasm HTTP clients against a local mock server.
+- Running a command component from Rust: `wasmtime_wasi::p2::bindings::Command::instantiate_async(...)` then `.wasi_cli_run().call_run(...)`.
+- `wit_bindgen::generate!` inside a non-root module needs `default_bindings_module: "crate::<mod>"` or the generated `export!` macro fails with "could not find `export` in the crate root".
+- Generated host bindings take metadata-ish list params as `&Vec<(String, String)>` (not `&[...]`).
+- `wstd` (0.6.x) is the maintained way to do HTTP clients in WASI 0.2 guests: `wstd::runtime::block_on` + `wstd::http::{Client, Request, Body}`; `Body: From<Vec<u8>>`, `body.contents().await`. Blocking inside a sync export works fine.
+- Composition without the wac CLI: the `wac-graph` crate (`CompositionGraph`, `Package::from_bytes`, `instantiate`, `alias_instance_export`, `set_instantiation_argument`, `graph.export`, `encode`) is the programmatic `wac plug`.
+
 ## Guest side (wit-bindgen 0.58)
 
 `wit_bindgen::generate!({ world, path: "wit", generate_all })` + `export!(Component)`; `crate-type = ["cdylib"]`; build with `cargo build --target wasm32-wasip2` (tier-2 since Rust 1.82, produces a component directly — cargo-component not needed and in maintenance mode).

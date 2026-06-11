@@ -1,7 +1,7 @@
 /// Dapr state management building block.
-/// https://docs.dapr.io/developing-applications/building-blocks/state-management/
+/// https://docs.dapr.io/reference/api/state_api/
 interface state {
-  use types.{metadata, error};
+  use types.{metadata, error, json};
 
   /// Concurrency mode for write operations.
   enum concurrency {
@@ -22,7 +22,7 @@ interface state {
     consistency: consistency,
   }
 
-  /// A single key/value entry for bulk save operations.
+  /// A single key/value entry for save and transaction operations.
   record state-item {
     key: string,
     value: list<u8>,
@@ -33,29 +33,71 @@ interface state {
   }
 
   record get-state-response {
-    /// Note: Dapr returns empty `data` (and no etag) when the key does not
-    /// exist; a missing key is not an error.
     data: list<u8>,
     etag: option<string>,
-    metadata: metadata,
   }
 
-  /// Get the value of `key` from the state store named `store-name`.
-  get: func(store-name: string, key: string, metadata: metadata) -> result<get-state-response, error>;
+  /// One entry of a bulk-get or query result.
+  record bulk-state-item {
+    key: string,
+    data: list<u8>,
+    etag: option<string>,
+    /// Per-key error, if this key failed.
+    error: option<string>,
+  }
 
-  /// Save a single key/value pair.
-  save: func(
+  /// Operation kind within a state transaction.
+  enum transaction-operation {
+    upsert,
+    delete,
+  }
+
+  record transaction-request {
+    operation: transaction-operation,
+    item: state-item,
+  }
+
+  record query-response {
+    items: list<bulk-state-item>,
+    /// Pagination token, when the store returns one.
+    token: option<string>,
+  }
+
+  /// Get the value of `key`. Returns `none` when the key does not exist.
+  get: func(
     store-name: string,
     key: string,
-    value: list<u8>,
-    etag: option<string>,
+    consistency: option<consistency>,
     metadata: metadata,
-    options: option<state-options>,
-  ) -> result<_, error>;
+  ) -> result<option<get-state-response>, error>;
 
-  /// Save several key/value pairs in one request (not transactional).
-  save-bulk: func(store-name: string, items: list<state-item>) -> result<_, error>;
+  /// Get several keys in one request.
+  get-bulk: func(
+    store-name: string,
+    keys: list<string>,
+    parallelism: option<u32>,
+    metadata: metadata,
+  ) -> result<list<bulk-state-item>, error>;
+
+  /// Save one or more key/value pairs (not transactional).
+  save: func(store-name: string, items: list<state-item>, metadata: metadata) -> result<_, error>;
 
   /// Delete the value of `key`.
-  delete: func(store-name: string, key: string, metadata: metadata) -> result<_, error>;
+  delete: func(
+    store-name: string,
+    key: string,
+    etag: option<string>,
+    options: option<state-options>,
+    metadata: metadata,
+  ) -> result<_, error>;
+
+  /// Execute upserts and deletes atomically (requires a transactional store).
+  execute-transaction: func(
+    store-name: string,
+    operations: list<transaction-request>,
+    metadata: metadata,
+  ) -> result<_, error>;
+
+  /// Query state (alpha). `query` is the JSON query document.
+  query: func(store-name: string, query: json, metadata: metadata) -> result<query-response, error>;
 }

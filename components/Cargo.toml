@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = ["wasi-http", "kv-demo"]
+
+[profile.release]
+strip = "debuginfo"

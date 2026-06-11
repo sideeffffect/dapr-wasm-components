@@ -1,0 +1,19 @@
+/// Dapr sidecar metadata and health.
+/// https://docs.dapr.io/reference/api/metadata_api/
+/// https://docs.dapr.io/reference/api/health_api/
+interface runtime {
+  use types.{error, json};
+
+  /// Get the sidecar's metadata document (components, subscriptions,
+  /// app connection details, ...) as JSON.
+  get-metadata: func() -> result<json, error>;
+
+  /// Add a custom label to the sidecar's metadata.
+  set-metadata-label: func(key: string, value: string) -> result<_, error>;
+
+  /// Whether the sidecar is healthy.
+  healthz: func() -> bool;
+
+  /// Whether the sidecar is ready for outbound calls (components initialized).
+  outbound-healthz: func() -> bool;
+}

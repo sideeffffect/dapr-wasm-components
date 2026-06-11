@@ -1,0 +1,46 @@
+/// Dapr jobs (distributed scheduler) building block.
+/// Job trigger callbacks are delivered to the application's HTTP app channel
+/// and are not part of this outbound interface.
+/// https://docs.dapr.io/reference/api/jobs_api/
+interface jobs {
+  use types.{error, json};
+
+  /// What the scheduler does when a job trigger fails to be delivered.
+  variant job-failure-policy {
+    /// Drop the trigger.
+    drop,
+    /// Retry with a constant backoff.
+    constant(job-failure-policy-constant),
+  }
+
+  record job-failure-policy-constant {
+    /// Maximum retries; absent = retry indefinitely, 0 = never retry.
+    max-retries: option<u32>,
+    /// Interval between retries, e.g. "10s".
+    interval: option<string>,
+  }
+
+  record job {
+    /// Schedule in systemd-timer / cron format or `@every 5m` shorthand.
+    schedule: option<string>,
+    /// Number of times the job should fire (unlimited when absent).
+    repeats: option<u32>,
+    /// RFC3339 timestamp, Go duration, or ISO8601 — when the job first fires.
+    due-time: option<string>,
+    /// Time-to-live; the job is garbage-collected afterwards.
+    ttl: option<string>,
+    /// JSON payload delivered with each trigger.
+    data: option<json>,
+    failure-policy: option<job-failure-policy>,
+  }
+
+  /// Create the named job. `overwrite` replaces an existing job of the
+  /// same name instead of failing.
+  schedule: func(name: string, job: job, overwrite: bool) -> result<_, error>;
+
+  /// Get the named job's definition.
+  get: func(name: string) -> result<job, error>;
+
+  /// Delete the named job.
+  delete: func(name: string) -> result<_, error>;
+}

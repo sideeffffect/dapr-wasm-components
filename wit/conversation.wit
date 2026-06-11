@@ -1,0 +1,52 @@
+/// Dapr conversation building block (alpha) — talk to LLMs through Dapr.
+/// Models the `/v1.0-alpha2` converse API (text subset; tool calling is
+/// not exposed yet).
+/// https://docs.dapr.io/reference/api/conversation_api/
+interface conversation {
+  use types.{error, json, metadata};
+
+  enum conversation-role {
+    user,
+    system,
+    assistant,
+    tool,
+    developer,
+  }
+
+  record conversation-message {
+    role: conversation-role,
+    content: string,
+  }
+
+  /// One conversation turn: an ordered list of messages.
+  record conversation-input {
+    messages: list<conversation-message>,
+    /// Scrub personally identifiable information from this input.
+    scrub-pii: option<bool>,
+  }
+
+  record conversation-options {
+    temperature: option<f64>,
+    /// Scrub PII from all inputs and outputs.
+    scrub-pii: option<bool>,
+    /// Component-specific parameters as a JSON object.
+    parameters: option<json>,
+    metadata: metadata,
+    /// Identifier to correlate multiple converse calls into one conversation.
+    context-id: option<string>,
+  }
+
+  record conversation-result {
+    content: string,
+    /// e.g. "stop" or "tool_calls"
+    finish-reason: option<string>,
+  }
+
+  /// Send inputs to the LLM component `component-name`; returns the
+  /// model's choices in order.
+  converse: func(
+    component-name: string,
+    inputs: list<conversation-input>,
+    options: option<conversation-options>,
+  ) -> result<list<conversation-result>, error>;
+}

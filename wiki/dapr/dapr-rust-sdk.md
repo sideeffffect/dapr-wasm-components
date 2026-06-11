@@ -42,9 +42,7 @@ The Dapr Rust SDK (`dapr` crate) is the **Alpha**-status client library for talk
 
 ## Implications for dapr-wasm-components
 
-- Async-only SDK + sync-preferred WIT ⇒ the host embeds wasmtime with async support and implements sync-WIT imports via async host functions (or `block_on`).
-- Outbound blocks (state, pubsub publish, invoke, secrets, bindings out, configuration get) map to WIT *imports*; app-callback (topic events, job events) maps to WIT *exports* the guest implements, forwarded from the host's AppCallback gRPC server.
-- Distributed lock and client-level state transactions cannot be offered in WIT yet (SDK gap); gRPC input-binding events are stubbed in the SDK and likewise unavailable.
+**Historical note (2026-06-11):** the project initially bridged to this SDK from a native wasmtime host (v1 architecture), but was redesigned the same day to a pure-wasm implementation over the sidecar's HTTP API — the SDK (tokio/tonic) cannot compile to wasm32-wasip2, and its gaps (no distributed lock, no client-level state transactions, stubbed gRPC input bindings) limited coverage. The SDK is no longer a dependency; see [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md). This article remains as reference on the SDK itself.
 
 ## See Also
 

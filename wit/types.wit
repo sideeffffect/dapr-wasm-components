@@ -1,25 +1,29 @@
-package dapr:client@0.1.0;
+package dapr-wasm-components:interfaces@0.1.0;
 
 /// Shared types used by all Dapr building-block interfaces.
 interface types {
-  /// Free-form string key/value pairs passed through to the Dapr runtime
-  /// (mirrors the `map<string, string> metadata` fields of the Dapr gRPC API).
+  /// Free-form string key/value pairs. Used both for Dapr `metadata.*`
+  /// request options and for response metadata/headers.
   type metadata = list<tuple<string, string>>;
 
-  /// Errors surfaced from the Dapr sidecar or the host bridge.
-  /// The cases loosely follow gRPC status codes.
+  /// A JSON document, kept as a string. Used as an escape hatch where the
+  /// Dapr API takes or returns arbitrary JSON.
+  type json = string;
+
+  /// Errors surfaced from the Dapr sidecar or the provider.
+  /// The cases loosely follow HTTP status classes / gRPC status codes.
   variant error {
-    /// A request argument was rejected by the sidecar or a component.
+    /// A request argument was rejected by the sidecar or a component (400).
     invalid-argument(string),
-    /// The named store/component/resource does not exist.
+    /// The named store/component/resource does not exist (404 on stores).
     not-found(string),
-    /// Authentication or authorization failure.
+    /// Authentication or authorization failure (401/403).
     permission-denied(string),
-    /// The operation was aborted, e.g. an etag/concurrency conflict.
+    /// The operation was aborted, e.g. an etag/concurrency conflict (409).
     aborted(string),
     /// The sidecar is unreachable or not ready.
     unavailable(string),
-    /// An internal error in the sidecar or a component.
+    /// An internal error in the sidecar or a component (500).
     internal(string),
     /// Anything that does not fit the cases above.
     other(string),

@@ -19,3 +19,9 @@
 ## [2026-06-11] ingest | dapr-wasm-components Architecture
 - Updated: Wasmtime Host Embedding
 - Updated: wasm-pkg-tools (wkg)
+
+## [2026-06-11] ingest | Dapr HTTP API
+- Updated: dapr-wasm-components Architecture (v2 redesign: pure-wasm wasi:http implementation)
+- Updated: Dapr Rust SDK (no longer used by this project)
+- Updated: Wasmtime Host Embedding (wasi-http views, wstd, wac-graph)
+- Updated: wasm-pkg-tools (wkg) (oci push vs publish, latest tags)

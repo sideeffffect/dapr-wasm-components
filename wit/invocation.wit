@@ -1,14 +1,35 @@
-/// Dapr service invocation building block (gRPC transport).
-/// https://docs.dapr.io/developing-applications/building-blocks/service-invocation/
+/// Dapr service invocation building block (HTTP semantics).
+/// https://docs.dapr.io/reference/api/service_invocation_api/
 interface invocation {
-  use types.{error};
+  use types.{metadata, error};
 
-  record invocation-response {
-    data: list<u8>,
-    content-type: string,
+  enum http-verb {
+    get,
+    post,
+    put,
+    delete,
+    patch,
+    head,
+    options,
   }
 
-  /// Invoke `method` on the application `app-id` via its Dapr sidecar.
-  /// `data` is passed as the serialized request payload.
-  invoke: func(app-id: string, method: string, data: list<u8>) -> result<invocation-response, error>;
+  record http-response {
+    status: u16,
+    headers: metadata,
+    body: list<u8>,
+  }
+
+  /// Invoke `method-path` (e.g. "orders/42") on the application `app-id`
+  /// via its Dapr sidecar. Headers are passed through; `query` is the raw
+  /// query string (without the leading `?`).
+  /// Note: a non-2xx response from the target application is returned as a
+  /// normal `http-response`, not as an `error`.
+  invoke: func(
+    app-id: string,
+    method-path: string,
+    verb: http-verb,
+    headers: metadata,
+    query: option<string>,
+    body: list<u8>,
+  ) -> result<http-response, error>;
 }

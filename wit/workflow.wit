@@ -1,0 +1,50 @@
+/// Dapr workflow building block (management operations).
+/// Authoring workflows requires an app-channel worker and is out of scope
+/// for this outbound interface. Note: Dapr has deprecated the workflow
+/// HTTP API in favor of SDKs; it is still served as of v1.18.
+/// https://docs.dapr.io/reference/api/workflow_api/
+interface workflow {
+  use types.{error};
+
+  record workflow-instance {
+    instance-id: string,
+    created-at: string,
+    last-updated-at: string,
+    /// e.g. RUNNING, COMPLETED, CONTINUED_AS_NEW, FAILED, CANCELED,
+    /// TERMINATED, PENDING, SUSPENDED
+    runtime-status: string,
+    /// Additional runtime properties (e.g. dapr.workflow.input/output).
+    properties: list<tuple<string, string>>,
+  }
+
+  /// Start a new workflow instance. Returns the instance id.
+  start: func(
+    workflow-component: string,
+    workflow-name: string,
+    instance-id: option<string>,
+    input: list<u8>,
+  ) -> result<string, error>;
+
+  /// Get information about a workflow instance.
+  get: func(workflow-component: string, instance-id: string) -> result<workflow-instance, error>;
+
+  /// Terminate a running workflow instance.
+  terminate: func(workflow-component: string, instance-id: string) -> result<_, error>;
+
+  /// Deliver an external event to a workflow instance.
+  raise-event: func(
+    workflow-component: string,
+    instance-id: string,
+    event-name: string,
+    event-data: list<u8>,
+  ) -> result<_, error>;
+
+  /// Pause a running workflow instance.
+  pause: func(workflow-component: string, instance-id: string) -> result<_, error>;
+
+  /// Resume a paused workflow instance.
+  resume: func(workflow-component: string, instance-id: string) -> result<_, error>;
+
+  /// Purge the state of a terminated/completed workflow instance.
+  purge: func(workflow-component: string, instance-id: string) -> result<_, error>;
+}

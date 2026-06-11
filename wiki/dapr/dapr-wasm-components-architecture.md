@@ -1,30 +1,38 @@
 # dapr-wasm-components — Architecture & Decisions
 
-> Sources: this repository (wit/, host/, examples/, .github/), 2026-06-11
+> Sources: this repository (wit/, components/, e2e/, .github/), 2026-06-11 (v2 redesign, same day as v1)
 
 ## Overview
 
-This project exposes Dapr building blocks to WebAssembly components. Three parts: the `dapr:client@0.1.0` WIT package (`wit/`), the native `dapr-wasm-host` (wasmtime 45 + Dapr Rust SDK 0.17) that implements those interfaces (`host/`), and guest components like `examples/kv-demo` (wit-bindgen 0.58, `wasm32-wasip2`).
+Two pure-wasm modules: the **interface** WIT package `dapr-wasm-components:interfaces` (`wit/`, published to OCI as `dapr-wasm-components-interface`) and the **implementation** component `dapr-wasm-components-wasi-http` (`components/wasi-http/`), which exports every interface and implements them by calling the Dapr sidecar's HTTP API via `wasi:http` outgoing requests. Apps import the interfaces, get composed with the implementation (`wac plug`), and run on any WASI 0.2 runtime with wasi:http — next to a Dapr sidecar.
+
+## v1 → v2: why the redesign
+
+v1 (same day) used a native wasmtime host bridging to the Dapr Rust SDK. v2 replaced it on request: the implementation must be pure wasm so *anyone* can compose against it without a custom host. The Rust SDK (tokio/tonic gRPC) cannot compile to wasm32-wasip2, so it was dropped entirely — the HTTP protocol is implemented directly. Bonus: no longer limited to what the SDK supports; the **whole** outbound API surface including alpha (lock, crypto, state query/transactions, jobs, conversation, workflow management, actors client) is covered.
 
 ## Key decisions
 
-- **Sync WIT, async host.** All WIT functions are sync (WASI 0.2 target). The host implements them with async Rust via `bindgen!({ imports: { default: async | trappable }, exports: { default: async } })`; the guest blocks while the host awaits the Dapr SDK future. WASI 0.3 async was deliberately avoided (preview-quality, ~3.5x overhead as of June 2026).
-- **Host-side implementation, not guest-side.** The Dapr Rust SDK is tokio/tonic gRPC and cannot compile to wasm32-wasip2, so the SDK lives in the native host. (A future alternative: a guest-side implementation component speaking the sidecar's HTTP API over wasi:http.)
-- **Interfaces scoped to what SDK 0.17 delivers**: state (no transactions), pubsub publish, secrets, output bindings, invocation, configuration get. Pub/sub delivery via the guest's exported `topic-handler`, forwarded from the host's app-callback gRPC server (tonic 0.12 to match dapr 0.17). Excluded: distributed lock + state transactions (absent from SDK), input bindings + bulk subscribe (`todo!()` stubs in SDK), configuration subscribe (needs streams), actors/jobs/crypto/workflow (later).
-- **`DaprBackend` trait** decouples the WIT bridge from the SDK: `SidecarBackend` (real gRPC) vs `MemoryBackend` (tests, `--backend memory`). The e2e test runs the real kv-demo component against `MemoryBackend` — no sidecar needed in CI.
-- **Two cargo workspaces** (root: host; `examples/`): guest cdylib crates don't build for native targets, so keeping them out of the root workspace keeps plain `cargo build`/`cargo test`/`cargo clippy` clean.
-- **OCI publishing**: CI publishes both modules with wkg on every push to main — `ghcr.io/sideeffffect/dapr-wasm-components/dapr/client:<v>` (WIT) and `.../dapr/kv-demo:<v>` (component), namespace mapping in `.wkg/config.toml`, auth via docker/login-action + GITHUB_TOKEN.
+- **Sync WIT, blocking wasi:http.** Interfaces stay synchronous (user preference, WASI 0.2). The implementation uses `wstd`'s HTTP client with `wstd::runtime::block_on` inside sync exports — wasi:http polling blocks the guest, no async ABI needed.
+- **WIT package name is `dapr-wasm-components:interfaces`** — `interface` (singular) is a reserved WIT keyword and cannot be a package name. OCI artifact names are exact (`dapr-wasm-components-interface`, `dapr-wasm-components-wasi-http`) because publishing uses `wkg oci push` with explicit references (also required for the `latest` tag — `wkg publish` only accepts semver tags).
+- **Outbound only.** Inbound flows (pub/sub delivery, input bindings, job triggers, actor hosting, config watches) arrive on the app's HTTP app channel → apps export `wasi:http/incoming-handler`. No callback interfaces in the WIT.
+- **`provider` world exports `types` explicitly** so composition leaves no dangling `types` import in the composed component.
+- **HTTP-faithful interface shapes**: invocation exposes verb/headers/status passthrough; state has transactions and query (possible over HTTP, impossible via the Rust SDK); errors map HTTP status classes to the `error` variant (400 invalid-argument, 401/403 permission-denied, 404 not-found, 409/412 aborted, 5xx internal, transport unavailable).
+- **JSON value convention**: HTTP state/bindings APIs carry values as JSON. Bytes that parse as JSON are embedded as-is; otherwise sent as a JSON string (UTF-8 lossy). Response strings are returned unquoted so text roundtrips.
+- **Config via env** (read inside the component through `wasi:cli/environment`): `DAPR_HTTP_ENDPOINT` → `DAPR_HTTP_PORT` → `http://127.0.0.1:3500`; `DAPR_API_TOKEN` → `dapr-api-token` header.
+- **Workspace split**: root native workspace holds `e2e/` only; `components/` is a separate wasm-only workspace (guest crates don't build natively).
+- **Testing without Dapr**: `e2e/` runs the real provider in wasmtime (wasmtime-wasi-http supplies real outgoing HTTP) against a mock axum sidecar, asserting recorded requests; plus a composition test that plugs kv-demo into the provider with **wac-graph** (programmatic `wac plug`) and runs the composed command via `wasmtime_wasi::p2::bindings::Command`.
+- **OCI publishing**: `wkg oci push ghcr.io/sideeffffect/<module>:<tag>` with `org.opencontainers.image.source` annotation for repo linking. Tag `latest` on pushes to main; on GitHub releases the tag is the release version, and CI fails if it doesn't match the WIT package version in `wit/types.wit`.
 
-## Operational notes
+## Known limitations
 
-- Sidecar address resolution mirrors other SDKs: `DAPR_GRPC_ENDPOINT` → `DAPR_GRPC_PORT` → `http://127.0.0.1:50001` (dapr 0.17's `Client::connect` requires `DAPR_GRPC_PORT`, so the host resolves and uses `connect_with_port`).
-- dapr 0.17's `GrpcError` keeps the tonic `Status` private — WIT error mapping can only classify `TransportError` → `unavailable` and carry Debug text for the rest.
-- Run under Dapr: `dapr run --app-id x --app-port 50051 --app-protocol grpc -- dapr-wasm-host component.wasm`; the app-callback server starts only when the guest subscribes to topics.
-- Guest calls are serialized through a `tokio::sync::Mutex<GuestRunner>` (wasmtime `Store` is single-threaded by design).
+- Crypto is one-shot (no streaming); conversation is the alpha2 text subset (no tool calls); configuration subscribe not exposed.
+- Alpha Dapr APIs can break between Dapr releases; the version-prefix map lives in [Dapr HTTP API](dapr-http-api.md).
+- Binary (non-JSON) state values don't roundtrip byte-exact (JSON-string encoding).
 
 ## See Also
 
-- [Dapr Rust SDK](dapr-rust-sdk.md)
+- [Dapr HTTP API](dapr-http-api.md)
 - [Wasmtime Host Embedding](../wasm-tooling/wasmtime-host-embedding.md)
 - [wasm-pkg-tools (wkg)](../wasm-tooling/wasm-pkg-tools-wkg.md)
+- [Dapr Rust SDK](dapr-rust-sdk.md)
 - [Dapr × Wasm Prior Art](dapr-wasm-prior-art.md)

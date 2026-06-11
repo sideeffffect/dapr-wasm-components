@@ -1,0 +1,24 @@
+/// Dapr distributed lock building block (alpha).
+/// https://docs.dapr.io/reference/api/distributed_lock_api/
+interface lock {
+  use types.{error};
+
+  enum unlock-status {
+    success,
+    lock-does-not-exist,
+    lock-belongs-to-others,
+    internal-error,
+  }
+
+  /// Try to acquire a lock on `resource-id`. Returns whether the lock
+  /// was obtained. The lock auto-expires after `expiry-in-seconds`.
+  try-lock: func(
+    store-name: string,
+    resource-id: string,
+    lock-owner: string,
+    expiry-in-seconds: u32,
+  ) -> result<bool, error>;
+
+  /// Release a lock previously acquired by `lock-owner`.
+  unlock: func(store-name: string, resource-id: string, lock-owner: string) -> result<unlock-status, error>;
+}

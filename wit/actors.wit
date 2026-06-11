@@ -1,0 +1,72 @@
+/// Dapr actors building block — client-side operations.
+/// Hosting actors requires an app-channel runtime and is out of scope for
+/// this outbound interface.
+/// https://docs.dapr.io/reference/api/actors_api/
+interface actors {
+  use types.{error, json};
+
+  enum actor-state-operation-type {
+    upsert,
+    delete,
+  }
+
+  record actor-state-operation {
+    operation: actor-state-operation-type,
+    key: string,
+    /// Required for upsert; ignored for delete.
+    value: option<list<u8>>,
+  }
+
+  record reminder {
+    /// ISO timestamp or Go duration until the first invocation.
+    due-time: option<string>,
+    /// Invocation period, e.g. "1m" or "R5/PT1M" (5 repetitions).
+    period: option<string>,
+    ttl: option<string>,
+    /// JSON payload passed to the reminder callback.
+    data: option<json>,
+  }
+
+  record timer {
+    due-time: option<string>,
+    period: option<string>,
+    ttl: option<string>,
+    data: option<json>,
+    /// Method on the actor to invoke when the timer fires.
+    callback: option<string>,
+  }
+
+  /// Invoke `method` on the actor `actor-type`/`actor-id`.
+  invoke: func(
+    actor-type: string,
+    actor-id: string,
+    method: string,
+    body: list<u8>,
+    content-type: option<string>,
+  ) -> result<list<u8>, error>;
+
+  /// Get the actor state stored under `key`. Returns `none` when absent.
+  get-state: func(actor-type: string, actor-id: string, key: string) -> result<option<list<u8>>, error>;
+
+  /// Execute upserts and deletes of actor state atomically.
+  execute-state-transaction: func(
+    actor-type: string,
+    actor-id: string,
+    operations: list<actor-state-operation>,
+  ) -> result<_, error>;
+
+  /// Create (or overwrite) a persistent reminder.
+  register-reminder: func(actor-type: string, actor-id: string, name: string, reminder: reminder) -> result<_, error>;
+
+  /// Get a reminder's definition as JSON.
+  get-reminder: func(actor-type: string, actor-id: string, name: string) -> result<json, error>;
+
+  /// Delete a reminder.
+  unregister-reminder: func(actor-type: string, actor-id: string, name: string) -> result<_, error>;
+
+  /// Create (or overwrite) a non-persistent timer.
+  register-timer: func(actor-type: string, actor-id: string, name: string, timer: timer) -> result<_, error>;
+
+  /// Delete a timer.
+  unregister-timer: func(actor-type: string, actor-id: string, name: string) -> result<_, error>;
+}

@@ -1,0 +1,27 @@
+/// Dapr cryptography building block (alpha).
+/// The HTTP API is streaming-capable; this interface exposes the simple
+/// one-shot form (whole payload in memory).
+/// https://docs.dapr.io/reference/api/cryptography_api/
+interface crypto {
+  use types.{error};
+
+  record encrypt-options {
+    /// Name (or name/version) of the key to use for the encryption.
+    key-name: string,
+    /// Key wrapping algorithm, e.g. A256KW, RSA.
+    key-wrap-algorithm: string,
+    /// Cipher used to encrypt data: aes-gcm (default) or chacha20-poly1305.
+    data-encryption-cipher: option<string>,
+    /// Do not embed the key name in the encrypted document.
+    omit-decryption-key-name: option<bool>,
+    /// Key name to embed for decryption, when different from `key-name`.
+    decryption-key-name: option<string>,
+  }
+
+  /// Encrypt `data` using the crypto component `component-name`.
+  encrypt: func(component-name: string, data: list<u8>, options: encrypt-options) -> result<list<u8>, error>;
+
+  /// Decrypt `data`. `key-name` is only needed when it was omitted from
+  /// the encrypted document.
+  decrypt: func(component-name: string, data: list<u8>, key-name: option<string>) -> result<list<u8>, error>;
+}

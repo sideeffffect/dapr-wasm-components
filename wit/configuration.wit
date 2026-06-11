@@ -1,7 +1,7 @@
 /// Dapr configuration building block (read side).
-/// Subscriptions (watch) are not exposed yet — they require a streaming
-/// interface, which is deferred until WASI 0.3 async/streams are adopted.
-/// https://docs.dapr.io/developing-applications/building-blocks/configuration/
+/// Subscriptions (watch) push updates to the application's HTTP app channel
+/// and are not part of this outbound interface.
+/// https://docs.dapr.io/reference/api/configuration_api/
 interface configuration {
   use types.{metadata, error};
 

@@ -1,0 +1,19 @@
+[package]
+name = "dapr-wasm-components-e2e"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+description = "End-to-end test harness: runs the wasi-http provider and composed apps against a mock Dapr sidecar"
+repository = "https://github.com/sideeffffect/dapr-wasm-components"
+publish = false
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }
+wac-graph = "0.10"
+wasmtime = "45"
+wasmtime-wasi = "45"
+wasmtime-wasi-http = "45"

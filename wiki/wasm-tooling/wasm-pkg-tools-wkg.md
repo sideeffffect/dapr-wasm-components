@@ -32,6 +32,9 @@ Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.
 
 ## Verified in practice (this repo, 2026-06-11)
 
+- `wkg publish` derives the OCI tag from the package's semver — it **cannot** push a `latest` tag. For floating tags (or exact artifact names that don't follow the `<prefix><ns>/<pkg>` scheme), use `wkg oci push <full-ref> <file>`, which supports `--annotation` (set `org.opencontainers.image.source` for ghcr repo linking) and `-u`/`-p` or docker-config auth.
+- `interface` is a reserved WIT keyword — it cannot be a package name component (`dapr-wasm-components:interface` fails to parse; plural `interfaces` works).
+
 - In wkg **0.15.1**, `wkg.toml` `[metadata] authors` must be a **string**, not a list — the README's `authors = ["..."]` example fails with "invalid type: sequence, expected a string".
 - `wkg publish` + docker/login-action + `GITHUB_TOKEN` works first try in GitHub Actions; packages published from a public repo's workflow with the `repository` metadata set come out linked to the repo and publicly pullable.
 - The namespace→ghcr mapping in a checked-in config (`WKG_CONFIG_FILE=.wkg/config.toml`) is a clean CI pattern.

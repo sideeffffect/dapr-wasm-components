@@ -1,8 +1,26 @@
 /// Dapr publish & subscribe building block — publishing side.
-/// Subscriptions are delivered through the exported `topic-handler` interface.
-/// https://docs.dapr.io/developing-applications/building-blocks/pubsub/
+/// Subscriptions are delivered to the application over its HTTP app channel
+/// (export `wasi:http/incoming-handler` and implement the `/dapr/subscribe`
+/// programmatic-subscription convention); they are not part of this
+/// outbound interface.
+/// https://docs.dapr.io/reference/api/pubsub_api/
 interface pubsub {
   use types.{metadata, error};
+
+  /// One event of a bulk publish.
+  record bulk-publish-entry {
+    /// Unique identifier of the entry within the request.
+    entry-id: string,
+    event: list<u8>,
+    content-type: string,
+    metadata: metadata,
+  }
+
+  /// An entry the sidecar failed to publish.
+  record bulk-publish-failed-entry {
+    entry-id: string,
+    error: string,
+  }
 
   /// Publish `data` to `topic` on the pub/sub component `pubsub-name`.
   /// `data-content-type` is the MIME type of `data`, e.g. `application/json`.
@@ -13,47 +31,13 @@ interface pubsub {
     data-content-type: string,
     metadata: metadata,
   ) -> result<_, error>;
-}
 
-/// Pub/sub delivery callbacks, implemented (exported) by the guest component.
-/// The host subscribes to the returned topics on the guest's behalf and
-/// forwards every delivered message to `on-topic-event`.
-interface topic-handler {
-  use types.{metadata};
-
-  record topic-subscription {
+  /// Publish several events in one request (alpha). Returns the entries
+  /// that failed — an empty list means everything was published.
+  publish-bulk: func(
     pubsub-name: string,
     topic: string,
+    entries: list<bulk-publish-entry>,
     metadata: metadata,
-  }
-
-  /// A delivered pub/sub message (CloudEvents v1.0 shaped, mirroring
-  /// `dapr.proto.runtime.v1.TopicEventRequest`).
-  record topic-event {
-    id: string,
-    source: string,
-    event-type: string,
-    spec-version: string,
-    data-content-type: string,
-    data: list<u8>,
-    topic: string,
-    pubsub-name: string,
-    path: string,
-  }
-
-  /// Processing status returned to the Dapr runtime.
-  enum topic-event-response {
-    /// Message processed successfully.
-    success,
-    /// Processing failed; the runtime should redeliver.
-    retry,
-    /// Message is unprocessable and should be dropped (dead-lettered if configured).
-    drop,
-  }
-
-  /// Called once at startup to learn which topics to subscribe to.
-  list-topic-subscriptions: func() -> list<topic-subscription>;
-
-  /// Called for every message delivered on a subscribed topic.
-  on-topic-event: func(event: topic-event) -> topic-event-response;
+  ) -> result<list<bulk-publish-failed-entry>, error>;
 }
