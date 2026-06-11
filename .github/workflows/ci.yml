@@ -60,11 +60,10 @@ jobs:
 
   dapr-e2e:
     # Real end-to-end: two wasm microservices, each behind an actual daprd
-    # sidecar, with Redis pub/sub between them (started by the test itself
-    # via testcontainers).
+    # sidecar (daprio/daprd containers), with Redis pub/sub between them —
+    # all infrastructure is started by the test itself via testcontainers.
     runs-on: ubuntu-latest
     env:
-      DAPR_VERSION: "1.18.0"
       WASMTIME_VERSION: "45.0.1"
     steps:
       - uses: actions/checkout@v4
@@ -85,13 +84,6 @@ jobs:
           curl -sL "https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/wasmtime-v${WASMTIME_VERSION}-x86_64-linux.tar.xz" \
             | tar xJ -C /tmp
           mv "/tmp/wasmtime-v${WASMTIME_VERSION}-x86_64-linux/wasmtime" "$HOME/.local/bin/"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install daprd
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          curl -sL "https://github.com/dapr/dapr/releases/download/v${DAPR_VERSION}/daprd_linux_amd64.tar.gz" \
-            | tar xz -C "$HOME/.local/bin" daprd
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build components

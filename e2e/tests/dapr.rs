@@ -10,25 +10,36 @@
 //!   run by `wasmtime run`; publishes orders via its own daprd and verifies
 //!   processing through Dapr service invocation of order-processor.
 //! - Pub/sub: Redis (cross-sidecar); state: in-memory; name resolution:
-//!   sqlite (shared db file).
+//!   sqlite (shared db file, bind-mounted into both sidecar containers).
 //!
-//! Ignored by default — requires `daprd`, `wasmtime`, and Docker (Redis is
-//! started automatically via testcontainers):
+//! Both `daprd` sidecars (daprio/daprd image) and Redis run as
+//! testcontainers; the daprd containers use host networking so they can
+//! dial the wasm app served by `wasmtime serve` on the host.
+//!
+//! Ignored by default — requires Docker and the `wasmtime` CLI:
 //!
 //! ```sh
 //! cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
 //! cargo test --test dapr -- --ignored
 //! ```
 //!
-//! Overrides: DAPRD_BIN, WASMTIME_BIN, REDIS_HOST (skips the testcontainer).
+//! Overrides: WASMTIME_BIN, DAPRD_IMAGE_TAG (default 1.18.0),
+//! REDIS_HOST (skips the Redis testcontainer).
 
 use std::io::Read;
-use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use testcontainers_modules::testcontainers::core::Mount;
+use testcontainers_modules::testcontainers::runners::SyncRunner;
+use testcontainers_modules::testcontainers::{Container, GenericImage, ImageExt};
+
 use dapr_wasm_components_e2e::{component_path, compose};
+
+/// Where the shared directory (components, config, name-resolution db)
+/// is bind-mounted inside the daprd containers.
+const DAPRD_MOUNT: &str = "/dapr-e2e";
 
 const ORDER_PROCESSOR_APP_PORT: u16 = 8091;
 const OP_DAPR_HTTP: u16 = 3551;
@@ -119,7 +130,7 @@ fn wait_http_ok(url: &str, what: &str, timeout: Duration) {
     }
 }
 
-fn write_dapr_resources(dir: &std::path::Path, redis_host: &str) -> PathBuf {
+fn write_dapr_resources(dir: &std::path::Path, redis_host: &str) {
     let resources = dir.join("resources");
     std::fs::create_dir_all(&resources).unwrap();
     std::fs::write(
@@ -165,13 +176,18 @@ spec:
     component: "sqlite"
     version: "v1"
     configuration:
-      connectionString: "{}"
-"#,
-            dir.join("nameresolution.db").display()
+      connectionString: "{DAPRD_MOUNT}/nameresolution.db"
+"#
         ),
     )
     .unwrap();
-    resources
+    // The daprd containers run as a non-root user (65532) and must read the
+    // configs and write the sqlite name-resolution db in this directory.
+    for path in [dir.to_path_buf(), resources.clone()] {
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o777);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
 }
 
 struct DaprdPorts {
@@ -180,45 +196,83 @@ struct DaprdPorts {
     internal_grpc: u16,
 }
 
-fn daprd_command(
-    daprd: &str,
-    app_id: &str,
-    ports: DaprdPorts,
-    app_port: Option<u16>,
-    resources: &std::path::Path,
-    config: &std::path::Path,
-) -> Command {
-    let mut command = Command::new(daprd);
-    command
-        .arg("--app-id")
-        .arg(app_id)
-        .arg("--dapr-http-port")
-        .arg(ports.http.to_string())
-        .arg("--dapr-grpc-port")
-        .arg(ports.grpc.to_string())
-        .arg("--dapr-internal-grpc-port")
-        .arg(ports.internal_grpc.to_string())
-        .arg("--resources-path")
-        .arg(resources)
-        .arg("--config")
-        .arg(config)
-        .arg("--enable-metrics=false")
-        .arg("--log-level")
-        .arg("info");
-    if let Some(port) = app_port {
-        command
-            .arg("--app-port")
-            .arg(port.to_string())
-            .arg("--app-protocol")
-            .arg("http");
+/// A daprd sidecar as a testcontainer (daprio/daprd image, host networking
+/// so it can dial the wasm app served on the host). Dumps its logs when the
+/// test fails.
+struct Daprd {
+    name: &'static str,
+    container: Container<GenericImage>,
+}
+
+impl Daprd {
+    fn start(
+        name: &'static str,
+        app_id: &str,
+        ports: DaprdPorts,
+        app_port: Option<u16>,
+        shared_dir: &std::path::Path,
+    ) -> Self {
+        let tag = std::env::var("DAPRD_IMAGE_TAG").unwrap_or_else(|_| "1.18.0".to_string());
+        let mut cmd = vec![
+            "/daprd".to_string(),
+            "--app-id".to_string(),
+            app_id.to_string(),
+            "--dapr-http-port".to_string(),
+            ports.http.to_string(),
+            "--dapr-grpc-port".to_string(),
+            ports.grpc.to_string(),
+            "--dapr-internal-grpc-port".to_string(),
+            ports.internal_grpc.to_string(),
+            "--resources-path".to_string(),
+            format!("{DAPRD_MOUNT}/resources"),
+            "--config".to_string(),
+            format!("{DAPRD_MOUNT}/config.yaml"),
+            "--enable-metrics=false".to_string(),
+            "--log-level".to_string(),
+            "info".to_string(),
+        ];
+        if let Some(port) = app_port {
+            cmd.extend([
+                "--app-port".to_string(),
+                port.to_string(),
+                "--app-protocol".to_string(),
+                "http".to_string(),
+            ]);
+        }
+        let container = GenericImage::new("daprio/daprd", &tag)
+            .with_cmd(cmd)
+            .with_network("host")
+            .with_mount(Mount::bind_mount(
+                shared_dir.to_str().unwrap().to_string(),
+                DAPRD_MOUNT,
+            ))
+            .start()
+            .unwrap_or_else(|e| panic!("failed to start {name} container: {e}"));
+        Self { name, container }
     }
-    command
+}
+
+impl Drop for Daprd {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            for (label, result) in [
+                ("stdout", self.container.stdout_to_vec()),
+                ("stderr", self.container.stderr_to_vec()),
+            ] {
+                if let Ok(output) = result {
+                    let output = String::from_utf8_lossy(&output);
+                    if !output.trim().is_empty() {
+                        eprintln!("===== {} {label} =====\n{output}", self.name);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]
-#[ignore = "requires daprd, wasmtime CLI, and a local Redis (see module docs)"]
+#[ignore = "requires Docker and the wasmtime CLI (see module docs)"]
 fn microservices_through_real_dapr() {
-    let daprd = binary("DAPRD_BIN", "daprd");
     let wasmtime = binary("WASMTIME_BIN", "wasmtime");
 
     // Redis backs cross-sidecar pub/sub. Started via testcontainers unless
@@ -228,7 +282,6 @@ fn microservices_through_real_dapr() {
     let redis_host = match std::env::var("REDIS_HOST") {
         Ok(host) => host,
         Err(_) => {
-            use testcontainers_modules::testcontainers::runners::SyncRunner;
             let container = testcontainers_modules::redis::Redis::default()
                 .start()
                 .expect("failed to start Redis testcontainer (is Docker running?)");
@@ -265,8 +318,7 @@ fn microservices_through_real_dapr() {
     )
     .unwrap();
 
-    let resources = write_dapr_resources(dir.path(), &redis_host);
-    let config = dir.path().join("config.yaml");
+    write_dapr_resources(dir.path(), &redis_host);
 
     // 1. The order-processor wasm service, served over its app channel.
     let _op_server = Service::spawn(
@@ -288,20 +340,16 @@ fn microservices_through_real_dapr() {
     );
 
     // 2. Its daprd sidecar (registers the topic subscription).
-    let _op_daprd = Service::spawn(
+    let _op_daprd = Daprd::start(
         "daprd (order-processor)",
-        &mut daprd_command(
-            &daprd,
-            "order-processor",
-            DaprdPorts {
-                http: OP_DAPR_HTTP,
-                grpc: 50051,
-                internal_grpc: 48051,
-            },
-            Some(ORDER_PROCESSOR_APP_PORT),
-            &resources,
-            &config,
-        ),
+        "order-processor",
+        DaprdPorts {
+            http: OP_DAPR_HTTP,
+            grpc: 50051,
+            internal_grpc: 48051,
+        },
+        Some(ORDER_PROCESSOR_APP_PORT),
+        dir.path(),
     );
     wait_http_ok(
         &format!("http://127.0.0.1:{OP_DAPR_HTTP}/v1.0/metadata"),
@@ -310,20 +358,16 @@ fn microservices_through_real_dapr() {
     );
 
     // 3. The checkout sidecar (no app channel needed).
-    let _checkout_daprd = Service::spawn(
+    let _checkout_daprd = Daprd::start(
         "daprd (checkout)",
-        &mut daprd_command(
-            &daprd,
-            "checkout",
-            DaprdPorts {
-                http: CHECKOUT_DAPR_HTTP,
-                grpc: 50052,
-                internal_grpc: 48052,
-            },
-            None,
-            &resources,
-            &config,
-        ),
+        "checkout",
+        DaprdPorts {
+            http: CHECKOUT_DAPR_HTTP,
+            grpc: 50052,
+            internal_grpc: 48052,
+        },
+        None,
+        dir.path(),
     );
     wait_http_ok(
         &format!("http://127.0.0.1:{CHECKOUT_DAPR_HTTP}/v1.0/healthz/outbound"),
