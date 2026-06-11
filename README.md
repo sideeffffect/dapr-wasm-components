@@ -4,12 +4,16 @@
 
 Write a portable, sandboxed wasm component that calls Dapr state stores, pub/sub, secrets, bindings, service invocation, and configuration — using plain **synchronous** function calls. The host implements those sync WIT imports with **async** host functions (tokio + the async-only Dapr Rust SDK); the guest blocks while the host awaits. This is a standard, fully supported wasmtime pattern on WASI 0.2, so no WASI 0.3 async is needed.
 
-```
-┌────────────────────────────┐     sync WIT calls     ┌──────────────────────────┐    gRPC     ┌──────────┐
-│  your component            │  ───────────────────▶  │  dapr-wasm-host          │  ────────▶  │  Dapr    │
-│  (wasm32-wasip2, Rust/...) │  ◀───────────────────  │  (wasmtime + Rust SDK)   │  ◀────────  │  sidecar │
-│  imports dapr:client/*     │   topic events (export) │  async host functions    │  callbacks  │          │
-└────────────────────────────┘                        └──────────────────────────┘             └──────────┘
+```mermaid
+flowchart LR
+    guest["your component<br/>(wasm32-wasip2, Rust/…)<br/>imports dapr:client/*"]
+    host["dapr-wasm-host<br/>(wasmtime + Dapr Rust SDK)<br/>async host functions"]
+    sidecar["Dapr sidecar"]
+
+    guest -- "sync WIT calls" --> host
+    host -- "topic events (export)" --> guest
+    host -- "gRPC" --> sidecar
+    sidecar -- "callbacks" --> host
 ```
 
 ## Repository layout

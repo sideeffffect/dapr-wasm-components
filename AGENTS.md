@@ -31,3 +31,4 @@ cargo test                                                                 # e2e
 - WIT changes must stay sync (no `async` functions, no `stream`/`future`) and must be mirrored in: host `Host` impls + `DaprBackend` trait + both backends, the kv-demo example, and the README interface table. Bump the package version in `wit/types.wit` (CI derives the OCI tag from it).
 - Only expose what the Dapr Rust SDK actually implements — check the wiki's [Dapr Rust SDK](wiki/dapr/dapr-rust-sdk.md) support matrix first.
 - The `dapr` crate is renamed to `dapr-sdk` in `host/Cargo.toml` to avoid clashing with the bindgen-generated `dapr` module; keep `tonic`/`prost-types` versions in lockstep with the SDK's.
+- Diagrams and charts in markdown must be [Mermaid](https://mermaid.js.org/) (` ```mermaid ` blocks) — never ASCII art or manually drawn box diagrams.
