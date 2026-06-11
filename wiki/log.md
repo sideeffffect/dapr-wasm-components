@@ -15,3 +15,7 @@
 - Updated: wasm-pkg-tools (wkg)
 
 ## [2026-06-11] ingest | Dapr × Wasm Prior Art
+
+## [2026-06-11] ingest | dapr-wasm-components Architecture
+- Updated: Wasmtime Host Embedding
+- Updated: wasm-pkg-tools (wkg)

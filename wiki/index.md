@@ -17,6 +17,7 @@ Dapr distributed application runtime, with focus on the Rust SDK and Wasm integr
 |---------|---------|---------|
 | [Dapr Rust SDK](dapr/dapr-rust-sdk.md) | Alpha async (tokio/tonic) client: versions, full building-block matrix, app-callback server, key types | 2026-06-11 |
 | [Dapr × Wasm Prior Art](dapr/dapr-wasm-prior-art.md) | Existing Dapr+Wasm work (http-wasm middleware, DeisLabs, WasmEdge) — none uses WIT; space is open | 2026-06-11 |
+| [dapr-wasm-components Architecture](dapr/dapr-wasm-components-architecture.md) | This repo's design: sync WIT + async host, backend trait, workspace split, OCI publishing, exclusions | 2026-06-11 |
 
 ## wasm-tooling
 

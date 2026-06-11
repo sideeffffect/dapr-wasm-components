@@ -30,6 +30,12 @@ auth = { username = "...", password = "..." }  # falls back to docker config.jso
 
 Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.z`, e.g. `wasi:http@0.2.1` → `ghcr.io/webassembly/wasi/http:0.2.1`. The tag **must** be valid semver. So for this project, `dapr:client@0.1.0` with prefix `sideeffffect/` → `ghcr.io/sideeffffect/dapr/client:0.1.0`.
 
+## Verified in practice (this repo, 2026-06-11)
+
+- In wkg **0.15.1**, `wkg.toml` `[metadata] authors` must be a **string**, not a list — the README's `authors = ["..."]` example fails with "invalid type: sequence, expected a string".
+- `wkg publish` + docker/login-action + `GITHUB_TOKEN` works first try in GitHub Actions; packages published from a public repo's workflow with the `repository` metadata set come out linked to the repo and publicly pullable.
+- The namespace→ghcr mapping in a checked-in config (`WKG_CONFIG_FILE=.wkg/config.toml`) is a clean CI pattern.
+
 ## wkg.toml and wkg.lock
 
 - `wkg.lock` — auto-generated lock of fetched WIT dependencies (name, registry, version, sha256 digest).
