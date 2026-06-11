@@ -5,4 +5,13 @@
 
 ## [2026-06-11] ingest | Dapr Rust SDK
 
+## [2026-06-11] ingest | Dapr Rust SDK (API survey merge)
+
 ## [2026-06-11] ingest | wasm-pkg-tools (wkg)
+
+## [2026-06-11] ingest | Wasmtime Host Embedding
+- Updated: Component Model Overview
+- Updated: WIT Format
+- Updated: wasm-pkg-tools (wkg)
+
+## [2026-06-11] ingest | Dapr × Wasm Prior Art

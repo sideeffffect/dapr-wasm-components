@@ -37,11 +37,16 @@ Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.
 
 ## Typical commands
 
-- `wkg wit build` — build a `wit/` directory into a WIT package `.wasm` (embedding wkg.toml metadata).
-- `wkg wit fetch` — fetch dependencies declared in `wit/` into `wit/deps/`.
-- `wkg publish <file.wasm>` — publish a component or WIT package; the package name/version is read from the binary, the target registry resolved through namespace config.
-- `wkg oci push/pull` — lower-level direct OCI operations with explicit references.
+- `wkg wit build --wit-dir wit` — build a `wit/` directory into a WIT package `.wasm` named `ns:pkg@x.y.z.wasm` (embedding wkg.toml metadata).
+- `wkg wit fetch` — fetch dependencies declared in `wit/` into `wit/deps/`, writing `wkg.lock`.
+- `wkg publish ns:pkg@x.y.z.wasm` — publish a WIT package; `wkg publish component.wasm --package ns:pkg@x.y.z` for a component binary. Registry resolved through namespace config.
+- `wkg oci push ghcr.io/user/name:0.1.0 file.wasm` / `wkg oci pull` — raw OCI operations with explicit references, no config needed.
+- `wkg get --format wit ns:pkg@x.y.z --output pkg.wit` — fetch a published package as WIT text.
 - `wkg config --default-registry ...` / `wkg config --edit` — manage config.
+
+## Authentication (ghcr.io)
+
+wkg falls back to `~/.docker/config.json` credentials when config.toml has no `auth`. Locally: `docker login ghcr.io -u USER -p <PAT with write:packages>`. In GitHub Actions: `permissions: { packages: write, contents: read }` + `docker/login-action` with `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`. Packages published this way are private by default; the `org.opencontainers.image.source` annotation (from wkg.toml `repository`) links them to the repo.
 
 ## See Also
 

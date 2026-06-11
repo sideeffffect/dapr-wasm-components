@@ -1,33 +1,50 @@
 # Dapr Rust SDK
 
-> Sources: Dapr project (dapr/rust-sdk README), Unknown; Dapr docs v1.18, Unknown
-> Raw: [dapr-rust-sdk-readme](../../raw/dapr/dapr-rust-sdk-readme.md); [dapr-rust-sdk-docs-v1-18](../../raw/dapr/dapr-rust-sdk-docs-v1-18.md)
+> Sources: Dapr project (dapr/rust-sdk README), Unknown; Dapr docs v1.18, Unknown; API survey (crates.io/docs.rs/source), 2026-06-11
+> Raw: [dapr-rust-sdk-readme](../../raw/dapr/dapr-rust-sdk-readme.md); [dapr-rust-sdk-docs-v1-18](../../raw/dapr/dapr-rust-sdk-docs-v1-18.md); [dapr-rust-sdk-api-survey](../../raw/dapr/dapr-rust-sdk-api-survey.md)
 
 ## Overview
 
-The Dapr Rust SDK (`dapr` crate, README references `0.19`; GitHub latest release tag v0.17.0, docs pages still show `0.16`) is the **Alpha**-status client library for talking to a Dapr sidecar over gRPC (tonic). It is fully **async (tokio)** — there is no sync API. It aims to cover all public Dapr APIs; not all building blocks are implemented yet. Requires Rust ≥ 1.88. License: Apache-2.0.
+The Dapr Rust SDK (`dapr` crate) is the **Alpha**-status client library for talking to a Dapr sidecar over gRPC (tonic). Latest stable is **0.17.0**; **0.19.0-rc.1** (2026-06-02) is a release candidate that adds `Client::new()` env-driven construction, workflow support, and jobs improvements. It is fully **async (tokio)** — no sync API exists; callers need `#[tokio::main]` or `Runtime::block_on`. MSRV 1.88, edition 2024 (on 0.19); Apache-2.0. Companion crates: `dapr-macros` (`#[actor]`, `#[topic]`), `dapr-durabletask`.
 
 ## Connecting
 
-`dapr::Client::new().await` reads `DAPR_GRPC_ENDPOINT` / `DAPR_GRPC_PORT` (default `http://127.0.0.1:50001`) / `DAPR_API_TOKEN` / `DAPR_CLIENT_TIMEOUT_SECONDS` (default 5 s) from the environment. Programmatic config via `dapr::client::ClientOptions` (`with_address`, `with_api_token`, `with_timeout`) and `Client::from_options`. Older `Client::<TonicClient>::connect(addr)` / `connect_with_port` are deprecated in 0.19, removed in 0.20; `Client::connect_with_address(addr)` overrides just the address.
+0.19+: `dapr::Client::new().await` resolves the sidecar address as (1) `DAPR_GRPC_ENDPOINT` (full endpoint, supports `https://...?tls=true` and `unix:///...`), (2) `http://127.0.0.1:$DAPR_GRPC_PORT`, (3) default `http://127.0.0.1:50001`. `DAPR_API_TOKEN` is attached as `dapr-api-token` gRPC metadata; `DAPR_CLIENT_TIMEOUT_SECONDS` defaults to 5. Programmatic config: `ClientOptions` + `Client::from_options`; address-only: `Client::connect_with_address`. **0.17 only has** `Client::<TonicClient>::connect(addr)` / `connect_with_port(addr, port)` (deprecated in 0.19, removed in 0.20).
 
-## Building blocks (client side)
+## Building-block support matrix (client)
 
-- **State**: `save_state(store, key, value, etag?, metadata?, options?)`, `get_state(store, key, metadata?)`, `delete_state(store, key, metadata?)`, `save_bulk_states`.
-- **Pub/sub publish**: `publish_event(pubsub_name, topic, content_type, data, metadata?)`.
-- **Service invocation (gRPC)**: `invoke_service(app_id, method, data?)`.
-- **Metadata**: `get_metadata()`.
-- **Workflows**: default-on `workflow` cargo feature, `dapr::workflow` module (durable task style).
-- Others (bindings, secrets, configuration, actors, crypto…) — see the per-method details captured in the article when the API survey lands; the SDK ships gRPC protos for the full runtime API (`dapr::dapr::proto::runtime::v1`).
+| Building block | Status | Key methods |
+|---|---|---|
+| Service invocation | ✅ | `invoke_service(app_id, method, Option<prost_types::Any>)` |
+| State | ✅ (no transactions) | `get_state`, `save_state(store, key, value, etag?, metadata?, options?)`, `delete_state`, `save_bulk_states`, `delete_bulk_state`, `query_state_alpha1` |
+| Pub/sub publish | ✅ (no bulk, no streaming subscribe) | `publish_event(pubsub, topic, content_type, data, metadata?)` |
+| Output bindings | ✅ | `invoke_binding(name, data, operation, metadata?)` |
+| Secrets | ✅ | `get_secret(store, key)`, `get_bulk_secret(store, metadata?)` |
+| Configuration | ✅ incl. subscribe stream | `get_configuration`, `subscribe_configuration` (server-stream), `unsubscribe_configuration` |
+| Actors (invoke) | ✅ | `invoke_actor(actor_type, actor_id, method, input, metadata?)` — JSON in/out |
+| Crypto (alpha) | ✅ | `encrypt(stream, options)`, `decrypt(payloads, options)` |
+| Jobs/scheduler | ✅ | `schedule_job`, `get_job`, `delete_job` (+ `list_jobs`, `delete_jobs_by_prefix` 0.19+) |
+| Conversation (LLM) | ✅ alpha | `converse_alpha1` (+ `converse_alpha2` 0.19+) |
+| Workflow | ✅ 0.19+ | `dapr::workflow`, `new_workflow_client()`, durable-task style |
+| Distributed lock | ❌ | absent from client |
+| State transactions | ❌ (client level) | only actor-scoped `execute_actor_state_transaction` |
 
-## Server side (app callback)
+`get_metadata`/`set_metadata` also exist.
 
-For pub/sub subscriptions and input bindings the *sidecar calls the app*: the SDK provides `dapr::appcallback::AppCallbackService` + `AppCallbackServer` (tonic gRPC server the app hosts). Inbound auth via `APP_API_TOKEN` and `AppApiTokenLayer` (no-op when env var unset).
+## Server side (sidecar → app)
+
+- **AppCallback gRPC server** (`dapr::appcallback::AppCallbackService` + `AppCallbackServer`): the app hosts a tonic server; sidecar calls `ListTopicSubscriptions` at startup, then `OnTopicEvent` per message. Handlers registered via `add_handler(Handler { pub_sub_name, topic, handler })`; `#[dapr_macros::topic]` generates a `HandlerMethod` from an `async fn`. Implemented: topic subscriptions, `on_topic_event`, `on_job_event`. **Stubbed `todo!()`**: `on_invoke`, `list_input_bindings`, `on_binding_event`, `on_bulk_topic_event` — gRPC-side input bindings will panic if called. Inbound auth: `APP_API_TOKEN` + `AppApiTokenLayer`.
+- **Actor runtime** is an **HTTP (axum) server** (`dapr::server::DaprHttpServer`), not gRPC; `ActorContextClient` provides actor state (incl. transactions), reminders, timers. `APP_PORT` default 8080.
+
+## Key types
+
+`StateItem { key, value, etag: Option<Etag>, metadata, options }`; `StateOptions { concurrency, consistency }` with enums `StateConcurrency { Unspecified=0, FirstWrite=1, LastWrite=2 }`, `StateConsistency { Unspecified=0, Eventual=1, Strong=2 }`; `GetStateResponse { data: Vec<u8>, etag: String, metadata }`. Metadata is always `HashMap<String, String>`. `TopicEventRequest` is CloudEvents-v1.0-shaped. Deps: tonic 0.14, prost 0.14, tokio 1.39, axum 0.7.
 
 ## Implications for dapr-wasm-components
 
-- The SDK being async-only means a host embedding wasm components must bridge: wasmtime async host functions (or `block_on`) behind **sync WIT** imports.
-- Outbound building blocks (state, pubsub publish, invoke, secrets, bindings out) map naturally to WIT *imports*; app-callback (topic subscribe, input binding events) maps to WIT *exports* the guest implements and the host's AppCallback gRPC server forwards into.
+- Async-only SDK + sync-preferred WIT ⇒ the host embeds wasmtime with async support and implements sync-WIT imports via async host functions (or `block_on`).
+- Outbound blocks (state, pubsub publish, invoke, secrets, bindings out, configuration get) map to WIT *imports*; app-callback (topic events, job events) maps to WIT *exports* the guest implements, forwarded from the host's AppCallback gRPC server.
+- Distributed lock and client-level state transactions cannot be offered in WIT yet (SDK gap); gRPC input-binding events are stubbed in the SDK and likewise unavailable.
 
 ## See Also
 

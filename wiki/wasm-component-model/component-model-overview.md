@@ -5,7 +5,7 @@
 
 ## Overview
 
-The Component Model is the standardization effort (W3C WebAssembly CG, repo `WebAssembly/component-model`) that layers a language-agnostic composition and interface system on top of core WebAssembly. Components describe their imports and exports in a typed IDL called WIT; the Canonical ABI defines how those high-level types lower to core wasm. The model was stabilized incrementally through WASI Preview 2 (a.k.a. WASI 0.2); the WASI Preview 3 / 0.3 milestone adds the concurrency model — native `async` functions, `future<T>` and `stream<T>` types.
+The Component Model is the standardization effort (W3C WebAssembly CG, repo `WebAssembly/component-model`) that layers a language-agnostic composition and interface system on top of core WebAssembly. Components describe their imports and exports in a typed IDL called WIT; the Canonical ABI defines how those high-level types lower to core wasm. The model was stabilized incrementally through WASI Preview 2 (a.k.a. WASI 0.2); WASI 0.3.0 (final released 2026-06-11) adds the concurrency model — native `async` functions, `future<T>` and `stream<T>` types. As of June 2026, WASI 0.2.x (latest 0.2.12) remains the production target: wasmtime 45.0.1 still tracks a 0.3 RC snapshot and cross-component async carries ~3.5x call overhead pre-Component-Model-1.0.
 
 ## Key parts of the spec repo
 

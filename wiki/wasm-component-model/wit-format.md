@@ -36,3 +36,4 @@ Functions are sync by default. The optional `async` prefix (WASI 0.3 / Preview 3
 
 - [Component Model Overview](component-model-overview.md)
 - [wasm-pkg-tools (wkg)](../wasm-tooling/wasm-pkg-tools-wkg.md)
+- [Wasmtime Host Embedding](../wasm-tooling/wasmtime-host-embedding.md)
