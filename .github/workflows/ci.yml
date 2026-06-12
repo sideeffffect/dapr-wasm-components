@@ -26,6 +26,7 @@ jobs:
           workspaces: |
             . -> target
             components -> components/target
+            e2e/apps -> e2e/apps/target
 
       - name: Install wkg and wasm-tools
         uses: cargo-bins/cargo-binstall@main
@@ -36,25 +37,30 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo fmt --all --check --manifest-path components/Cargo.toml
+          cargo fmt --all --check --manifest-path e2e/apps/Cargo.toml
 
       - name: Validate WIT package
         run: |
-          wasm-tools component wit wit/ > /dev/null
-          wkg wit build --wit-dir wit -o dapr-wasm-components-interface.wasm
+          wasm-tools component wit components/wit/ > /dev/null
+          wkg wit build --wit-dir components/wit -o dapr-wasm-components-interface.wasm
 
-      - name: Build components
+      - name: Build components (providers)
         run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+
+      - name: Build e2e demo apps
+        run: cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml
 
       - name: Validate components
         run: |
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http.wasm
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc.wasm
-          wasm-tools validate components/target/wasm32-wasip2/release/kv-demo.wasm
+          wasm-tools validate e2e/apps/target/wasm32-wasip2/release/kv-demo.wasm
 
       - name: Clippy
         run: |
           cargo clippy --all-targets -- -D warnings
           cargo clippy --target wasm32-wasip2 --manifest-path components/Cargo.toml -- -D warnings
+          cargo clippy --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml -- -D warnings
 
       - name: Test (provider + composed app against a mock sidecar)
         run: cargo test
@@ -78,6 +84,7 @@ jobs:
           workspaces: |
             . -> target
             components -> components/target
+            e2e/apps -> e2e/apps/target
 
       - name: Install wasmtime CLI
         run: |
@@ -87,8 +94,11 @@ jobs:
           mv "/tmp/wasmtime-v${WASMTIME_VERSION}-x86_64-linux/wasmtime" "$HOME/.local/bin/"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Build components
+      - name: Build components (providers)
         run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+
+      - name: Build e2e demo apps
+        run: cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml
 
       - name: Run real-Dapr E2E (wasm microservices through daprd sidecars)
         run: cargo test --test dapr -- --ignored --nocapture
@@ -113,6 +123,7 @@ jobs:
           workspaces: |
             . -> target
             components -> components/target
+            e2e/apps -> e2e/apps/target
 
       - name: Install spin CLI
         run: |
@@ -121,8 +132,11 @@ jobs:
             | tar xz -C "$HOME/.local/bin" spin
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Build components
+      - name: Build components (providers)
         run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+
+      - name: Build e2e demo apps
+        run: cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml
 
       - name: Run real-Dapr E2E (wasm microservice through daprd's gRPC API on Spin)
         run: cargo test --test spin -- --ignored --nocapture
@@ -130,6 +144,9 @@ jobs:
   publish:
     # Push the modules to this repository's OCI registry (ghcr.io) with wkg:
     # tag `latest` on pushes to main, the release version on GitHub releases.
+    # Only the three modules below are published — the interface package and
+    # the two provider implementations. The e2e demo apps are test fixtures
+    # and are never published.
     needs: [test, dapr-e2e, spin-e2e]
     if: github.event_name == 'push' || github.event_name == 'release'
     runs-on: ubuntu-latest
@@ -165,7 +182,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             TAG="${GITHUB_REF_NAME#v}"
-            WIT_VERSION=$(grep -oP 'package dapr-wasm-components:interfaces@\K[0-9a-zA-Z.+-]+' wit/types.wit)
+            WIT_VERSION=$(grep -oP 'package dapr-wasm-components:interfaces@\K[0-9a-zA-Z.+-]+' components/wit/types.wit)
             if [ "$TAG" != "$WIT_VERSION" ]; then
               echo "Release tag $TAG does not match WIT package version $WIT_VERSION" >&2
               exit 1
@@ -177,7 +194,7 @@ jobs:
 
       - name: Build modules
         run: |
-          wkg wit build --wit-dir wit -o dapr-wasm-components-interface.wasm
+          wkg wit build --wit-dir components/wit -o dapr-wasm-components-interface.wasm
           cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml \
             -p dapr-wasm-components-wasi-http -p dapr-wasm-components-wasi-grpc
 

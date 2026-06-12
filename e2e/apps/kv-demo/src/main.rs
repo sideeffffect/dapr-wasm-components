@@ -12,8 +12,8 @@
 //! provider component turns them into wasi:http requests to the sidecar.
 
 wit_bindgen::generate!({
-    world: "imports",
-    path: "../../wit",
+    world: "dapr-client",
+    path: "../../../components/wit",
 });
 
 use dapr_wasm_components::interfaces::lock;

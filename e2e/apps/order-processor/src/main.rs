@@ -11,8 +11,8 @@ use wstd::http::body::Body;
 use wstd::http::{Request, Response, StatusCode};
 
 wit_bindgen::generate!({
-    world: "imports",
-    path: "../../wit",
+    world: "dapr-client",
+    path: "../../../components/wit",
 });
 
 use dapr_wasm_components::interfaces::state;

@@ -1,3 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["e2e"]
+# The wasm-only workspaces (the published components, and the e2e demo apps)
+# are built separately for wasm32-wasip2 — keep them out of this native one.
+exclude = ["components", "e2e/apps"]

@@ -14,8 +14,8 @@ use wasmtime_wasi_http::WasiHttpCtx;
 
 pub mod bindings {
     wasmtime::component::bindgen!({
-        path: "../wit",
-        world: "provider",
+        path: "../components/wit",
+        world: "dapr-server",
         exports: { default: async },
     });
 }
@@ -60,29 +60,41 @@ impl WasiHttpView for Ctx {
     }
 }
 
-/// Path to a built component, overridable via env (used in CI).
-pub fn component_path(env_var: &str, file_name: &str) -> PathBuf {
+/// Resolve a built wasm artifact: an env override (used in CI) wins,
+/// otherwise join `relative` (from the e2e crate's manifest dir) with `file`.
+fn resolve(env_var: &str, relative: &str, file: &str) -> PathBuf {
     if let Ok(path) = std::env::var(env_var) {
         return PathBuf::from(path);
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../components/target/wasm32-wasip2/release")
-        .join(file_name)
+        .join(relative)
+        .join(file)
+}
+
+/// Path to a provider/interface module built in the `components/` workspace.
+fn provider_artifact(env_var: &str, file: &str) -> PathBuf {
+    resolve(env_var, "../components/target/wasm32-wasip2/release", file)
+}
+
+/// Path to a demo/fixture app built in the `e2e/apps/` workspace, overridable
+/// via env (used in CI). The demo apps are the e2e suite's own fixtures.
+pub fn app_path(env_var: &str, file_name: &str) -> PathBuf {
+    resolve(env_var, "apps/target/wasm32-wasip2/release", file_name)
 }
 
 pub fn provider_path() -> PathBuf {
-    component_path("PROVIDER_COMPONENT", "dapr_wasm_components_wasi_http.wasm")
+    provider_artifact("PROVIDER_COMPONENT", "dapr_wasm_components_wasi_http.wasm")
 }
 
 pub fn grpc_provider_path() -> PathBuf {
-    component_path(
+    provider_artifact(
         "GRPC_PROVIDER_COMPONENT",
         "dapr_wasm_components_wasi_grpc.wasm",
     )
 }
 
 pub fn kv_demo_path() -> PathBuf {
-    component_path("KV_DEMO_COMPONENT", "kv-demo.wasm")
+    app_path("KV_DEMO_COMPONENT", "kv-demo.wasm")
 }
 
 pub fn engine() -> wasmtime::Result<Engine> {
@@ -100,7 +112,7 @@ pub fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
 /// the given mock sidecar address.
 pub async fn load_provider(
     sidecar_endpoint: &str,
-) -> wasmtime::Result<(Store<Ctx>, bindings::Provider)> {
+) -> wasmtime::Result<(Store<Ctx>, bindings::DaprServer)> {
     let engine = engine()?;
     let component = Component::from_file(&engine, provider_path())?;
     let linker = linker(&engine)?;
@@ -109,6 +121,6 @@ pub async fn load_provider(
         sidecar_endpoint.to_string(),
     )];
     let mut store = Store::new(&engine, Ctx::new(&env));
-    let provider = bindings::Provider::instantiate_async(&mut store, &component, &linker).await?;
+    let provider = bindings::DaprServer::instantiate_async(&mut store, &component, &linker).await?;
     Ok((store, provider))
 }

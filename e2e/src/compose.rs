@@ -1,4 +1,5 @@
-//! Compose an application component with the wasi-http provider using
+//! Compose an application component (a `dapr-client`) with a provider
+//! component (a `dapr-server`, either wasi-http or wasi-grpc) using
 //! wac-graph — the programmatic equivalent of `wac plug`.
 
 use wac_graph::types::Package;

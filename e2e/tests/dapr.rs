@@ -37,7 +37,7 @@ use common::{
     binary, relax_permissions, wait_http_ok, write_resource, Daprd, DaprdConfig, DaprdPorts,
     Service, DAPRD_MOUNT, STATESTORE_IN_MEMORY,
 };
-use dapr_wasm_components_e2e::{component_path, compose};
+use dapr_wasm_components_e2e::{app_path, compose};
 
 const ORDER_PROCESSOR_APP_PORT: u16 = 8091;
 const OP_DAPR_HTTP: u16 = 3551;
@@ -113,12 +113,12 @@ fn microservices_through_real_dapr() {
     // Compose both microservices with the wasi-http provider.
     let provider = std::fs::read(dapr_wasm_components_e2e::provider_path())
         .expect("provider component not built");
-    let order_processor = std::fs::read(component_path(
+    let order_processor = std::fs::read(app_path(
         "ORDER_PROCESSOR_COMPONENT",
         "order-processor.wasm",
     ))
     .expect("order-processor component not built");
-    let checkout = std::fs::read(component_path("CHECKOUT_COMPONENT", "checkout.wasm"))
+    let checkout = std::fs::read(app_path("CHECKOUT_COMPONENT", "checkout.wasm"))
         .expect("checkout component not built");
 
     let dir = tempfile::tempdir().unwrap();

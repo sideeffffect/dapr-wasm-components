@@ -1,0 +1,46 @@
+/// The world an application targets: it imports every Dapr building-block
+/// interface and calls them to talk *to* Dapr — the application is a Dapr
+/// **client**. These cover only the outbound direction (app → Dapr). Inbound
+/// flows (pub/sub deliveries, input bindings, job triggers, actor callbacks,
+/// configuration updates) come *from* Dapr over the application's HTTP app
+/// channel — export `wasi:http/incoming-handler` for those; they do not go
+/// through this world or its implementation.
+world dapr-client {
+  import types;
+  import state;
+  import pubsub;
+  import secrets;
+  import bindings;
+  import invocation;
+  import configuration;
+  import lock;
+  import workflow;
+  import jobs;
+  import crypto;
+  import conversation;
+  import actors;
+  import runtime;
+}
+
+/// The world a provider component implements — e.g.
+/// dapr-wasm-components-wasi-http or dapr-wasm-components-wasi-grpc. It
+/// **serves** every building-block interface to the application (the
+/// component-model server side: it exports what `dapr-client` imports), then
+/// forwards each call to the real Dapr sidecar over its own transport
+/// (wasi:http or gRPC). Compose an app's `dapr-client` imports against this.
+world dapr-server {
+  export types;
+  export state;
+  export pubsub;
+  export secrets;
+  export bindings;
+  export invocation;
+  export configuration;
+  export lock;
+  export workflow;
+  export jobs;
+  export crypto;
+  export conversation;
+  export actors;
+  export runtime;
+}

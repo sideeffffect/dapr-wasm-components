@@ -1,0 +1,10 @@
+# Wasm-only workspace for the demo/fixture apps that the e2e suite composes
+# and drives. They are guest components (cdylib / wasi:cli command) that only
+# build for wasm32-wasip2, so they live in their own workspace, separate from
+# both the native `e2e` harness crate and the published `components/`.
+[workspace]
+resolver = "2"
+members = ["checkout", "kv-demo", "order-processor", "spin-demo"]
+
+[profile.release]
+strip = "debuginfo"

@@ -10,19 +10,23 @@ Architectural decisions and their rationale live in [wiki/dapr/dapr-wasm-compone
 
 ## Layout
 
-- `wit/` — the `dapr-wasm-components:interfaces` WIT package (sync functions only; WASI 0.2; published to OCI as `dapr-wasm-components-interface`).
-- `components/wasi-http/` — the portable implementation component (published as `dapr-wasm-components-wasi-http`); `components/wasi-grpc/` — the gRPC implementation (published as `dapr-wasm-components-wasi-grpc`; vendored Dapr v1.18 protos in `proto/`, checked-in tonic codegen in `src/proto/` — regen instructions in `proto/README.md`); `components/kv-demo/` — example app. A **separate cargo workspace** (wasm-only crates — keep it that way).
-- `e2e/` — native test harness (root workspace): mock Dapr HTTP sidecar (axum) + wasmtime + wac-graph composition, plus two real-Dapr E2Es (ignored by default): `tests/dapr.rs` orchestrating `components/order-processor` + `components/checkout` through two actual daprd sidecars with Redis pub/sub, and `tests/spin.rs` running `components/spin-demo` + the wasi-grpc provider under the Spin CLI against a daprd's gRPC API.
+- **`components/` holds only the three published things** (interface + two providers); everything that exists to test them is under `e2e/`. Three Cargo workspaces in total, two of them wasm-only — keep them separate (guest crates don't build natively).
+- `components/wit/` — the `dapr-wasm-components:interfaces` WIT package (sync functions only; WASI 0.2; published to OCI as `dapr-wasm-components-interface`). Worlds: `dapr-client` (what an app imports) and `dapr-server` (what a provider exports).
+- `components/wasi-http/` — the portable implementation component (published as `dapr-wasm-components-wasi-http`); `components/wasi-grpc/` — the gRPC implementation (published as `dapr-wasm-components-wasi-grpc`; vendored Dapr v1.18 protos in `proto/`, checked-in tonic codegen in `src/proto/` — regen instructions in `proto/README.md`). The two providers form the **`components/` workspace** (wasm-only).
+- `e2e/` — native test harness (root workspace): mock Dapr HTTP sidecar (axum) + wasmtime + wac-graph composition, plus two real-Dapr E2Es (ignored by default): `tests/dapr.rs` orchestrating `e2e/apps/order-processor` + `e2e/apps/checkout` through two actual daprd sidecars with Redis pub/sub, and `tests/spin.rs` running `e2e/apps/spin-demo` + the wasi-grpc provider under the Spin CLI against a daprd's gRPC API. Shared E2E scaffolding lives in `e2e/tests/common/`.
+- `e2e/apps/` — the demo/fixture app components the E2Es compose and drive (`kv-demo`, `order-processor`, `checkout`, `spin-demo`): a **separate wasm-only workspace**, never published.
 - `.github/workflows/ci.yml` — checks + `wkg oci push` of the modules to ghcr.io (`latest` on main, semver on GitHub releases; release tag must match the WIT package version).
 
 ## Checks (run after every change, in this order)
 
 ```sh
-cargo fmt --all && cargo fmt --all --manifest-path components/Cargo.toml
-wasm-tools component wit wit/                                              # WIT still valid
-cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+cargo fmt --all && cargo fmt --all --manifest-path components/Cargo.toml && cargo fmt --all --manifest-path e2e/apps/Cargo.toml
+wasm-tools component wit components/wit/                                   # WIT still valid
+cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml   # providers
+cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # demo apps
 cargo clippy --all-targets -- -D warnings
 cargo clippy --target wasm32-wasip2 --manifest-path components/Cargo.toml -- -D warnings
+cargo clippy --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml -- -D warnings
 cargo test                                                                 # e2e: provider + composed kv-demo vs mock sidecar
 # real-Dapr E2E (needs Docker + wasmtime CLI — daprd sidecars and Redis come from testcontainers):
 cargo test --test dapr -- --ignored
@@ -32,7 +36,7 @@ cargo test --test spin -- --ignored
 
 ## Conventions
 
-- WIT stays **sync** (no `async` functions, no `stream`/`future`) and outbound-only; inbound flows go through the app's `wasi:http/incoming-handler`. Interface changes must be mirrored in: **both** implementations (wasi-http and wasi-grpc), the e2e mock + tests, kv-demo if relevant, and the README interface table. Bump the package version in `wit/types.wit` (CI checks it against release tags).
+- WIT stays **sync** (no `async` functions, no `stream`/`future`) and outbound-only (the `dapr-client`/`dapr-server` worlds); inbound flows go through the app's `wasi:http/incoming-handler`, independent of which provider is composed in. Interface changes must be mirrored in: **both** implementations (wasi-http and wasi-grpc), the e2e mock + tests, kv-demo if relevant, and the README interface table. Bump the package version in `components/wit/types.wit` (CI checks it against release tags).
 - The wasi-http implementation maps the Dapr **HTTP API** exactly — verify request/response shapes against https://docs.dapr.io/reference/api/ (captured in [wiki/dapr/dapr-http-api.md](wiki/dapr/dapr-http-api.md)), not against the gRPC SDKs. The wasi-grpc implementation maps `service Dapr` from the vendored protos — the checked-in generated code in `components/wasi-grpc/src/proto/` is the ground truth for shapes.
 - wasi-http: HTTP client is `wstd` (blocking via `block_on` over wasi:http); JSON via serde_json; values that aren't valid JSON are sent as JSON strings (UTF-8 lossy). wasi-grpc: tonic generated client over `wasi-grpc`/`wasi-hyperium` (blocking via `spin_executor::run`); values are raw protobuf bytes (byte-exact).
 - Diagrams and charts in markdown must be [Mermaid](https://mermaid.js.org/) (` ```mermaid ` blocks) — never ASCII art or manually drawn box diagrams.

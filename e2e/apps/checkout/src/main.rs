@@ -8,8 +8,8 @@
 use std::time::Duration;
 
 wit_bindgen::generate!({
-    world: "imports",
-    path: "../../wit",
+    world: "dapr-client",
+    path: "../../../components/wit",
 });
 
 use dapr_wasm_components::interfaces::invocation;

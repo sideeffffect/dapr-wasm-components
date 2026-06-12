@@ -39,7 +39,7 @@ use common::{
     binary, get_json, relax_permissions, wait_http_ok, write_resource, Daprd, DaprdConfig,
     DaprdPorts, Service, PUBSUB_IN_MEMORY, STATESTORE_IN_MEMORY,
 };
-use dapr_wasm_components_e2e::{component_path, compose, grpc_provider_path};
+use dapr_wasm_components_e2e::{app_path, compose, grpc_provider_path};
 
 // Below 32768: Docker's ephemeral port range (32768+) is where stray
 // docker-proxy mappings (e.g. testcontainers ryuk) land — daprd would fail
@@ -94,7 +94,7 @@ fn microservice_through_real_dapr_grpc_on_spin() {
 
     // Compose the demo app with the wasi-grpc provider.
     let provider = std::fs::read(grpc_provider_path()).expect("wasi-grpc provider not built");
-    let app = std::fs::read(component_path("SPIN_DEMO_COMPONENT", "spin-demo.wasm"))
+    let app = std::fs::read(app_path("SPIN_DEMO_COMPONENT", "spin-demo.wasm"))
         .expect("spin-demo component not built");
 
     let dir = tempfile::tempdir().unwrap();

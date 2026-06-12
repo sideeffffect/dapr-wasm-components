@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["wasi-http", "wasi-grpc", "kv-demo", "order-processor", "checkout", "spin-demo"]
+members = ["wasi-http", "wasi-grpc"]
 
 [profile.release]
 strip = "debuginfo"
