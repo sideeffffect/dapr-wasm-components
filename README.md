@@ -6,24 +6,7 @@
 - **`dapr-wasm-components-wasi-http`** — a pure-wasm implementation of those interfaces (`components/wasi-http/`): it talks to the Dapr sidecar's [HTTP API](https://docs.dapr.io/reference/api/) through `wasi:http` outgoing requests. No native host, no Dapr SDK — it runs on **any** WASI 0.2 runtime with `wasi:http` support (wasmtime, wasmCloud, Spin, ...).
 - **`dapr-wasm-components-wasi-grpc`** — a second, experimental implementation (`components/wasi-grpc/`): the same interfaces over the sidecar's [gRPC API](https://docs.dapr.io/reference/api/grpc_api/) (tonic + vendored Dapr protos over `wasi:http` outgoing HTTP/2). Typed protobuf instead of JSON — state/bindings/pubsub values roundtrip **byte-exact**. gRPC needs cleartext HTTP/2, which today only [Spin](https://spinframework.dev) ≥ 3.4 provides for outbound requests — see [below](#the-wasi-grpc-provider-spin-only).
 
-Write your app against the interfaces, plug it together with the implementation, and run it next to a Dapr sidecar:
-
-```mermaid
-flowchart LR
-    app["your app component<br/>imports dapr-wasm-components:interfaces/*"]
-    impl["dapr-wasm-components-wasi-http<br/>exports the interfaces<br/>imports wasi:http"]
-    runtime["any WASI 0.2 runtime<br/>(wasmtime, wasmCloud, …)"]
-    sidecar["Dapr sidecar<br/>HTTP API :3500"]
-
-    app -- "sync WIT calls" --> impl
-    impl -- "wasi:http/outgoing-handler" --> runtime
-    runtime -- "HTTP" --> sidecar
-
-    subgraph composed["composed component (wac plug)"]
-        app
-        impl
-    end
-```
+Write your app against the interfaces, plug it together with the implementation (`wac plug`), and run it next to a Dapr sidecar. The single diagram in [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr) below shows the whole picture.
 
 ## Interfaces (`dapr-wasm-components:interfaces@0.1.0`)
 
@@ -55,20 +38,31 @@ A Dapr application communicates with its sidecar in two independent directions. 
 
 - **Inbound — Dapr calls your app** (pub/sub deliveries, input bindings, service-invocation handlers, job triggers, actor activations, configuration updates). In Dapr these arrive on the *application channel*. **Neither provider is involved**: the app itself exports `wasi:http/incoming-handler`, and the sidecar makes ordinary HTTP requests to it. This is **identical whichever provider you pick** — the outbound transport (HTTP or gRPC) and the inbound app-channel transport are configured independently. So a wasi-grpc app calls Dapr over gRPC yet still receives its pub/sub events over HTTP; the two directions are orthogonal.
 
-  (Dapr *can* drive an app channel over gRPC instead, but that requires the app to implement Dapr's `AppCallback` gRPC service. These components deliberately keep the app channel on HTTP — `wasi:http/incoming-handler` is something every WASI 0.2 runtime can serve, gRPC is not.)
+  (Dapr *can* drive the app channel over gRPC instead — `--app-protocol grpc` — but that requires the app to implement Dapr's `AppCallback` gRPC service, which neither provider nor the `wasi-grpc` crate supplies today; see [Status & limitations](#status--limitations). So both providers keep the app channel on HTTP.)
+
+The app can't open a socket — it only implements WIT. The thing that owns the socket and speaks HTTP on the wire is the **host runtime** (`wasmtime serve` / Spin), via the WASI `wasi:http` interface. So both directions pass through `wasi:http` *the host interface* — but the **provider** component sits on the **outbound** path only:
+
+- **Inbound**: the host accepts the TCP connection, parses the HTTP request, and calls the app's exported `wasi:http/`**`incoming-handler`** directly. The provider has no incoming-handler and is never involved.
+- **Outbound**: the app makes a `dapr-client` WIT call → the **provider** turns it into a request → the host's `wasi:http/`**`outgoing-handler`** puts it on the wire (HTTP or gRPC).
+
+Mind the name collision: inbound travels through `wasi:http` (the WASI *host interface*), **not** through `dapr-wasm-components-wasi-http` (our provider component).
 
 ```mermaid
 flowchart LR
     sidecar["Dapr sidecar"]
+    host["host runtime (wasmtime serve / Spin)<br/>owns the socket, speaks HTTP/gRPC on the wire"]
 
-    subgraph composed["your composed component"]
-        app["your app<br/>• imports dapr-client (outbound)<br/>• exports wasi:http/incoming-handler (inbound)"]
-        impl["provider = dapr-server<br/>wasi-http or wasi-grpc"]
-        app -- "① sync WIT call" --> impl
+    subgraph composed["your composed wasm component (app + provider, via wac plug)"]
+        direction TB
+        app["your app<br/>exports wasi:http/incoming-handler<br/>imports dapr-client"]
+        impl["provider = dapr-server<br/>(wasi-http / wasi-grpc) — outbound only"]
+        app -- "dapr-client WIT call" --> impl
     end
 
-    impl -- "① outbound: HTTP :3500 / gRPC :50001" --> sidecar
-    sidecar -- "② inbound: HTTP app channel" --> app
+    impl -- "① outbound: wasi:http/outgoing-handler" --> host
+    host -- "① → HTTP :3500 / gRPC :50001" --> sidecar
+    sidecar -- "② inbound: HTTP" --> host
+    host -- "② → calls app's wasi:http/incoming-handler" --> app
 ```
 
 ## Using the published modules
@@ -206,6 +200,7 @@ Experimental.
 - Crypto is one-shot (no streaming); configuration subscriptions are not exposed (they push to the app channel).
 - Conversation models the alpha2 text subset (no tool calling yet).
 - The wasi-grpc provider is a proof of concept: it runs only on Spin ≥ 3.4 (outbound h2c), its h2c allowlist holds a single authority, and its `/smoke`-level surface (state, invocation, pub/sub, metadata) is what the E2E exercises — the remaining interfaces are implemented and compile-checked but not yet integration-tested.
+- **Inbound is HTTP-only, for both providers.** Dapr → app callbacks (pub/sub delivery, bindings, invocation, …) arrive on the app's `wasi:http/incoming-handler`; no provider mediates them. Dapr's gRPC app channel (`--app-protocol grpc`) is *not* supported: Spin's inbound listener does accept HTTP/2 cleartext, but serving it would require implementing the Dapr `AppCallback` gRPC service in the guest — the `wasi-grpc` crate is client-only — which is net-new code, not yet built.
 
 ## License
 
