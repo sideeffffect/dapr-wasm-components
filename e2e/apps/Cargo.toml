@@ -4,7 +4,7 @@
 # both the native `e2e` harness crate and the published `components/`.
 [workspace]
 resolver = "2"
-members = ["checkout", "kv-demo", "order-processor", "spin-demo"]
+members = ["kv-demo", "microservice"]
 
 [profile.release]
 strip = "debuginfo"

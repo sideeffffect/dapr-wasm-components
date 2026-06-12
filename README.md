@@ -132,7 +132,7 @@ allowed_outbound_hosts = ["http://127.0.0.1:50001"]
 environment = { DAPR_GRPC_ENDPOINT = "http://127.0.0.1:50001" }
 ```
 
-Endpoint resolution mirrors the SDKs: `DAPR_GRPC_ENDPOINT`, then `http://127.0.0.1:$DAPR_GRPC_PORT`, then `http://127.0.0.1:50001`; `DAPR_API_TOKEN` becomes `dapr-api-token` gRPC metadata. See `e2e/apps/spin-demo/` and `e2e/tests/spin.rs` for a complete working setup.
+Endpoint resolution mirrors the SDKs: `DAPR_GRPC_ENDPOINT`, then `http://127.0.0.1:$DAPR_GRPC_PORT`, then `http://127.0.0.1:50001`; `DAPR_API_TOKEN` becomes `dapr-api-token` gRPC metadata. See `e2e/apps/microservice/` and `e2e/tests/spin.rs` for a complete working setup.
 
 Divergences from the wasi-http provider (inherent to the gRPC API): service invocation cannot pass through the target app's exact status code (success is always `200`, non-2xx surfaces as `error`); a missing state/actor key is indistinguishable from a stored empty value; sidecar health checks use `GetMetadata` (daprd has no gRPC health service); crypto's streaming RPCs are driven in one-shot form.
 
@@ -145,11 +145,10 @@ Divergences from the wasi-http provider (inherent to the gRPC API): service invo
 | `components/wit/` | The `dapr-wasm-components:interfaces` WIT package (worlds `dapr-client`, `dapr-server`) |
 | `components/wasi-http/` | The wasi:http implementation component (portable) |
 | `components/wasi-grpc/` | The gRPC implementation component (Spin ≥ 3.4; vendored Dapr protos + checked-in tonic codegen) |
-| `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es |
+| `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es (shared scenario in `tests/common/`) |
 | `e2e/apps/` | Demo/fixture app components the E2Es compose and drive (their own wasm-only workspace) |
-| `e2e/apps/kv-demo/` | Example app component (`wasi:cli` command) |
-| `e2e/apps/order-processor/`, `e2e/apps/checkout/` | wasi-http E2E microservices: pub/sub consumer (`wasi:http` server) and publisher/invoker |
-| `e2e/apps/spin-demo/` | wasi-grpc E2E microservice (state, invocation, pub/sub under Spin) |
+| `e2e/apps/kv-demo/` | Example app component (`wasi:cli` command), used by the mock composition test |
+| `e2e/apps/microservice/` | The real-Dapr E2E app (`wasi:http` server): run as two instances (publisher + consumer) by **both** suites to exercise state, pub/sub and service invocation |
 | `wiki/`, `raw/` | LLM-maintained knowledge base with the research behind the design |
 
 ## Development
@@ -173,19 +172,21 @@ cargo test    # provider tests + composed kv-demo, against a mock sidecar
 
 ### Real-Dapr end-to-end test
 
-`e2e/tests/dapr.rs` orchestrates two wasm microservices through two **actual `daprd` sidecars**: `checkout` publishes orders via Redis pub/sub, `order-processor` (served by `wasmtime serve`) consumes them into a state store with etag CAS, and `checkout` verifies the result through Dapr service invocation (sqlite name resolution between sidecars). All infrastructure — both `daprio/daprd` sidecars and Redis — is started by the test itself with [testcontainers](https://rust.testcontainers.org/); you only need Docker and the `wasmtime` CLI:
+Both real-Dapr suites run the **same scenario** (`e2e/tests/common/run_mirrored_scenario`) so they mirror each other and differ only in provider + runtime. The `microservice` app is run as two instances — a `publisher` and a `consumer` — each behind its own **actual `daprd` sidecar**; the scenario drives a state roundtrip + etag CAS + delete, service invocation (self and cross-app), and a cross-sidecar pub/sub publish→deliver→count loop. Pub/sub is Redis (cross-sidecar), name resolution is sqlite (deterministic in CI). All infrastructure — both `daprio/daprd` sidecars and Redis — is started by the test itself with [testcontainers](https://rust.testcontainers.org/).
+
+`e2e/tests/dapr.rs` (**wasi-http** provider) serves the instances with `wasmtime serve`; you only need Docker and the `wasmtime` CLI:
 
 ```sh
 cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml  # the provider
-cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # the demo apps
+cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # the microservice
 cargo test --test dapr -- --ignored
 ```
 
-A second E2E (`e2e/tests/spin.rs`) covers the **wasi-grpc** provider: `spin-demo` composed with it runs under the `spin` CLI (which doubles as the Dapr app channel) next to a daprd testcontainer, asserting a byte-exact binary state roundtrip with etag CAS, service invocation out over gRPC and back in through the app channel, and a pub/sub publish→deliver→count loop — all over the sidecar's gRPC API. Requires Docker and `spin` ≥ 3.4 (override with `SPIN_BIN`):
+`e2e/tests/spin.rs` (**wasi-grpc** provider) is the gRPC mirror: it serves the same two instances with the `spin` CLI (the only runtime with outbound h2c), and additionally asserts a *binary* byte-exact state roundtrip — something only the gRPC provider can do. Requires Docker and `spin` ≥ 3.4 (override with `SPIN_BIN`):
 
 ```sh
 cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml  # the provider
-cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # spin-demo
+cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # the microservice
 cargo test --test spin -- --ignored
 ```
 

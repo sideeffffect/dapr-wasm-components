@@ -17,6 +17,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use testcontainers_modules::redis::Redis;
 use testcontainers_modules::testcontainers::core::Mount;
 use testcontainers_modules::testcontainers::runners::SyncRunner;
 use testcontainers_modules::testcontainers::{Container, GenericImage, ImageExt};
@@ -273,4 +274,148 @@ pub fn relax_permissions(dir: &Path) {
         std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o777);
         std::fs::set_permissions(&path, permissions).unwrap();
     }
+}
+
+/// A Redis broker for cross-sidecar pub/sub. Started via testcontainers unless
+/// `REDIS_HOST` points at an existing instance; the container handle must stay
+/// alive for the duration of the test.
+pub struct RedisBroker {
+    _container: Option<Container<Redis>>,
+    pub host: String,
+}
+
+pub fn start_redis() -> RedisBroker {
+    match std::env::var("REDIS_HOST") {
+        Ok(host) => RedisBroker {
+            _container: None,
+            host,
+        },
+        Err(_) => {
+            let container = Redis::default()
+                .start()
+                .expect("failed to start Redis testcontainer (is Docker running?)");
+            let port = container
+                .get_host_port_ipv4(6379)
+                .expect("no mapped Redis port");
+            RedisBroker {
+                _container: Some(container),
+                host: format!("127.0.0.1:{port}"),
+            }
+        }
+    }
+}
+
+/// The config file name (under `DAPRD_MOUNT`) written by
+/// [`write_cross_sidecar_resources`].
+pub const CONFIG_FILE: &str = "config.yaml";
+
+/// Write the resources + config that the two-sidecar scenario needs, shared by
+/// both real-Dapr suites: an in-memory statestore (per sidecar), a Redis
+/// pub/sub broker (so events cross sidecars), and a sqlite name-resolution
+/// `Configuration` (deterministic cross-sidecar invocation, unlike mDNS) whose
+/// db both sidecars share via the bind mount.
+pub fn write_cross_sidecar_resources(dir: &Path, redis_host: &str) {
+    write_resource(dir, "statestore.yaml", STATESTORE_IN_MEMORY);
+    write_resource(
+        dir,
+        "pubsub.yaml",
+        &format!(
+            r#"apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pubsub
+spec:
+  type: pubsub.redis
+  version: v1
+  metadata:
+  - name: redisHost
+    value: "{redis_host}"
+  - name: redisPassword
+    value: ""
+"#
+        ),
+    );
+    std::fs::write(
+        dir.join(CONFIG_FILE),
+        format!(
+            r#"apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: e2e-config
+spec:
+  nameResolution:
+    component: "sqlite"
+    version: "v1"
+    configuration:
+      connectionString: "{DAPRD_MOUNT}/nameresolution.db"
+"#
+        ),
+    )
+    .unwrap();
+    relax_permissions(dir);
+}
+
+/// The two app instances of the mirrored scenario, addressed by their app
+/// channel base URLs (e.g. `http://127.0.0.1:8091`).
+pub struct Endpoints<'a> {
+    /// Instance with app id `publisher` (does not subscribe): publishes,
+    /// invokes, and runs the state smoke checks.
+    pub publisher_base: &'a str,
+    /// Instance with app id `consumer` (subscribes to `orders`): processes
+    /// deliveries into its counter.
+    pub consumer_base: &'a str,
+    /// Also assert a *binary* (non-JSON) byte-exact state roundtrip. Only the
+    /// gRPC provider can do that (raw protobuf bytes), so only the wasi-grpc
+    /// suite sets this; the HTTP provider's JSON envelope can't.
+    pub binary_state_exact: bool,
+}
+
+/// The scenario both real-Dapr suites run, identical regardless of provider or
+/// runtime: state roundtrip + etag CAS + delete, service invocation (self and
+/// cross-app), and a cross-sidecar pub/sub publish→deliver→count loop. Panics
+/// (with context) on the first failed assertion.
+pub fn run_mirrored_scenario(endpoints: Endpoints) {
+    let Endpoints {
+        publisher_base,
+        consumer_base,
+        binary_state_exact,
+    } = endpoints;
+
+    // 1. State: JSON-value roundtrip + etag CAS + delete + metadata.
+    let smoke = get_json(&format!("{publisher_base}/smoke"));
+    assert_eq!(smoke["ok"], true, "smoke failed: {smoke}");
+    assert_eq!(smoke["appId"], "publisher", "unexpected smoke: {smoke}");
+
+    // 2. (gRPC only) the same, with binary bytes — byte-exact.
+    if binary_state_exact {
+        let smoke = get_json(&format!("{publisher_base}/smoke-binary"));
+        assert_eq!(smoke["ok"], true, "binary smoke failed: {smoke}");
+    }
+
+    // 3. Service invocation out and back into the same instance.
+    let invoked = get_json(&format!("{publisher_base}/invoke-self"));
+    assert_eq!(invoked["ok"], true, "invoke-self failed: {invoked}");
+
+    // 4. Publish three orders.
+    let published = get_json(&format!("{publisher_base}/publish?n=3"));
+    assert_eq!(published["published"], 3, "publish failed: {published}");
+
+    // 5. Cross-sidecar pub/sub delivery: the consumer's counter reaches 3.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let count = get_json(&format!("{consumer_base}/count"));
+        if count["processed"] == 3 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "orders were not all processed in time: {count}"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    // 6. Cross-app service invocation: publisher → consumer's /summary (needs
+    //    the sidecars to resolve each other's app ids).
+    let peer = get_json(&format!("{publisher_base}/invoke-peer"));
+    assert_eq!(peer["processed"], 3, "cross-app invocation failed: {peer}");
 }

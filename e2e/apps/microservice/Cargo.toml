@@ -1,0 +1,12 @@
+[package]
+name = "microservice"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "E2E microservice (wasi:http server): one app run as two instances (publisher + consumer) to exercise state, pub/sub and service invocation against a Dapr sidecar — composed with either provider, served by wasmtime or Spin"
+publish = false
+
+[dependencies]
+serde_json = "1"
+wit-bindgen = "0.58"
+wstd = "0.6"

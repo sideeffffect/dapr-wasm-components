@@ -1,25 +1,24 @@
-//! Real-Dapr end-to-end test for the **wasi-http** provider: two wasm
-//! microservices orchestrated through two actual `daprd` sidecars.
+//! Real-Dapr end-to-end test for the **wasi-http** provider.
 //!
-//! Topology:
+//! Runs the shared [`common::run_mirrored_scenario`] — the *same* scenario the
+//! wasi-grpc suite (`spin.rs`) runs — so the two differ only in provider and
+//! runtime. Topology:
 //!
-//! - **order-processor** (wasm, `wasi:http` server, composed with the
-//!   wasi-http provider) served by `wasmtime serve`; its daprd subscribes it
-//!   to the `orders` topic and delivers events to its app channel.
-//! - **checkout** (wasm, `wasi:cli` command, composed with the provider)
-//!   run by `wasmtime run`; publishes orders via its own daprd and verifies
-//!   processing through Dapr service invocation of order-processor.
-//! - Pub/sub: Redis (cross-sidecar); state: in-memory; name resolution:
-//!   sqlite (shared db file, bind-mounted into both sidecar containers).
+//! - two instances of the `microservice` app (composed with the wasi-http
+//!   provider, served by `wasmtime serve`): a `publisher` and a `consumer`,
+//!   each behind its own `daprd` sidecar (host networking);
+//! - pub/sub: Redis (cross-sidecar); state: in-memory (per sidecar); name
+//!   resolution: sqlite (shared db, bind-mounted into both sidecars).
 //!
-//! The mechanical scaffolding (managed processes, daprd testcontainers,
-//! resource files, readiness polling) is shared with the wasi-grpc test in
-//! [`common`]; this file holds only what is specific to the wasi-http flow.
+//! The scenario then drives state + CAS + delete, service invocation (self and
+//! cross-app), and a cross-sidecar publish→deliver→count loop, all from the
+//! app's HTTP surface. Mechanical scaffolding is shared in [`common`].
 //!
 //! Ignored by default — requires Docker and the `wasmtime` CLI:
 //!
 //! ```sh
 //! cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+//! cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml
 //! cargo test --test dapr -- --ignored
 //! ```
 //!
@@ -31,198 +30,138 @@ mod common;
 use std::process::Command;
 use std::time::Duration;
 
-use testcontainers_modules::testcontainers::runners::SyncRunner;
-
 use common::{
-    binary, relax_permissions, wait_http_ok, write_resource, Daprd, DaprdConfig, DaprdPorts,
-    Service, DAPRD_MOUNT, STATESTORE_IN_MEMORY,
+    binary, run_mirrored_scenario, start_redis, wait_http_ok, write_cross_sidecar_resources, Daprd,
+    DaprdConfig, DaprdPorts, Endpoints, Service, CONFIG_FILE,
 };
-use dapr_wasm_components_e2e::{app_path, compose};
+use dapr_wasm_components_e2e::{compose, microservice_path, provider_path};
 
-const ORDER_PROCESSOR_APP_PORT: u16 = 8091;
-const OP_DAPR_HTTP: u16 = 3551;
-const CHECKOUT_DAPR_HTTP: u16 = 3552;
+// All ports below 32768 to avoid Docker's ephemeral range (where stray
+// docker-proxy mappings can make daprd fail to bind).
+const PUB_APP: u16 = 18091;
+const PUB_DAPR_HTTP: u16 = 13591;
+const PUB_DAPR_GRPC: u16 = 15591;
+const PUB_DAPR_INTERNAL: u16 = 14591;
+const CONS_APP: u16 = 18092;
+const CONS_DAPR_HTTP: u16 = 13592;
+const CONS_DAPR_GRPC: u16 = 15592;
+const CONS_DAPR_INTERNAL: u16 = 14592;
 
-/// Write the resource definitions and config both sidecars share: an
-/// in-memory statestore, a Redis pub/sub broker (cross-sidecar), and a
-/// sqlite name-resolution config (deterministic in CI, unlike mDNS).
-fn write_dapr_resources(dir: &std::path::Path, redis_host: &str) {
-    write_resource(dir, "statestore.yaml", STATESTORE_IN_MEMORY);
-    write_resource(
-        dir,
-        "pubsub.yaml",
-        &format!(
-            r#"apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: pubsub
-spec:
-  type: pubsub.redis
-  version: v1
-  metadata:
-  - name: redisHost
-    value: "{redis_host}"
-  - name: redisPassword
-    value: ""
-"#
-        ),
-    );
-    std::fs::write(
-        dir.join("config.yaml"),
-        format!(
-            r#"apiVersion: dapr.io/v1alpha1
-kind: Configuration
-metadata:
-  name: e2e-config
-spec:
-  nameResolution:
-    component: "sqlite"
-    version: "v1"
-    configuration:
-      connectionString: "{DAPRD_MOUNT}/nameresolution.db"
-"#
-        ),
-    )
-    .unwrap();
-    relax_permissions(dir);
+/// Serve one `microservice` instance on `addr_port` with `wasmtime serve`,
+/// composed with the wasi-http provider. `env` carries APP_ID / PEER_APP_ID /
+/// SUBSCRIBE and the sidecar's DAPR_HTTP_PORT.
+fn serve(
+    name: &'static str,
+    wasmtime: &str,
+    composed: &std::path::Path,
+    addr_port: u16,
+    env: &[(&str, String)],
+) -> Service {
+    let mut command = Command::new(wasmtime);
+    command
+        .arg("serve")
+        .arg("-S")
+        .arg("cli")
+        .arg("--addr")
+        .arg(format!("127.0.0.1:{addr_port}"));
+    for (key, value) in env {
+        command.arg("--env").arg(format!("{key}={value}"));
+    }
+    command.arg(composed);
+    Service::spawn(name, &mut command)
 }
 
 #[test]
 #[ignore = "requires Docker and the wasmtime CLI (see module docs)"]
 fn microservices_through_real_dapr() {
     let wasmtime = binary("WASMTIME_BIN", "wasmtime");
+    let redis = start_redis();
 
-    // Redis backs cross-sidecar pub/sub. Started via testcontainers unless
-    // REDIS_HOST points at an existing instance. The container handle must
-    // stay alive for the duration of the test.
-    let mut _redis_container = None;
-    let redis_host = match std::env::var("REDIS_HOST") {
-        Ok(host) => host,
-        Err(_) => {
-            let container = testcontainers_modules::redis::Redis::default()
-                .start()
-                .expect("failed to start Redis testcontainer (is Docker running?)");
-            let port = container
-                .get_host_port_ipv4(6379)
-                .expect("no mapped Redis port");
-            _redis_container = Some(container);
-            format!("127.0.0.1:{port}")
-        }
-    };
-
-    // Compose both microservices with the wasi-http provider.
-    let provider = std::fs::read(dapr_wasm_components_e2e::provider_path())
-        .expect("provider component not built");
-    let order_processor = std::fs::read(app_path(
-        "ORDER_PROCESSOR_COMPONENT",
-        "order-processor.wasm",
-    ))
-    .expect("order-processor component not built");
-    let checkout = std::fs::read(app_path("CHECKOUT_COMPONENT", "checkout.wasm"))
-        .expect("checkout component not built");
-
+    // One composed artifact (microservice + wasi-http provider); both
+    // instances run it, differing only by env.
+    let provider = std::fs::read(provider_path()).expect("provider component not built");
+    let app = std::fs::read(microservice_path()).expect("microservice component not built");
     let dir = tempfile::tempdir().unwrap();
-    let op_composed = dir.path().join("order-processor-composed.wasm");
-    std::fs::write(
-        &op_composed,
-        compose::plug(order_processor, provider.clone()).unwrap(),
-    )
-    .unwrap();
-    let checkout_composed = dir.path().join("checkout-composed.wasm");
-    std::fs::write(
-        &checkout_composed,
-        compose::plug(checkout, provider).unwrap(),
-    )
-    .unwrap();
+    let composed = dir.path().join("composed.wasm");
+    std::fs::write(&composed, compose::plug(app, provider).unwrap()).unwrap();
+    write_cross_sidecar_resources(dir.path(), &redis.host);
 
-    write_dapr_resources(dir.path(), &redis_host);
-
-    // 1. The order-processor wasm service, served over its app channel.
-    let _op_server = Service::spawn(
-        "wasmtime serve (order-processor)",
-        Command::new(&wasmtime)
-            .arg("serve")
-            .arg("-S")
-            .arg("cli")
-            .arg("--addr")
-            .arg(format!("127.0.0.1:{ORDER_PROCESSOR_APP_PORT}"))
-            .arg("--env")
-            .arg(format!("DAPR_HTTP_PORT={OP_DAPR_HTTP}"))
-            .arg(&op_composed),
+    // 1. The two app instances (their own app channels).
+    let _publisher = serve(
+        "wasmtime serve (publisher)",
+        &wasmtime,
+        &composed,
+        PUB_APP,
+        &[
+            ("DAPR_HTTP_PORT", PUB_DAPR_HTTP.to_string()),
+            ("APP_ID", "publisher".to_string()),
+            ("PEER_APP_ID", "consumer".to_string()),
+        ],
+    );
+    let _consumer = serve(
+        "wasmtime serve (consumer)",
+        &wasmtime,
+        &composed,
+        CONS_APP,
+        &[
+            ("DAPR_HTTP_PORT", CONS_DAPR_HTTP.to_string()),
+            ("APP_ID", "consumer".to_string()),
+            ("PEER_APP_ID", "publisher".to_string()),
+            ("SUBSCRIBE", "1".to_string()),
+        ],
     );
     wait_http_ok(
-        &format!("http://127.0.0.1:{ORDER_PROCESSOR_APP_PORT}/healthz"),
-        "order-processor app",
+        &format!("http://127.0.0.1:{PUB_APP}/healthz"),
+        "publisher app",
+        Duration::from_secs(30),
+    );
+    wait_http_ok(
+        &format!("http://127.0.0.1:{CONS_APP}/healthz"),
+        "consumer app",
         Duration::from_secs(30),
     );
 
-    // 2. Its daprd sidecar (registers the topic subscription).
-    let _op_daprd = Daprd::start(DaprdConfig {
-        name: "daprd (order-processor)",
-        app_id: "order-processor",
+    // 2. Each instance's daprd sidecar (registers subscriptions, full healthz
+    //    waits for the app channel too).
+    let _pub_daprd = Daprd::start(DaprdConfig {
+        name: "daprd (publisher)",
+        app_id: "publisher",
         ports: DaprdPorts {
-            http: OP_DAPR_HTTP,
-            grpc: 50051,
-            internal_grpc: 48051,
+            http: PUB_DAPR_HTTP,
+            grpc: PUB_DAPR_GRPC,
+            internal_grpc: PUB_DAPR_INTERNAL,
         },
-        app_port: Some(ORDER_PROCESSOR_APP_PORT),
-        config_file: Some("config.yaml"),
+        app_port: Some(PUB_APP),
+        config_file: Some(CONFIG_FILE),
         shared_dir: dir.path(),
     });
-    wait_http_ok(
-        &format!("http://127.0.0.1:{OP_DAPR_HTTP}/v1.0/metadata"),
-        "order-processor daprd",
-        Duration::from_secs(60),
-    );
-
-    // 3. The checkout sidecar (no app channel needed).
-    let _checkout_daprd = Daprd::start(DaprdConfig {
-        name: "daprd (checkout)",
-        app_id: "checkout",
+    let _cons_daprd = Daprd::start(DaprdConfig {
+        name: "daprd (consumer)",
+        app_id: "consumer",
         ports: DaprdPorts {
-            http: CHECKOUT_DAPR_HTTP,
-            grpc: 50052,
-            internal_grpc: 48052,
+            http: CONS_DAPR_HTTP,
+            grpc: CONS_DAPR_GRPC,
+            internal_grpc: CONS_DAPR_INTERNAL,
         },
-        app_port: None,
-        config_file: Some("config.yaml"),
+        app_port: Some(CONS_APP),
+        config_file: Some(CONFIG_FILE),
         shared_dir: dir.path(),
     });
-    wait_http_ok(
-        &format!("http://127.0.0.1:{CHECKOUT_DAPR_HTTP}/v1.0/healthz/outbound"),
-        "checkout daprd",
-        Duration::from_secs(60),
-    );
+    for (port, what) in [
+        (PUB_DAPR_HTTP, "publisher daprd"),
+        (CONS_DAPR_HTTP, "consumer daprd"),
+    ] {
+        wait_http_ok(
+            &format!("http://127.0.0.1:{port}/v1.0/healthz"),
+            what,
+            Duration::from_secs(60),
+        );
+    }
 
-    // 4. Run the checkout microservice to completion: it publishes orders
-    //    and polls the order-processor's summary via service invocation.
-    let output = Command::new(&wasmtime)
-        .arg("run")
-        .arg("-S")
-        .arg("http")
-        .arg("--env")
-        .arg(format!("DAPR_HTTP_PORT={CHECKOUT_DAPR_HTTP}"))
-        .arg(&checkout_composed)
-        .output()
-        .expect("failed to run checkout");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    println!("checkout stdout:\n{stdout}");
-    assert!(
-        output.status.success(),
-        "checkout failed (status {:?})\nstderr:\n{stderr}",
-        output.status
-    );
-    assert!(stdout.contains("checkout finished successfully"));
-
-    // 5. Independent verification: invoke the order-processor through the
-    //    checkout sidecar from the outside.
-    let summary: serde_json::Value = ureq::post(&format!(
-        "http://127.0.0.1:{CHECKOUT_DAPR_HTTP}/v1.0/invoke/order-processor/method/summary"
-    ))
-    .call()
-    .expect("summary invocation failed")
-    .into_json()
-    .expect("summary is not JSON");
-    assert_eq!(summary["processed"], 3, "unexpected summary: {summary}");
+    // 3. The shared scenario (HTTP inbound to the apps; outbound over HTTP).
+    run_mirrored_scenario(Endpoints {
+        publisher_base: &format!("http://127.0.0.1:{PUB_APP}"),
+        consumer_base: &format!("http://127.0.0.1:{CONS_APP}"),
+        binary_state_exact: false,
+    });
 }
