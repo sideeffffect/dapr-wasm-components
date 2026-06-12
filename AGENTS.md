@@ -34,6 +34,10 @@ cargo test --test dapr -- --ignored
 cargo test --test spin -- --ignored
 ```
 
+## Git
+
+- **Always keep pushing to `main`.** This is a solo, trunk-based repo: commit your work and push it to `origin/main` as you go — don't leave finished changes sitting uncommitted in a worktree or stranded on a side branch. Rebase onto the latest `origin/main` before pushing. (Wiki/`raw` edits count too.)
+
 ## Conventions
 
 - WIT stays **sync** (no `async` functions, no `stream`/`future`) and outbound-only (the `dapr-client`/`dapr-server` worlds); inbound flows go through the app's `wasi:http/incoming-handler`, independent of which provider is composed in. Interface changes must be mirrored in: **both** implementations (wasi-http and wasi-grpc), the e2e mock + tests, kv-demo if relevant, and the README interface table. Bump the package version in `components/wit/types.wit` (CI checks it against release tags).

@@ -46,4 +46,7 @@ The Dapr Rust SDK (`dapr` crate) is the **Alpha**-status client library for talk
 
 ## See Also
 
+- [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md) (why v2 dropped this SDK)
+- [Dapr HTTP API](dapr-http-api.md)
+- [gRPC to Dapr from Wasm](dapr-grpc-from-wasm.md) (the tonic/tokio SDK that can't go to wasm — the contrast)
 - [Component Model Overview](../wasm-component-model/component-model-overview.md)
