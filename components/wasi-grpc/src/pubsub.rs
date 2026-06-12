@@ -1,0 +1,69 @@
+//! Pub/sub (publishing side) over gRPC — `PublishEvent`, `BulkPublishEvent`.
+//! Event payloads are raw bytes with an explicit content type — no JSON
+//! envelope like the HTTP API, so non-JSON events roundtrip byte-exact.
+//! The vendored v1.18 protos mark `BulkPublishEventAlpha1` deprecated in
+//! favor of the stable `BulkPublishEvent`, so that is what we call.
+
+use crate::exports::pubsub::{BulkPublishEntry, BulkPublishFailedEntry, Guest};
+use crate::proto::runtime as pb;
+use crate::sidecar::{metadata_map, Sidecar};
+use crate::types::{Error, Metadata};
+use crate::Component;
+
+fn entry_pb(entry: BulkPublishEntry) -> pb::BulkPublishRequestEntry {
+    pb::BulkPublishRequestEntry {
+        entry_id: entry.entry_id,
+        event: entry.event,
+        content_type: entry.content_type,
+        metadata: metadata_map(&entry.metadata),
+    }
+}
+
+impl Guest for Component {
+    fn publish(
+        pubsub_name: String,
+        topic: String,
+        data: Vec<u8>,
+        data_content_type: String,
+        metadata: Metadata,
+    ) -> Result<(), Error> {
+        let sidecar = Sidecar::from_env()?;
+        sidecar.unary(
+            pb::PublishEventRequest {
+                pubsub_name,
+                topic,
+                data,
+                data_content_type,
+                metadata: metadata_map(&metadata),
+            },
+            |mut client, request| async move { client.publish_event(request).await },
+        )?;
+        Ok(())
+    }
+
+    fn publish_bulk(
+        pubsub_name: String,
+        topic: String,
+        entries: Vec<BulkPublishEntry>,
+        metadata: Metadata,
+    ) -> Result<Vec<BulkPublishFailedEntry>, Error> {
+        let sidecar = Sidecar::from_env()?;
+        let response = sidecar.unary(
+            pb::BulkPublishRequest {
+                pubsub_name,
+                topic,
+                entries: entries.into_iter().map(entry_pb).collect(),
+                metadata: metadata_map(&metadata),
+            },
+            |mut client, request| async move { client.bulk_publish_event(request).await },
+        )?;
+        Ok(response
+            .failed_entries
+            .into_iter()
+            .map(|entry| BulkPublishFailedEntry {
+                entry_id: entry.entry_id,
+                error: entry.error,
+            })
+            .collect())
+    }
+}

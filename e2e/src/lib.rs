@@ -74,6 +74,13 @@ pub fn provider_path() -> PathBuf {
     component_path("PROVIDER_COMPONENT", "dapr_wasm_components_wasi_http.wasm")
 }
 
+pub fn grpc_provider_path() -> PathBuf {
+    component_path(
+        "GRPC_PROVIDER_COMPONENT",
+        "dapr_wasm_components_wasi_grpc.wasm",
+    )
+}
+
 pub fn kv_demo_path() -> PathBuf {
     component_path("KV_DEMO_COMPONENT", "kv-demo.wasm")
 }

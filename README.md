@@ -1,9 +1,10 @@
 # dapr-wasm-components
 
-[Dapr](https://dapr.io) building blocks for [WebAssembly components](https://component-model.bytecodealliance.org/), as two pure-wasm modules:
+[Dapr](https://dapr.io) building blocks for [WebAssembly components](https://component-model.bytecodealliance.org/), as pure-wasm modules:
 
 - **`dapr-wasm-components-interface`** — the [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md) package `dapr-wasm-components:interfaces` (`wit/`): typed, **synchronous** interfaces for every Dapr building block, including the experimental/alpha ones.
 - **`dapr-wasm-components-wasi-http`** — a pure-wasm implementation of those interfaces (`components/wasi-http/`): it talks to the Dapr sidecar's [HTTP API](https://docs.dapr.io/reference/api/) through `wasi:http` outgoing requests. No native host, no Dapr SDK — it runs on **any** WASI 0.2 runtime with `wasi:http` support (wasmtime, wasmCloud, Spin, ...).
+- **`dapr-wasm-components-wasi-grpc`** — a second, experimental implementation (`components/wasi-grpc/`): the same interfaces over the sidecar's [gRPC API](https://docs.dapr.io/reference/api/grpc_api/) (tonic + vendored Dapr protos over `wasi:http` outgoing HTTP/2). Typed protobuf instead of JSON — state/bindings/pubsub values roundtrip **byte-exact**. gRPC needs cleartext HTTP/2, which today only [Spin](https://spinframework.dev) ≥ 3.4 provides for outbound requests — see [below](#the-wasi-grpc-provider-spin-only).
 
 Write your app against the interfaces, plug it together with the implementation, and run it next to a Dapr sidecar:
 
@@ -92,15 +93,42 @@ dapr run --app-id my-app -- wasmtime run -S http composed.wasm
 
 The implementation resolves the sidecar like other Dapr SDKs: `DAPR_HTTP_ENDPOINT`, then `http://127.0.0.1:$DAPR_HTTP_PORT`, then `http://127.0.0.1:3500`; `DAPR_API_TOKEN` is attached as the `dapr-api-token` header when set.
 
+## The wasi-grpc provider (Spin only)
+
+`dapr-wasm-components-wasi-grpc` exports the identical interfaces — apps don't change, they just `wac plug` a different provider — but implements them with a [tonic](https://github.com/hyperium/tonic) client (no `transport` feature) over [`wasi-grpc`](https://github.com/fermyon/wasi-grpc)/`wasi-hyperium`, driven to completion inside each sync export by `spin-executor` (pure `wasi:io` polling). The Dapr v1.18 protos are vendored and the generated client is checked in — no protoc needed to build.
+
+Why bother: protobuf carries values as raw bytes, so binary state values, binding payloads and pub/sub events roundtrip **byte-exact** (the HTTP provider's JSON envelope can't do that), and errors map 1:1 from `grpc-status` codes.
+
+The catch: gRPC requires HTTP/2 end-to-end, `wasi:http` 0.2 leaves the HTTP version to the host, and today only **Spin ≥ 3.4** speaks outbound cleartext HTTP/2 (wasmtime's `wasi:http` is HTTP/1.1-only — there the component instantiates, but calls fail with `unavailable`). Two things must line up, byte-for-byte, on the **same authority string**:
+
+```sh
+# on the Spin host process (NOT spin up --env): enables h2c to this one authority
+export SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE=127.0.0.1:50001
+```
+
+```toml
+# spin.toml: let the component reach daprd, and point it at the gRPC endpoint
+[component.my-app]
+source = "composed.wasm"
+allowed_outbound_hosts = ["http://127.0.0.1:50001"]
+environment = { DAPR_GRPC_ENDPOINT = "http://127.0.0.1:50001" }
+```
+
+Endpoint resolution mirrors the SDKs: `DAPR_GRPC_ENDPOINT`, then `http://127.0.0.1:$DAPR_GRPC_PORT`, then `http://127.0.0.1:50001`; `DAPR_API_TOKEN` becomes `dapr-api-token` gRPC metadata. See `components/spin-demo/` and `e2e/tests/spin.rs` for a complete working setup.
+
+Divergences from the wasi-http provider (inherent to the gRPC API): service invocation cannot pass through the target app's exact status code (success is always `200`, non-2xx surfaces as `error`); a missing state/actor key is indistinguishable from a stored empty value; sidecar health checks use `GetMetadata` (daprd has no gRPC health service); crypto's streaming RPCs are driven in one-shot form.
+
 ## Repository layout
 
 | Path | What |
 |---|---|
 | `wit/` | The `dapr-wasm-components:interfaces` WIT package |
-| `components/wasi-http/` | The wasi:http implementation component |
+| `components/wasi-http/` | The wasi:http implementation component (portable) |
+| `components/wasi-grpc/` | The gRPC implementation component (Spin ≥ 3.4; vendored Dapr protos + checked-in tonic codegen) |
 | `components/kv-demo/` | Example app component (`wasi:cli` command) |
 | `components/order-processor/`, `components/checkout/` | E2E microservices: pub/sub consumer (`wasi:http` server) and publisher/invoker |
-| `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2E |
+| `components/spin-demo/` | E2E microservice for the wasi-grpc provider (state, invocation, pub/sub under Spin) |
+| `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es |
 | `wiki/`, `raw/` | LLM-maintained knowledge base with the research behind the design |
 
 ## Development
@@ -124,16 +152,23 @@ cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.to
 cargo test --test dapr -- --ignored
 ```
 
-CI runs this on every push (the `dapr-e2e` job).
+A second E2E (`e2e/tests/spin.rs`) covers the **wasi-grpc** provider: `spin-demo` composed with it runs under the `spin` CLI (which doubles as the Dapr app channel) next to a daprd testcontainer, asserting a byte-exact binary state roundtrip with etag CAS, service invocation out over gRPC and back in through the app channel, and a pub/sub publish→deliver→count loop — all over the sidecar's gRPC API. Requires Docker and `spin` ≥ 3.4 (override with `SPIN_BIN`):
+
+```sh
+cargo test --test spin -- --ignored
+```
+
+CI runs both on every push (the `dapr-e2e` and `spin-e2e` jobs).
 
 ## Status & limitations
 
 Experimental.
 
 - The whole Dapr **outbound** HTTP API surface is covered, including alpha APIs (lock, crypto, state query, conversation) — alpha APIs can change with Dapr releases.
-- Values in the HTTP state/bindings APIs are JSON: bytes that parse as JSON are sent as-is, anything else is sent as a JSON string (UTF-8 lossy). Store JSON if you need byte-exact roundtrips.
+- Values in the HTTP state/bindings APIs are JSON: bytes that parse as JSON are sent as-is, anything else is sent as a JSON string (UTF-8 lossy). Store JSON if you need byte-exact roundtrips — **or use the wasi-grpc provider**, where values are raw protobuf bytes.
 - Crypto is one-shot (no streaming); configuration subscriptions are not exposed (they push to the app channel).
 - Conversation models the alpha2 text subset (no tool calling yet).
+- The wasi-grpc provider is a proof of concept: it runs only on Spin ≥ 3.4 (outbound h2c), its h2c allowlist holds a single authority, and its `/smoke`-level surface (state, invocation, pub/sub, metadata) is what the E2E exercises — the remaining interfaces are implemented and compile-checked but not yet integration-tested.
 
 ## License
 

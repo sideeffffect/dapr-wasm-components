@@ -1,5 +1,13 @@
 # Wiki Log
 
+## [2026-06-12] ingest | dapr-wasm-components Architecture (wasi-grpc provider PoC: tonic+wasi-grpc+spin-executor stack, h2c exact-match trap, spin trigger subprocess trap, ephemeral-port trap, gRPC semantic gaps)
+- Updated: gRPC to Dapr from Wasm (outcome: Spin-only PoC shipped)
+
+## [2026-06-12] ingest | gRPC to Dapr from Wasm (feasibility: HTTP/2-from-wasm crux, wasi:sockets+h2, gRPC-Web rejected)
+- Updated: dapr-wasm-components Architecture (cross-link to gRPC variant)
+
+## [2026-06-12] update | gRPC to Dapr from Wasm (why Fermyon wasi-grpc crate is Spin-locked, not a shortcut)
+
 ## [2026-06-11] ingest | Component Model Overview
 - Updated: WIT Format
 

@@ -48,6 +48,7 @@ jobs:
       - name: Validate components
         run: |
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http.wasm
+          wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc.wasm
           wasm-tools validate components/target/wasm32-wasip2/release/kv-demo.wasm
 
       - name: Clippy
@@ -92,10 +93,44 @@ jobs:
       - name: Run real-Dapr E2E (wasm microservices through daprd sidecars)
         run: cargo test --test dapr -- --ignored --nocapture
 
+  spin-e2e:
+    # Real end-to-end for the wasi-grpc provider: one wasm microservice
+    # served by Spin (the only runtime with outbound cleartext HTTP/2 —
+    # required for gRPC), talking to an actual daprd sidecar over its gRPC
+    # API; daprd runs as a testcontainer started by the test itself.
+    runs-on: ubuntu-latest
+    env:
+      SPIN_VERSION: "v4.0.1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            components -> components/target
+
+      - name: Install spin CLI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sL "https://github.com/spinframework/spin/releases/download/${SPIN_VERSION}/spin-${SPIN_VERSION}-linux-amd64.tar.gz" \
+            | tar xz -C "$HOME/.local/bin" spin
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build components
+        run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+
+      - name: Run real-Dapr E2E (wasm microservice through daprd's gRPC API on Spin)
+        run: cargo test --test spin -- --ignored --nocapture
+
   publish:
-    # Push both modules to this repository's OCI registry (ghcr.io) with wkg:
+    # Push the modules to this repository's OCI registry (ghcr.io) with wkg:
     # tag `latest` on pushes to main, the release version on GitHub releases.
-    needs: [test, dapr-e2e]
+    needs: [test, dapr-e2e, spin-e2e]
     if: github.event_name == 'push' || github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
@@ -143,7 +178,8 @@ jobs:
       - name: Build modules
         run: |
           wkg wit build --wit-dir wit -o dapr-wasm-components-interface.wasm
-          cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml -p dapr-wasm-components-wasi-http
+          cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml \
+            -p dapr-wasm-components-wasi-http -p dapr-wasm-components-wasi-grpc
 
       - name: Publish interface module
         run: |
@@ -159,4 +195,12 @@ jobs:
             components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider implementing dapr-wasm-components:interfaces over wasi:http" \
+            --annotation "org.opencontainers.image.licenses=Apache-2.0"
+
+      - name: Publish wasi-grpc implementation module
+        run: |
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-grpc:${{ steps.tag.outputs.tag }}" \
+            components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc.wasm \
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider implementing dapr-wasm-components:interfaces over the Dapr gRPC API (requires Spin >= 3.4 for outbound h2c)" \
             --annotation "org.opencontainers.image.licenses=Apache-2.0"
