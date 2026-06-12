@@ -1,5 +1,5 @@
-//! Real-Dapr end-to-end test: two wasm microservices orchestrated through
-//! two actual `daprd` sidecars.
+//! Real-Dapr end-to-end test for the **wasi-http** provider: two wasm
+//! microservices orchestrated through two actual `daprd` sidecars.
 //!
 //! Topology:
 //!
@@ -12,9 +12,9 @@
 //! - Pub/sub: Redis (cross-sidecar); state: in-memory; name resolution:
 //!   sqlite (shared db file, bind-mounted into both sidecar containers).
 //!
-//! Both `daprd` sidecars (daprio/daprd image) and Redis run as
-//! testcontainers; the daprd containers use host networking so they can
-//! dial the wasm app served by `wasmtime serve` on the host.
+//! The mechanical scaffolding (managed processes, daprd testcontainers,
+//! resource files, readiness polling) is shared with the wasi-grpc test in
+//! [`common`]; this file holds only what is specific to the wasi-http flow.
 //!
 //! Ignored by default — requires Docker and the `wasmtime` CLI:
 //!
@@ -26,128 +26,32 @@
 //! Overrides: WASMTIME_BIN, DAPRD_IMAGE_TAG (default 1.18.0),
 //! REDIS_HOST (skips the Redis testcontainer).
 
-use std::io::Read;
-use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+mod common;
 
-use testcontainers_modules::testcontainers::core::Mount;
+use std::process::Command;
+use std::time::Duration;
+
 use testcontainers_modules::testcontainers::runners::SyncRunner;
-use testcontainers_modules::testcontainers::{Container, GenericImage, ImageExt};
 
+use common::{
+    binary, relax_permissions, wait_http_ok, write_resource, Daprd, DaprdConfig, DaprdPorts,
+    Service, DAPRD_MOUNT, STATESTORE_IN_MEMORY,
+};
 use dapr_wasm_components_e2e::{component_path, compose};
-
-/// Where the shared directory (components, config, name-resolution db)
-/// is bind-mounted inside the daprd containers.
-const DAPRD_MOUNT: &str = "/dapr-e2e";
 
 const ORDER_PROCESSOR_APP_PORT: u16 = 8091;
 const OP_DAPR_HTTP: u16 = 3551;
 const CHECKOUT_DAPR_HTTP: u16 = 3552;
 
-/// Kills the process on drop, dumping its output on test failure.
-/// Output pipes are drained continuously by background threads — a child
-/// with an undrained pipe blocks once the pipe buffer fills up.
-struct Service {
-    name: &'static str,
-    child: Child,
-    output: Arc<Mutex<String>>,
-}
-
-impl Service {
-    fn spawn(name: &'static str, command: &mut Command) -> Self {
-        let mut child = command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap_or_else(|e| panic!("failed to start {name}: {e}"));
-        let output = Arc::new(Mutex::new(String::new()));
-        for stream in [
-            child
-                .stdout
-                .take()
-                .map(|s| Box::new(s) as Box<dyn Read + Send>),
-            child
-                .stderr
-                .take()
-                .map(|s| Box::new(s) as Box<dyn Read + Send>),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            let output = output.clone();
-            std::thread::spawn(move || {
-                let mut stream = stream;
-                let mut buffer = [0u8; 4096];
-                loop {
-                    match stream.read(&mut buffer) {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => output
-                            .lock()
-                            .unwrap()
-                            .push_str(&String::from_utf8_lossy(&buffer[..n])),
-                    }
-                }
-            });
-        }
-        Self {
-            name,
-            child,
-            output,
-        }
-    }
-}
-
-impl Drop for Service {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        if std::thread::panicking() {
-            let output = self.output.lock().unwrap();
-            if !output.trim().is_empty() {
-                eprintln!("===== {} output =====\n{output}", self.name);
-            }
-        }
-    }
-}
-
-fn binary(env_var: &str, default: &str) -> String {
-    std::env::var(env_var).unwrap_or_else(|_| default.to_string())
-}
-
-fn wait_http_ok(url: &str, what: &str, timeout: Duration) {
-    let start = Instant::now();
-    loop {
-        match ureq::get(url).timeout(Duration::from_secs(2)).call() {
-            Ok(_) => return,
-            Err(error) => {
-                if start.elapsed() > timeout {
-                    panic!("timed out waiting for {what} at {url}: {error}");
-                }
-                std::thread::sleep(Duration::from_millis(250));
-            }
-        }
-    }
-}
-
+/// Write the resource definitions and config both sidecars share: an
+/// in-memory statestore, a Redis pub/sub broker (cross-sidecar), and a
+/// sqlite name-resolution config (deterministic in CI, unlike mDNS).
 fn write_dapr_resources(dir: &std::path::Path, redis_host: &str) {
-    let resources = dir.join("resources");
-    std::fs::create_dir_all(&resources).unwrap();
-    std::fs::write(
-        resources.join("statestore.yaml"),
-        r#"apiVersion: dapr.io/v1alpha1
-kind: Component
-metadata:
-  name: statestore
-spec:
-  type: state.in-memory
-  version: v1
-"#,
-    )
-    .unwrap();
-    std::fs::write(
-        resources.join("pubsub.yaml"),
-        format!(
+    write_resource(dir, "statestore.yaml", STATESTORE_IN_MEMORY);
+    write_resource(
+        dir,
+        "pubsub.yaml",
+        &format!(
             r#"apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
@@ -162,8 +66,7 @@ spec:
     value: ""
 "#
         ),
-    )
-    .unwrap();
+    );
     std::fs::write(
         dir.join("config.yaml"),
         format!(
@@ -181,93 +84,7 @@ spec:
         ),
     )
     .unwrap();
-    // The daprd containers run as a non-root user (65532) and must read the
-    // configs and write the sqlite name-resolution db in this directory.
-    for path in [dir.to_path_buf(), resources.clone()] {
-        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o777);
-        std::fs::set_permissions(&path, permissions).unwrap();
-    }
-}
-
-struct DaprdPorts {
-    http: u16,
-    grpc: u16,
-    internal_grpc: u16,
-}
-
-/// A daprd sidecar as a testcontainer (daprio/daprd image, host networking
-/// so it can dial the wasm app served on the host). Dumps its logs when the
-/// test fails.
-struct Daprd {
-    name: &'static str,
-    container: Container<GenericImage>,
-}
-
-impl Daprd {
-    fn start(
-        name: &'static str,
-        app_id: &str,
-        ports: DaprdPorts,
-        app_port: Option<u16>,
-        shared_dir: &std::path::Path,
-    ) -> Self {
-        let tag = std::env::var("DAPRD_IMAGE_TAG").unwrap_or_else(|_| "1.18.0".to_string());
-        let mut cmd = vec![
-            "/daprd".to_string(),
-            "--app-id".to_string(),
-            app_id.to_string(),
-            "--dapr-http-port".to_string(),
-            ports.http.to_string(),
-            "--dapr-grpc-port".to_string(),
-            ports.grpc.to_string(),
-            "--dapr-internal-grpc-port".to_string(),
-            ports.internal_grpc.to_string(),
-            "--resources-path".to_string(),
-            format!("{DAPRD_MOUNT}/resources"),
-            "--config".to_string(),
-            format!("{DAPRD_MOUNT}/config.yaml"),
-            "--enable-metrics=false".to_string(),
-            "--log-level".to_string(),
-            "info".to_string(),
-        ];
-        if let Some(port) = app_port {
-            cmd.extend([
-                "--app-port".to_string(),
-                port.to_string(),
-                "--app-protocol".to_string(),
-                "http".to_string(),
-            ]);
-        }
-        let container = GenericImage::new("daprio/daprd", &tag)
-            .with_cmd(cmd)
-            .with_network("host")
-            .with_mount(Mount::bind_mount(
-                shared_dir.to_str().unwrap().to_string(),
-                DAPRD_MOUNT,
-            ))
-            .start()
-            .unwrap_or_else(|e| panic!("failed to start {name} container: {e}"));
-        Self { name, container }
-    }
-}
-
-impl Drop for Daprd {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            for (label, result) in [
-                ("stdout", self.container.stdout_to_vec()),
-                ("stderr", self.container.stderr_to_vec()),
-            ] {
-                if let Ok(output) = result {
-                    let output = String::from_utf8_lossy(&output);
-                    if !output.trim().is_empty() {
-                        eprintln!("===== {} {label} =====\n{output}", self.name);
-                    }
-                }
-            }
-        }
-    }
+    relax_permissions(dir);
 }
 
 #[test]
@@ -340,17 +157,18 @@ fn microservices_through_real_dapr() {
     );
 
     // 2. Its daprd sidecar (registers the topic subscription).
-    let _op_daprd = Daprd::start(
-        "daprd (order-processor)",
-        "order-processor",
-        DaprdPorts {
+    let _op_daprd = Daprd::start(DaprdConfig {
+        name: "daprd (order-processor)",
+        app_id: "order-processor",
+        ports: DaprdPorts {
             http: OP_DAPR_HTTP,
             grpc: 50051,
             internal_grpc: 48051,
         },
-        Some(ORDER_PROCESSOR_APP_PORT),
-        dir.path(),
-    );
+        app_port: Some(ORDER_PROCESSOR_APP_PORT),
+        config_file: Some("config.yaml"),
+        shared_dir: dir.path(),
+    });
     wait_http_ok(
         &format!("http://127.0.0.1:{OP_DAPR_HTTP}/v1.0/metadata"),
         "order-processor daprd",
@@ -358,17 +176,18 @@ fn microservices_through_real_dapr() {
     );
 
     // 3. The checkout sidecar (no app channel needed).
-    let _checkout_daprd = Daprd::start(
-        "daprd (checkout)",
-        "checkout",
-        DaprdPorts {
+    let _checkout_daprd = Daprd::start(DaprdConfig {
+        name: "daprd (checkout)",
+        app_id: "checkout",
+        ports: DaprdPorts {
             http: CHECKOUT_DAPR_HTTP,
             grpc: 50052,
             internal_grpc: 48052,
         },
-        None,
-        dir.path(),
-    );
+        app_port: None,
+        config_file: Some("config.yaml"),
+        shared_dir: dir.path(),
+    });
     wait_http_ok(
         &format!("http://127.0.0.1:{CHECKOUT_DAPR_HTTP}/v1.0/healthz/outbound"),
         "checkout daprd",
