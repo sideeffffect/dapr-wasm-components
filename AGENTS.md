@@ -6,6 +6,7 @@ Dapr building blocks as WebAssembly component (WIT) interfaces, implemented by t
 
 Use the karpathy-llm-wiki SKILLs to interact with the llm-wiki in this repository (`wiki/` and `raw/`, start at [wiki/index.md](wiki/index.md)).
 Learn from this wiki and save all what you learn continually during each session.
+**Continually lint the llm-wiki** (the karpathy-llm-wiki lint flow): keep the index, internal links, raw references, and See Also cross-references consistent, and surface factual drift — especially after ingesting new sources or restructuring.
 Architectural decisions and their rationale live in [wiki/dapr/dapr-wasm-components-architecture.md](wiki/dapr/dapr-wasm-components-architecture.md) — read it before changing interfaces or the implementation.
 
 ## Layout
