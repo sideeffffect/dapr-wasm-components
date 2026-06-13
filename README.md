@@ -72,12 +72,12 @@ flowchart LR
     host ~~~ outbound
     outbound ~~~ app
 
-    app --> outbound
+    app -- "① sync WIT call" --> outbound
     outbound -- "① wasi:http/outgoing-handler" --> host
     host -- "① → HTTP :3500 / gRPC :50001" --> sidecar
     sidecar -- "② app channel (HTTP)" --> host
     host -- "② → inbound's wasi:http/incoming-handler" --> inbound
-    inbound --> app
+    inbound -- "② typed callback" --> app
 ```
 
 ## Using the published modules
