@@ -58,21 +58,25 @@ The two directions are independent, so you mix and match: the portable `wasi-htt
 ```mermaid
 flowchart LR
     sidecar["Dapr sidecar"]
-    host["host runtime (wasmtime serve / Spin)<br/>owns the socket, speaks HTTP/gRPC on the wire"]
+    host["host runtime (wasmtime serve / Spin)<br/>owns the socket, speaks HTTP/gRPC on the wire<br/>provides wasi:http/outgoing-handler"]
 
     subgraph composed["your composed component (outbound → app → inbound, via wac)"]
         direction TB
         outbound["outbound provider<br/>exports building blocks"]
-        app["your app (world: app)<br/>imports building blocks<br/>exports *-callback"]
         inbound["inbound provider<br/>exports wasi:http/incoming-handler<br/>imports *-callback"]
-        app -- "① outbound: sync WIT call" --> outbound
-        inbound -- "② inbound: typed callback call" --> app
+        app["your app (world: app)<br/>imports building blocks<br/>exports *-callback"]
     end
 
+    %% invisible rank hints keep the order sidecar → host → providers → app
+    host ~~~ outbound
+    outbound ~~~ app
+
+    app -- "① outbound: sync WIT call" --> outbound
     outbound -- "① wasi:http/outgoing-handler" --> host
     host -- "① → HTTP :3500 / gRPC :50001" --> sidecar
     sidecar -- "② app channel (HTTP)" --> host
     host -- "② → inbound's wasi:http/incoming-handler" --> inbound
+    inbound -- "② inbound: typed callback call" --> app
 ```
 
 ## Using the published modules
