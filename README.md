@@ -10,7 +10,7 @@
 
 Write your app against the interfaces, [compose](#composing) it with an outbound + an inbound provider (`wac`), and run it next to a Dapr sidecar. The single diagram in [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr) below shows the whole picture.
 
-## Interfaces (`dapr-wasm-components:interfaces@0.3.0`)
+## Interfaces (`dapr-wasm-components:interfaces@0.4.0`)
 
 **Outbound** — interfaces your app *imports* to call Dapr:
 
@@ -138,7 +138,7 @@ A composed component is `outbound → app → inbound` (acyclic — see [Two dir
 ```sh
 ./compose.sh my_app.wasm                       # http out + http in -> composed.wasm
 ./compose.sh my_app.wasm --out grpc --in http  # mixed transports
-./compose.sh my_app.wasm -o server.wasm --tag 0.3.0   # explicit output + OCI tag
+./compose.sh my_app.wasm -o server.wasm --tag 0.4.0   # explicit output + OCI tag
 
 dapr run --app-id my-app -- wasmtime serve -S cli composed.wasm   # reactor (app channel)
 # outbound-only command apps: `wac plug app.wasm --plug http-outbound.wasm` + `wasmtime run -S http`

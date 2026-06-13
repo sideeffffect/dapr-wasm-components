@@ -10,7 +10,7 @@
 #
 #   ./compose.sh my_app.wasm                       # http out + http in -> composed.wasm
 #   ./compose.sh my_app.wasm --out grpc --in http  # mixed transports
-#   ./compose.sh my_app.wasm -o server.wasm --tag 0.3.0
+#   ./compose.sh my_app.wasm -o server.wasm --tag 0.4.0
 #   ./compose.sh my_app.wasm --outbound out.wasm --inbound in.wasm   # explicit paths
 #
 # Run the result next to a Dapr sidecar:
