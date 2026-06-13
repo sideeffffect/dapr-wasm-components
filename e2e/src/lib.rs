@@ -112,6 +112,12 @@ pub fn kv_demo_path() -> PathBuf {
     app_path("KV_DEMO_COMPONENT", "kv-demo.wasm")
 }
 
+/// The unified E2E microservice app (run as two instances by the real-Dapr
+/// suites). Composed with whichever provider is under test.
+pub fn microservice_path() -> PathBuf {
+    app_path("MICROSERVICE_COMPONENT", "microservice.wasm")
+}
+
 pub fn engine() -> wasmtime::Result<Engine> {
     Engine::new(&Config::new())
 }

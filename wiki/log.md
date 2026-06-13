@@ -1,7 +1,11 @@
 # Wiki Log
 
-## [2026-06-13] new | dapr-wasm-components Inbound Design (spec from design interview: adapter handles Dapr→app inbound as typed WIT — all six flows + health, app never touches the wire; new *-handler interfaces, dapr-app/dapr-host worlds, both providers; supersedes "outbound only")
+## [2026-06-13] new | dapr-wasm-components Inbound Design (typed Dapr→app inbound — seven *-callback interfaces + the dapr-app SDK, built and merged; worlds app/dapr-outbound/dapr-inbound; providers split outbound+inbound to break the app↔provider compose cycle; supersedes "outbound only")
 - Supersedes: dapr-wasm-components Architecture (§"Outbound only" decision)
+
+## [2026-06-13] lint | 4 issues found, 3 auto-fixed
+
+## [2026-06-13] update | dapr-wasm-components Architecture (inbound-path proof: provider is outbound-only, host's wasi:http delivers inbound to the app — name collision wasi:http-interface vs wasi-http-provider; gRPC-inbound feasibility: Spin accepts h2c inbound but wasi-grpc is client-only so AppCallback is net-new; E2E mirroring: one microservice app two instances, shared run_mirrored_scenario, wasi-http⇄wasi-grpc differ only in provider+runtime)
 
 ## [2026-06-13] update | dapr-wasm-components Architecture (repo restructure: components/ = only the 3 published artifacts, demo apps → e2e/apps wasm-only workspace; WIT worlds imports→dapr-client, provider→dapr-server; README two-directions explanation; shared e2e test scaffolding in tests/common)
 

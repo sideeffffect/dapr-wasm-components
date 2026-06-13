@@ -20,5 +20,6 @@ wasmCloud's capability model over WIT: `wasi:keyvalue`, `wasi:messaging`, `wasi:
 
 ## See Also
 
+- [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md) (the project this art is prior to)
 - [Dapr Rust SDK](dapr-rust-sdk.md)
 - [Component Model Overview](../wasm-component-model/component-model-overview.md)

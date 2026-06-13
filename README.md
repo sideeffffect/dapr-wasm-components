@@ -7,24 +7,7 @@
 - **`dapr-wasm-components-wasi-grpc`** — a second, experimental implementation (`components/wasi-grpc/`): the same interfaces over the sidecar's [gRPC API](https://docs.dapr.io/reference/api/grpc_api/) (tonic + vendored Dapr protos over `wasi:http` outgoing HTTP/2). Typed protobuf instead of JSON — state/bindings/pubsub values roundtrip **byte-exact**. gRPC needs cleartext HTTP/2, which today only [Spin](https://spinframework.dev) ≥ 3.4 provides for outbound requests — see [below](#the-wasi-grpc-provider-spin-only).
 - **`dapr-app`** — the app-side SDK (`app-sdk/`): implement the `DaprApp` trait (every callback method has a default, so you override only what you use) and call Dapr through re-exported typed interfaces. Your application never touches HTTP or gRPC in **either** direction — the provider does.
 
-Write your app against the interfaces, plug it together with the implementation, and run it next to a Dapr sidecar:
-
-```mermaid
-flowchart LR
-    app["your app component<br/>imports dapr-wasm-components:interfaces/*"]
-    impl["dapr-wasm-components-wasi-http<br/>exports the interfaces<br/>imports wasi:http"]
-    runtime["any WASI 0.2 runtime<br/>(wasmtime, wasmCloud, …)"]
-    sidecar["Dapr sidecar<br/>HTTP API :3500"]
-
-    app -- "sync WIT calls" --> impl
-    impl -- "wasi:http/outgoing-handler" --> runtime
-    runtime -- "HTTP" --> sidecar
-
-    subgraph composed["composed component (wac plug)"]
-        app
-        impl
-    end
-```
+Write your app against the interfaces, plug it together with the implementation (`wac plug`), and run it next to a Dapr sidecar. The single diagram in [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr) below shows the whole picture.
 
 ## Interfaces (`dapr-wasm-components:interfaces@0.2.0`)
 
@@ -58,30 +41,37 @@ flowchart LR
 | `configuration-callback` | Configuration update pushes | `on-configuration-event` |
 | `health-callback` | App health checks | `health-check` |
 
-Worlds: **`app`** (an application — imports the building blocks, exports the callbacks) and **`dapr`** (a provider — exports the building blocks, imports the callbacks). An app targets `app`; a provider targets `dapr`; `wac plug` wires them together mutually.
+Worlds: **`app`** (an application — imports the building blocks, exports the callbacks), **`dapr-outbound`** (a provider that exports the building blocks) and **`dapr-inbound`** (a provider that imports the callbacks). The two provider directions are *separate components* so the composition graph stays acyclic — see below.
 
 ## Two directions: calling Dapr vs. being called by Dapr — both typed
 
-A Dapr application communicates with its sidecar in two directions, and **the provider shields your app from the wire on both**. Your app is pure typed domain logic.
+A Dapr application communicates with its sidecar in two directions, and **the providers shield your app from the wire on both**. Your app is pure typed domain logic — it only implements WIT and never opens a socket.
 
-- **Outbound — your app calls Dapr** (state, pub/sub, secrets, service invocation, …). Your app makes a synchronous WIT call on an imported interface; the composed-in provider translates it into a sidecar request and blocks until the reply.
-- **Inbound — Dapr calls your app** (service invocation, pub/sub deliveries, input bindings, job triggers, actor activations, configuration updates, health). The sidecar hits the *application channel*; **the provider serves it** (the wasi-http provider exports `wasi:http/incoming-handler`; the wasi-grpc provider serves Dapr's `AppCallback` gRPC service), parses each request, and dispatches it as a typed call on the matching `*-callback` interface your app exports.
+- **Outbound — your app calls Dapr** (state, pub/sub, secrets, service invocation, …). Your app makes a synchronous WIT call on an imported building-block interface; the composed-in **outbound** provider turns it into a sidecar request (over the host's `wasi:http/outgoing-handler`) and blocks until the reply.
+- **Inbound — Dapr calls your app** (service invocation, pub/sub deliveries, input bindings, job triggers, actor activations, configuration updates, health). The sidecar hits the *application channel*; the **inbound** provider owns `wasi:http/incoming-handler`, parses each request, and dispatches it as a typed call on the matching `*-callback` interface your app exports.
 
-The two providers differ only in transport: `wasi-http` speaks the sidecar's HTTP API (`:3500`) and HTTP app channel; `wasi-grpc` speaks the gRPC API (`:50001`) and `AppCallback`. The typed interfaces are identical, so the same app composes behind either.
+Why two provider components per transport? A single provider that both *exported* the building blocks and *imported* the callbacks would form an instantiation **cycle** with the app (the app imports the building blocks; the provider imports the callbacks) — which the component model forbids. Splitting outbound from inbound makes the graph acyclic: **`outbound → app → inbound`**.
+
+The app channel is HTTP regardless of the outbound transport — the two directions are independent, so a `wasi-grpc`-outbound app still receives its deliveries through the portable `wasi-http` **inbound** provider. (Dapr can drive the app channel over gRPC — `--app-protocol grpc` — but that needs Dapr's `AppCallback` gRPC service, which the inbound gRPC provider does not yet implement; see [Status & limitations](#status--limitations).)
 
 ```mermaid
 flowchart LR
     sidecar["Dapr sidecar"]
+    host["host runtime (wasmtime serve / Spin)<br/>owns the socket, speaks HTTP/gRPC on the wire"]
 
-    subgraph composed["your composed component (wac plug, mutual)"]
-        app["your app (world: app)<br/>• imports building blocks (outbound)<br/>• exports *-callback (inbound)"]
-        impl["provider (world: dapr)<br/>wasi-http or wasi-grpc"]
-        app -- "① outbound: sync WIT call" --> impl
-        impl -- "② inbound: typed callback call" --> app
+    subgraph composed["your composed component (outbound → app → inbound, via wac)"]
+        direction TB
+        outbound["outbound provider<br/>exports building blocks"]
+        app["your app (world: app)<br/>imports building blocks<br/>exports *-callback"]
+        inbound["inbound provider<br/>exports wasi:http/incoming-handler<br/>imports *-callback"]
+        app -- "① outbound: sync WIT call" --> outbound
+        inbound -- "② inbound: typed callback call" --> app
     end
 
-    impl -- "① HTTP :3500 / gRPC :50001" --> sidecar
-    sidecar -- "② app channel (HTTP / AppCallback gRPC)" --> impl
+    outbound -- "① wasi:http/outgoing-handler" --> host
+    host -- "① → HTTP :3500 / gRPC :50001" --> sidecar
+    sidecar -- "② app channel (HTTP)" --> host
+    host -- "② → inbound's wasi:http/incoming-handler" --> inbound
 ```
 
 ## Using the published modules
@@ -161,7 +151,7 @@ allowed_outbound_hosts = ["http://127.0.0.1:50001"]
 environment = { DAPR_GRPC_ENDPOINT = "http://127.0.0.1:50001" }
 ```
 
-Endpoint resolution mirrors the SDKs: `DAPR_GRPC_ENDPOINT`, then `http://127.0.0.1:$DAPR_GRPC_PORT`, then `http://127.0.0.1:50001`; `DAPR_API_TOKEN` becomes `dapr-api-token` gRPC metadata. See `e2e/apps/spin-demo/` and `e2e/tests/spin.rs` for a complete working setup.
+Endpoint resolution mirrors the SDKs: `DAPR_GRPC_ENDPOINT`, then `http://127.0.0.1:$DAPR_GRPC_PORT`, then `http://127.0.0.1:50001`; `DAPR_API_TOKEN` becomes `dapr-api-token` gRPC metadata. See `e2e/apps/microservice/` and `e2e/tests/spin.rs` for a complete working setup.
 
 Divergences from the wasi-http provider (inherent to the gRPC API): service invocation cannot pass through the target app's exact status code (success is always `200`, non-2xx surfaces as `error`); a missing state/actor key is indistinguishable from a stored empty value; sidecar health checks use `GetMetadata` (daprd has no gRPC health service); crypto's streaming RPCs are driven in one-shot form.
 
@@ -171,14 +161,15 @@ Divergences from the wasi-http provider (inherent to the gRPC API): service invo
 
 | Path | What |
 |---|---|
-| `components/wit/` | The `dapr-wasm-components:interfaces` WIT package (worlds `app`, `dapr`) |
-| `components/wasi-http/` | The wasi:http implementation component (portable); serves both directions |
-| `components/wasi-grpc/` | The gRPC implementation component (Spin ≥ 3.4; vendored Dapr protos + checked-in tonic codegen) |
+| `components/wit/` | The `dapr-wasm-components:interfaces` WIT package (worlds `app`, `dapr-outbound`, `dapr-inbound`) |
+| `components/wasi-http-outbound/` | wasi:http **outbound** provider — the building blocks over the Dapr HTTP API (portable) |
+| `components/wasi-http-inbound/` | wasi:http **inbound** provider — exports `wasi:http/incoming-handler`, dispatches the app channel to the typed callbacks (portable) |
+| `components/wasi-grpc-outbound/` | wasi:grpc **outbound** provider — the building blocks over the Dapr gRPC API (Spin ≥ 3.4; vendored protos + checked-in tonic codegen) |
 | `app-sdk/dapr-app/` | The app-side `dapr-app` SDK (`DaprApp` trait + `export_app!`); wasm-only |
-| `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es |
+| `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es (shared scenario in `tests/common/`) |
 | `e2e/apps/` | Demo/fixture app components the E2Es compose and drive (their own wasm-only workspace) |
-| `e2e/apps/kv-demo/`, `e2e/apps/checkout/` | Outbound-only example commands (`wasi:cli`) |
-| `e2e/apps/order-processor/`, `e2e/apps/spin-demo/` | Inbound reactor microservices (typed callbacks) for the wasi-http and wasi-grpc E2Es |
+| `e2e/apps/kv-demo/` | Outbound-only example (`wasi:cli` command), used by the mock composition test |
+| `e2e/apps/microservice/` | The real-Dapr E2E app (a typed reactor): run as two instances (publisher + consumer) by **both** suites to exercise state, pub/sub and service invocation |
 | `wiki/`, `raw/` | LLM-maintained knowledge base with the research behind the design |
 
 ## Development
@@ -205,19 +196,21 @@ cargo test    # provider tests + composed kv-demo, against a mock sidecar
 
 ### Real-Dapr end-to-end test
 
-`e2e/tests/dapr.rs` orchestrates two wasm microservices through two **actual `daprd` sidecars**: `checkout` publishes orders via Redis pub/sub, `order-processor` (served by `wasmtime serve`) consumes them into a state store with etag CAS, and `checkout` verifies the result through Dapr service invocation (sqlite name resolution between sidecars). All infrastructure — both `daprio/daprd` sidecars and Redis — is started by the test itself with [testcontainers](https://rust.testcontainers.org/); you only need Docker and the `wasmtime` CLI:
+Both real-Dapr suites run the **same scenario** (`e2e/tests/common/run_mirrored_scenario`) so they mirror each other and differ only in provider + runtime. The `microservice` app is run as two instances — a `publisher` and a `consumer` — each behind its own **actual `daprd` sidecar**; the scenario drives a state roundtrip + etag CAS + delete, service invocation (self and cross-app), and a cross-sidecar pub/sub publish→deliver→count loop. Pub/sub is Redis (cross-sidecar), name resolution is sqlite (deterministic in CI). All infrastructure — both `daprio/daprd` sidecars and Redis — is started by the test itself with [testcontainers](https://rust.testcontainers.org/).
+
+`e2e/tests/dapr.rs` (**wasi-http** provider) serves the instances with `wasmtime serve`; you only need Docker and the `wasmtime` CLI:
 
 ```sh
 cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml  # the provider
-cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # the demo apps
+cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # the microservice
 cargo test --test dapr -- --ignored
 ```
 
-A second E2E (`e2e/tests/spin.rs`) covers the **wasi-grpc** provider: `spin-demo` composed with it runs under the `spin` CLI (which doubles as the Dapr app channel) next to a daprd testcontainer, asserting a byte-exact binary state roundtrip with etag CAS, service invocation out over gRPC and back in through the app channel, and a pub/sub publish→deliver→count loop — all over the sidecar's gRPC API. Requires Docker and `spin` ≥ 3.4 (override with `SPIN_BIN`):
+`e2e/tests/spin.rs` (**wasi-grpc** provider) is the gRPC mirror: it serves the same two instances with the `spin` CLI (the only runtime with outbound h2c), and additionally asserts a *binary* byte-exact state roundtrip — something only the gRPC provider can do. Requires Docker and `spin` ≥ 3.4 (override with `SPIN_BIN`):
 
 ```sh
 cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml  # the provider
-cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # spin-demo
+cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml     # the microservice
 cargo test --test spin -- --ignored
 ```
 
@@ -230,9 +223,9 @@ Experimental.
 - The whole Dapr **outbound** HTTP API surface is covered, including alpha APIs (lock, crypto, state query, conversation) — alpha APIs can change with Dapr releases.
 - Values in the HTTP state/bindings APIs are JSON: bytes that parse as JSON are sent as-is, anything else is sent as a JSON string (UTF-8 lossy). Store JSON if you need byte-exact roundtrips — **or use the wasi-grpc provider**, where values are raw protobuf bytes.
 - Crypto is one-shot (no streaming). Conversation models the alpha2 text subset (no tool calling yet).
-- **Inbound (Dapr → app) is typed via the `*-callback` interfaces.** Implemented in the **wasi-http** provider (full app-channel router) and the `dapr-app` SDK. Pub/sub is single-route-per-topic (no CEL routing rules or bulk subscribe yet); input-binding response field names follow the bindings API reference and are pending an integration check; configuration inbound depends on the new outbound `subscribe`. The **wasi-grpc** `AppCallback` server is **not yet built** (the typed callbacks are shared, so it is a transport addition) — and actor hosting is HTTP-app-channel only, since Dapr's `AppCallback` has no actor methods.
-- **In flux:** the native e2e harness and its test flows still assume the old "app serves its own HTTP" model and are being reworked for the two-way adapter; CI needs the `app-sdk` workspace added.
-- The wasi-grpc provider remains a proof of concept: it runs only on Spin ≥ 3.4 (outbound h2c), its h2c allowlist holds a single authority, and most interfaces are compile-checked but not yet integration-tested.
+- **Inbound (Dapr → app) is typed via the `*-callback` interfaces**, implemented by the **`wasi-http-inbound`** provider (full HTTP app-channel router) and the `dapr-app` SDK; both real-Dapr E2Es exercise it (pub/sub delivery + service invocation, self and cross-app). Pub/sub is single-route-per-topic (no CEL routing rules or bulk subscribe yet); input-binding response field names follow the bindings API reference and are pending an integration check; configuration-update delivery (`configuration-callback`) is defined but not yet wired in the router.
+- **Inbound is over HTTP, for both outbound transports.** The app channel is independent of the outbound transport, so a `wasi-grpc`-outbound app still uses the portable `wasi-http-inbound` provider. A **wasi-grpc inbound** provider (serving Dapr's `AppCallback` gRPC service, for `--app-protocol grpc`) is not yet built — actor *hosting* would remain HTTP-only regardless, since Dapr's `AppCallback` has no actor methods.
+- The wasi-grpc (outbound) provider remains a proof of concept: it runs only on Spin ≥ 3.4 (outbound h2c), its h2c allowlist holds a single authority, and most interfaces are compile-checked but only the E2E surface (state, invocation, pub/sub, metadata) is integration-tested.
 
 ## License
 

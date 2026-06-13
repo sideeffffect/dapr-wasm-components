@@ -34,4 +34,5 @@ Bulk publish and jobs were alpha pre-1.16 — older sidecars need the `-alpha1` 
 ## See Also
 
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md)
+- [gRPC to Dapr from Wasm](dapr-grpc-from-wasm.md) (the gRPC counterpart to this REST API)
 - [Dapr Rust SDK](dapr-rust-sdk.md)

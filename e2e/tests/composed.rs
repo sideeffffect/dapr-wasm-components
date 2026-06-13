@@ -8,7 +8,8 @@ use wasmtime::Store;
 
 use dapr_wasm_components_e2e::mock::MockSidecar;
 use dapr_wasm_components_e2e::{
-    app_path, compose, engine, http_inbound_path, http_outbound_path, kv_demo_path, linker, Ctx,
+    compose, engine, http_inbound_path, http_outbound_path, kv_demo_path, linker,
+    microservice_path, Ctx,
 };
 
 #[tokio::test]
@@ -46,11 +47,7 @@ async fn composed_kv_demo_runs() {
 /// to a valid server component that exports `wasi:http/incoming-handler`.
 #[tokio::test]
 async fn full_composition_is_valid() {
-    let app = std::fs::read(app_path(
-        "ORDER_PROCESSOR_COMPONENT",
-        "order_processor.wasm",
-    ))
-    .expect("order-processor component not built");
+    let app = std::fs::read(microservice_path()).expect("microservice component not built");
     let outbound = std::fs::read(http_outbound_path()).expect("http-outbound not built");
     let inbound = std::fs::read(http_inbound_path()).expect("http-inbound not built");
 

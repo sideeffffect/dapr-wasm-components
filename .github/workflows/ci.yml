@@ -61,6 +61,7 @@ jobs:
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_inbound.wasm
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_outbound.wasm
           wasm-tools validate e2e/apps/target/wasm32-wasip2/release/kv-demo.wasm
+          wasm-tools validate e2e/apps/target/wasm32-wasip2/release/microservice.wasm
 
       - name: Clippy
         run: |
