@@ -2,7 +2,7 @@
 
 [Dapr](https://dapr.io) building blocks for [WebAssembly components](https://component-model.bytecodealliance.org/), as pure-wasm modules:
 
-- **`dapr-wasm-components-interface`** — the [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md) package `dapr-wasm-components:interfaces` (`components/wit/`): typed, **synchronous** interfaces for every Dapr building block (the *outbound* direction, app → Dapr) and a set of `*-callback` interfaces (the *inbound* direction, Dapr → app), including the experimental/alpha building blocks.
+- **`dapr-wasm-components-interfaces`** — the [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md) package `dapr-wasm-components:interfaces` (`components/wit/`): typed, **synchronous** interfaces for every Dapr building block (the *outbound* direction, app → Dapr) and a set of `*-callback` interfaces (the *inbound* direction, Dapr → app), including the experimental/alpha building blocks.
 - **Four provider components** (`components/`) — one per direction × transport, so your app never touches the wire either way:
   - **`-wasi-http-outbound`** / **`-wasi-http-inbound`** — the [HTTP API](https://docs.dapr.io/reference/api/) over `wasi:http`. Portable: any WASI 0.2 runtime with `wasi:http` (wasmtime, wasmCloud, Spin, …). The inbound one exports `wasi:http/incoming-handler` and dispatches the app channel to the typed callbacks.
   - **`-wasi-grpc-outbound`** / **`-wasi-grpc-inbound`** — the [gRPC API](https://docs.dapr.io/reference/api/grpc_api/) (tonic + vendored Dapr protos). Typed protobuf instead of JSON — values roundtrip **byte-exact**. Needs cleartext HTTP/2, which today only [Spin](https://spinframework.dev) ≥ 3.4 provides — see [below](#the-wasi-grpc-provider-spin-only). The inbound one serves Dapr's `AppCallback` gRPC service.
@@ -85,7 +85,7 @@ All modules are published to this repository's OCI registry — tag `latest` tra
 
 ```sh
 ORG=ghcr.io/sideeffffect
-wkg oci pull $ORG/dapr-wasm-components-interface:latest        -o interface.wasm
+wkg oci pull $ORG/dapr-wasm-components-interfaces:latest        -o interface.wasm
 wkg oci pull $ORG/dapr-wasm-components-wasi-http-outbound:latest -o http-outbound.wasm
 wkg oci pull $ORG/dapr-wasm-components-wasi-http-inbound:latest  -o http-inbound.wasm
 # and likewise -wasi-grpc-outbound / -wasi-grpc-inbound

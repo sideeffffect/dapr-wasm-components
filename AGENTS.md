@@ -12,7 +12,7 @@ Architectural decisions and their rationale live in [wiki/dapr/dapr-wasm-compone
 ## Layout
 
 - **`components/` holds only the published things** (interface + the provider components); everything that exists to test them is under `e2e/`. Four Cargo workspaces in total (`components/`, `app-sdk/`, `e2e/apps/` wasm-only; `e2e/` native) — keep them separate (guest crates don't build natively).
-- `components/wit/` — the `dapr-wasm-components:interfaces` WIT package (sync functions only; WASI 0.2; published to OCI as `dapr-wasm-components-interface`). Worlds: `app` (what an app targets — imports building blocks, exports `*-callback`), `dapr-outbound` (a provider exporting the building blocks), `dapr-inbound` (a provider importing the callbacks).
+- `components/wit/` — the `dapr-wasm-components:interfaces` WIT package (sync functions only; WASI 0.2; published to OCI as `dapr-wasm-components-interfaces`). Worlds: `app` (what an app targets — imports building blocks, exports `*-callback`), `dapr-outbound` (a provider exporting the building blocks), `dapr-inbound` (a provider importing the callbacks).
 - `components/wasi-http-outbound/` + `components/wasi-http-inbound/` — the portable provider (outbound HTTP API client; inbound `wasi:http/incoming-handler` router). `components/wasi-grpc-outbound/` — the gRPC outbound provider (vendored Dapr v1.18 protos in `proto/`, checked-in tonic codegen in `src/proto/` — regen instructions in `proto/README.md`); a gRPC inbound provider is not yet built. These form the **`components/` workspace** (wasm-only).
 - `app-sdk/dapr-app/` — the app-side SDK (own wasm-only workspace): the `DaprApp` trait (defaulted callbacks) + `export_app!` + re-exported building-block imports.
 - `e2e/` — native test harness (root workspace): mock Dapr HTTP sidecar (axum) + wasmtime + wac-graph composition, plus two real-Dapr E2Es (ignored by default) that run the **same shared scenario** (`tests/common/run_mirrored_scenario`) and differ only in provider + runtime: `tests/dapr.rs` (wasi-http, `wasmtime serve`) and `tests/spin.rs` (wasi-grpc, `spin up`). Both run the `microservice` app as two instances (publisher + consumer) through two actual daprd sidecars with Redis pub/sub + sqlite name resolution. Shared scaffolding lives in `e2e/tests/common/`.
@@ -40,7 +40,7 @@ cargo test --test spin -- --ignored
 
 ## Git
 
-- **Always keep pushing to `main`.** This is a solo, trunk-based repo: commit your work and push it to `origin/main` as you go — don't leave finished changes sitting uncommitted in a worktree or stranded on a side branch. Rebase onto the latest `origin/main` before pushing. (Wiki/`raw` edits count too.)
+- **Always keep pushing to `main` — directly, without asking.** This is a solo, trunk-based repo: commit your finished work and push it straight to `origin/main` as you go. Don't ask for permission to commit or push, and don't open a PR or use a side branch — push directly to `main` even when working from a worktree branch (push your `HEAD` to `main`). Don't leave finished changes sitting uncommitted in a worktree. Rebase onto the latest `origin/main` before pushing. (Wiki/`raw` edits count too.)
 
 ## Conventions
 
