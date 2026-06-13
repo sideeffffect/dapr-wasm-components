@@ -1,8 +1,8 @@
 # Roadmap / follow-ups
 
-Tracked follow-up work for `dapr-wasm-components`, as of the two-typed-directions
-redesign (package `dapr-wasm-components:interfaces@0.2.0`). Grouped by area; each
-item notes *why* it's open and roughly *what* it needs. See
+Tracked follow-up work for `dapr-wasm-components`, current as of package
+`dapr-wasm-components:interfaces@0.4.0`. Grouped by area; each item notes *why*
+it's open and roughly *what* it needs. See
 [wiki/dapr/dapr-wasm-components-architecture.md](wiki/dapr/dapr-wasm-components-architecture.md)
 for the design rationale and [wiki/dapr/dapr-wasm-components-inbound-design.md](wiki/dapr/dapr-wasm-components-inbound-design.md)
 for the inbound spec.
@@ -38,7 +38,6 @@ for the inbound spec.
 
 ## Outbound / API coverage
 
-- **Conversation** models the alpha2 *text* subset — no tool calling yet.
 - **Crypto** is one-shot (no streaming encrypt/decrypt).
 - **Workflow** uses the `/v1.0` HTTP API, which Dapr documents as deprecated in
   favour of the SDKs.
@@ -50,6 +49,15 @@ for the inbound spec.
 
 ## Recently shipped
 
+- **Interfaces 0.4.0.** The WIT package was tightened across 0.3.0 → 0.4.0 to
+  follow the Dapr HTTP API faithfully, the provider worlds were renamed
+  `dapr-outbound`/`dapr-inbound` → `outbound`/`inbound`, and the published OCI
+  interface artifact was renamed `…-interface` → `…-interfaces`.
+- **Full alpha2 conversation.** The `conversation` interface now models the whole
+  `/v1.0-alpha2` converse surface — content-part messages with role wrappers,
+  tool definitions and tool calls, structured-output schema, and prompt-cache —
+  not just the plain-text subset. Wired in both the `wasi-http-outbound` (JSON)
+  and `wasi-grpc-outbound` (protobuf) providers.
 - **Composition ergonomics.** The [`compose.sh`](compose.sh) wrapper turns the
   three-dependency `wac compose` into a one-liner: it resolves the outbound and
   inbound providers (a local `components/target/` release build when present,
