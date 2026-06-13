@@ -27,6 +27,8 @@ pub struct Recorded {
     pub published: Vec<PublishedEvent>,
     pub scheduled_jobs: HashMap<String, serde_json::Value>,
     pub metadata_labels: HashMap<String, String>,
+    /// Raw converse request bodies, in order.
+    pub converse_requests: Vec<serde_json::Value>,
 }
 
 pub struct MockSidecar {
@@ -82,6 +84,10 @@ impl MockSidecar {
             .route(
                 "/v1.0/jobs/{name}",
                 post(schedule_job).get(get_job).delete(delete_job),
+            )
+            .route(
+                "/v1.0-alpha2/conversation/{component}/converse",
+                post(converse),
             )
             .with_state(recorded.clone());
 
@@ -184,6 +190,45 @@ async fn get_secret(Path((_store, key)): Path<(String, String)>) -> Response {
         return StatusCode::NO_CONTENT.into_response();
     }
     Json(json!({"password": "hunter2"})).into_response()
+}
+
+/// Record the converse request and return a canned alpha2 response that
+/// exercises every result field (choices, tool calls, usage, context id).
+async fn converse(
+    State(recorded): State<Shared>,
+    Path(_component): Path<String>,
+    Json(request): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    recorded.lock().unwrap().converse_requests.push(request);
+    Json(json!({
+        "contextId": "ctx-1",
+        "outputs": [{
+            "choices": [{
+                "finishReason": "tool_calls",
+                "index": 0,
+                "message": {
+                    "content": "hello",
+                    "toolCalls": [{
+                        "id": "call-1",
+                        "function": { "name": "lookup", "arguments": "{\"q\":1}" }
+                    }]
+                }
+            }],
+            "model": "gpt-test",
+            "usage": {
+                "promptTokens": 3,
+                "completionTokens": 5,
+                "totalTokens": 8,
+                "promptTokensDetails": { "audioTokens": 0, "cachedTokens": 2 },
+                "completionTokensDetails": {
+                    "acceptedPredictionTokens": 0,
+                    "audioTokens": 0,
+                    "reasoningTokens": 4,
+                    "rejectedPredictionTokens": 0
+                }
+            }
+        }]
+    }))
 }
 
 /// Echo back what we received — used to test invocation passthrough,

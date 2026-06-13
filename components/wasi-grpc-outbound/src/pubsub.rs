@@ -24,7 +24,7 @@ impl Guest for Component {
         pubsub_name: String,
         topic: String,
         data: Vec<u8>,
-        data_content_type: String,
+        data_content_type: Option<String>,
         metadata: Metadata,
     ) -> Result<(), Error> {
         let sidecar = Sidecar::from_env()?;
@@ -33,7 +33,8 @@ impl Guest for Component {
                 pubsub_name,
                 topic,
                 data,
-                data_content_type,
+                // Empty string lets daprd apply its default content type.
+                data_content_type: data_content_type.unwrap_or_default(),
                 metadata: metadata_map(&metadata),
             },
             |mut client, request| async move { client.publish_event(request).await },

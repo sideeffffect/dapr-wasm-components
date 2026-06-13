@@ -4,8 +4,8 @@
 //! roundtrip byte-exact.
 
 use crate::exports::state::{
-    BulkStateItem, Concurrency, Consistency, GetStateResponse, Guest, QueryResponse, StateItem,
-    StateOptions, TransactionOperation, TransactionRequest,
+    BulkStateItem, Concurrency, Consistency, GetStateResponse, Guest, QueryResponse,
+    QueryStateItem, StateItem, StateOptions, TransactionOperation, TransactionRequest,
 };
 use crate::proto::common::{self, state_options};
 use crate::proto::runtime as pb;
@@ -51,12 +51,29 @@ fn item_pb(item: &StateItem, request_metadata: &Metadata) -> common::StateItem {
     }
 }
 
+// Both the proto `BulkStateItem` and `QueryStateItem` carry the bytes under
+// `data`; the WIT records name them `value` (bulk) and `data` (query) to
+// mirror the Dapr HTTP API's field names, which differ between the two.
 fn bulk_item(item: pb::BulkStateItem) -> BulkStateItem {
     BulkStateItem {
         key: item.key,
-        data: item.data,
+        value: item.data,
         etag: opt_string(item.etag),
         error: opt_string(item.error),
+    }
+}
+
+/// Build the proto `StateItem` for one transaction operation. The WIT
+/// flattens the operation fields and makes `value` optional (absent for
+/// deletes); the proto value field is non-optional, so a delete sends empty
+/// bytes — the sidecar ignores the value for delete operations.
+fn transaction_item_pb(op: &TransactionRequest) -> common::StateItem {
+    common::StateItem {
+        key: op.key.clone(),
+        value: op.value.clone().unwrap_or_default(),
+        etag: op.etag.clone().map(|value| common::Etag { value }),
+        metadata: metadata_map(&op.metadata),
+        options: op.options.as_ref().map(options_pb),
     }
 }
 
@@ -156,7 +173,7 @@ impl Guest for Component {
                             TransactionOperation::Upsert => "upsert".to_string(),
                             TransactionOperation::Delete => "delete".to_string(),
                         },
-                        request: Some(item_pb(&op.item, &Vec::new())),
+                        request: Some(transaction_item_pb(op)),
                     })
                     .collect(),
                 metadata: metadata_map(&metadata),
@@ -184,11 +201,10 @@ impl Guest for Component {
             items: response
                 .results
                 .into_iter()
-                .map(|item| BulkStateItem {
+                .map(|item| QueryStateItem {
                     key: item.key,
                     data: item.data,
                     etag: opt_string(item.etag),
-                    error: opt_string(item.error),
                 })
                 .collect(),
             token: opt_string(response.token),

@@ -37,13 +37,23 @@ interface state {
     etag: option<string>,
   }
 
-  /// One entry of a bulk-get or query result.
+  /// One entry of a bulk-get result. The value is carried under `value`,
+  /// matching the bulk-get wire field (Dapr HTTP `value`).
   record bulk-state-item {
     key: string,
-    data: list<u8>,
+    value: list<u8>,
     etag: option<string>,
     /// Per-key error, if this key failed.
     error: option<string>,
+  }
+
+  /// One entry of a query result. The value is carried under `data`,
+  /// matching the query wire field (Dapr HTTP `data`) — note the
+  /// asymmetry with bulk-get's `value`.
+  record query-state-item {
+    key: string,
+    data: list<u8>,
+    etag: option<string>,
   }
 
   /// Operation kind within a state transaction.
@@ -52,13 +62,20 @@ interface state {
     delete,
   }
 
+  /// A single operation within a state transaction. `value` is required for
+  /// `upsert` and omitted for `delete`.
   record transaction-request {
     operation: transaction-operation,
-    item: state-item,
+    key: string,
+    value: option<list<u8>>,
+    /// Entity tag for optimistic concurrency control.
+    etag: option<string>,
+    metadata: metadata,
+    options: option<state-options>,
   }
 
   record query-response {
-    items: list<bulk-state-item>,
+    items: list<query-state-item>,
     /// Pagination token, when the store returns one.
     token: option<string>,
   }

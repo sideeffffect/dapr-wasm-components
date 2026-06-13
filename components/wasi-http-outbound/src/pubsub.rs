@@ -15,7 +15,7 @@ impl Guest for Component {
         pubsub_name: String,
         topic: String,
         data: Vec<u8>,
-        data_content_type: String,
+        data_content_type: Option<String>,
         metadata: Metadata,
     ) -> Result<(), Error> {
         let sidecar = Sidecar::from_env();
@@ -26,12 +26,12 @@ impl Guest for Component {
             query,
         );
 
-        sidecar.expect_success(
-            Method::POST,
-            &path,
-            &[("content-type".to_string(), data_content_type)],
-            data,
-        )?;
+        // Omit the header when absent so the sidecar applies its default.
+        let headers = match data_content_type {
+            Some(content_type) => vec![("content-type".to_string(), content_type)],
+            None => Vec::new(),
+        };
+        sidecar.expect_success(Method::POST, &path, &headers, data)?;
         Ok(())
     }
 

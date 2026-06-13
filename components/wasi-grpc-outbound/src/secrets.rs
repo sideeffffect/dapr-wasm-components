@@ -2,7 +2,8 @@
 //!
 //! Divergence: a missing secret surfaces as whatever status daprd returns
 //! (typically `internal`, ERR_SECRET_GET) — the gRPC API has no analogue
-//! of the HTTP 204 that lets the wasi-http provider report `not-found`.
+//! of the HTTP 204 that lets the wasi-http provider report the absence as
+//! `none`. So `get-secret` here only ever returns `some`/error, never `none`.
 
 use std::collections::HashMap;
 
@@ -21,7 +22,11 @@ fn secret_pairs(map: HashMap<String, String>) -> Secret {
 }
 
 impl Guest for Component {
-    fn get_secret(store_name: String, key: String, metadata: Metadata) -> Result<Secret, Error> {
+    fn get_secret(
+        store_name: String,
+        key: String,
+        metadata: Metadata,
+    ) -> Result<Option<Secret>, Error> {
         let sidecar = Sidecar::from_env()?;
         let response = sidecar.unary(
             pb::GetSecretRequest {
@@ -31,7 +36,7 @@ impl Guest for Component {
             },
             |mut client, request| async move { client.get_secret(request).await },
         )?;
-        Ok(secret_pairs(response.data))
+        Ok(Some(secret_pairs(response.data)))
     }
 
     fn get_bulk_secret(

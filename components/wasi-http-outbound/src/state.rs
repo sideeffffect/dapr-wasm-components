@@ -5,8 +5,8 @@ use serde_json::json;
 use wstd::http::Method;
 
 use crate::exports::state::{
-    BulkStateItem, Concurrency, Consistency, GetStateResponse, Guest, QueryResponse, StateItem,
-    StateOptions, TransactionOperation, TransactionRequest,
+    BulkStateItem, Concurrency, Consistency, GetStateResponse, Guest, QueryResponse,
+    QueryStateItem, StateItem, StateOptions, TransactionOperation, TransactionRequest,
 };
 use crate::sidecar::{push_metadata_query, seg, with_query, Sidecar};
 use crate::types::{Error, Metadata};
@@ -52,6 +52,25 @@ fn item_to_json(item: &StateItem) -> serde_json::Value {
     object
 }
 
+/// Build the `request` object of a transaction operation. `value` is
+/// omitted for deletes (the field is `none`).
+fn transaction_request_to_json(op: &TransactionRequest) -> serde_json::Value {
+    let mut object = json!({ "key": op.key });
+    if let Some(value) = &op.value {
+        object["value"] = value_to_json(value);
+    }
+    if let Some(etag) = &op.etag {
+        object["etag"] = json!(etag);
+    }
+    if !op.metadata.is_empty() {
+        object["metadata"] = metadata_object(&op.metadata);
+    }
+    if let Some(options) = &op.options {
+        object["options"] = options_to_json(options);
+    }
+    object
+}
+
 fn options_to_json(options: &StateOptions) -> serde_json::Value {
     let mut object = json!({});
     if let Some(concurrency) = concurrency_str(options.concurrency) {
@@ -82,8 +101,10 @@ fn json_to_bytes(value: &serde_json::Value) -> Vec<u8> {
 }
 
 /// Bulk-get items carry the value under `value`; query results use `data`.
+/// One deserializer accepts either wire field; the two WIT records below
+/// keep the API's `value`/`data` naming apart.
 #[derive(Deserialize)]
-struct BulkItemJson {
+struct StateItemJson {
     key: String,
     #[serde(default, alias = "value")]
     data: Option<serde_json::Value>,
@@ -93,13 +114,31 @@ struct BulkItemJson {
     error: Option<String>,
 }
 
-impl From<BulkItemJson> for BulkStateItem {
-    fn from(item: BulkItemJson) -> Self {
+impl StateItemJson {
+    fn bytes(&self) -> Vec<u8> {
+        self.data.as_ref().map(json_to_bytes).unwrap_or_default()
+    }
+}
+
+impl From<StateItemJson> for BulkStateItem {
+    fn from(item: StateItemJson) -> Self {
+        let value = item.bytes();
         BulkStateItem {
             key: item.key,
-            data: item.data.as_ref().map(json_to_bytes).unwrap_or_default(),
+            value,
             etag: item.etag,
             error: item.error,
+        }
+    }
+}
+
+impl From<StateItemJson> for QueryStateItem {
+    fn from(item: StateItemJson) -> Self {
+        let data = item.bytes();
+        QueryStateItem {
+            key: item.key,
+            data,
+            etag: item.etag,
         }
     }
 }
@@ -153,7 +192,7 @@ impl Guest for Component {
             body["parallelism"] = json!(parallelism);
         }
         let response = sidecar.json(Method::POST, &path, &body)?;
-        let items: Vec<BulkItemJson> = serde_json::from_slice(&response.body)
+        let items: Vec<StateItemJson> = serde_json::from_slice(&response.body)
             .map_err(|e| Error::Internal(format!("unexpected bulk-get response: {e}")))?;
         Ok(items.into_iter().map(Into::into).collect())
     }
@@ -216,7 +255,7 @@ impl Guest for Component {
                         TransactionOperation::Upsert => "upsert",
                         TransactionOperation::Delete => "delete",
                     },
-                    "request": item_to_json(&op.item),
+                    "request": transaction_request_to_json(op),
                 })
             })
             .collect();
@@ -251,7 +290,7 @@ impl Guest for Component {
         #[derive(Deserialize)]
         struct QueryJson {
             #[serde(default)]
-            results: Vec<BulkItemJson>,
+            results: Vec<StateItemJson>,
             #[serde(default)]
             token: Option<String>,
         }

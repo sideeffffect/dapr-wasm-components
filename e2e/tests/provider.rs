@@ -1,5 +1,9 @@
 //! Direct tests of the wasi-http provider's exports against the mock sidecar.
 
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::conversation::{
+    ContentPart, ConversationInput, ConversationOptions, Message, ParticipantMessage, Tool,
+    ToolFunction,
+};
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::invocation::HttpVerb;
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::jobs::Job;
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::lock::UnlockStatus;
@@ -60,9 +64,9 @@ async fn state_roundtrip() {
         .unwrap();
     assert_eq!(bulk.len(), 2);
     assert_eq!(bulk[0].key, "k1");
-    assert_eq!(bulk[0].data, value);
+    assert_eq!(bulk[0].value, value);
     assert_eq!(bulk[1].key, "nope");
-    assert!(bulk[1].data.is_empty());
+    assert!(bulk[1].value.is_empty());
 
     state
         .call_delete(&mut store, "statestore", "k1", None, None, &Vec::new())
@@ -84,7 +88,7 @@ async fn pubsub_publish_records_content_type() {
             "pubsub",
             "orders",
             br#"{"order":1}"#,
-            "application/json",
+            Some("application/json"),
             &vec![("rawPayload".to_string(), "true".to_string())],
         )
         .await
@@ -110,7 +114,8 @@ async fn secrets() {
         .call_get_secret(&mut store, "vault", "db", &Vec::new())
         .await
         .unwrap()
-        .unwrap();
+        .unwrap()
+        .expect("secret should exist");
     assert_eq!(
         secret,
         vec![("password".to_string(), "hunter2".to_string())]
@@ -119,10 +124,80 @@ async fn secrets() {
     let missing = secrets
         .call_get_secret(&mut store, "vault", "missing", &Vec::new())
         .await
+        .unwrap()
         .unwrap();
-    assert!(
-        missing.is_err(),
-        "missing secret should be a not-found error"
+    assert!(missing.is_none(), "missing secret should be none");
+}
+
+#[tokio::test]
+async fn conversation_converse() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    let conversation = provider.dapr_wasm_components_interfaces_conversation();
+
+    let inputs = vec![ConversationInput {
+        messages: vec![Message::User(ParticipantMessage {
+            name: None,
+            content: vec![ContentPart {
+                text: "hi".to_string(),
+            }],
+        })],
+        scrub_pii: None,
+    }];
+    let options = ConversationOptions {
+        context_id: None,
+        parameters: None,
+        metadata: Vec::new(),
+        scrub_pii: None,
+        temperature: Some(0.5),
+        tools: vec![Tool {
+            function: ToolFunction {
+                name: "lookup".to_string(),
+                description: None,
+                parameters: Some(r#"{"type":"object"}"#.to_string()),
+            },
+        }],
+        tool_choice: Some("auto".to_string()),
+        response_format: None,
+        prompt_cache_retention: None,
+    };
+
+    let response = conversation
+        .call_converse(&mut store, "openai", &inputs, Some(&options))
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Response shape: choices, tool calls, usage, context id all parsed.
+    assert_eq!(response.context_id.as_deref(), Some("ctx-1"));
+    assert_eq!(response.outputs.len(), 1);
+    let output = &response.outputs[0];
+    assert_eq!(output.model.as_deref(), Some("gpt-test"));
+    let choice = &output.choices[0];
+    assert_eq!(choice.finish_reason, "tool_calls");
+    assert_eq!(choice.message.content, "hello");
+    assert_eq!(choice.message.tool_calls[0].id.as_deref(), Some("call-1"));
+    assert_eq!(choice.message.tool_calls[0].function.name, "lookup");
+    let usage = output.usage.as_ref().expect("usage present");
+    assert_eq!(usage.total_tokens, 8);
+    assert_eq!(
+        usage.prompt_tokens_details.as_ref().unwrap().cached_tokens,
+        2
+    );
+
+    // Request shape: role wrapper, content parts, options serialized faithfully.
+    let recorded = sidecar.recorded.lock().unwrap();
+    let request = &recorded.converse_requests[0];
+    assert_eq!(
+        request["inputs"][0]["messages"][0]["ofUser"]["content"][0]["text"],
+        "hi"
+    );
+    assert_eq!(request["temperature"], 0.5);
+    assert_eq!(request["toolChoice"], "auto");
+    assert_eq!(request["tools"][0]["function"]["name"], "lookup");
+    assert_eq!(
+        request["tools"][0]["function"]["parameters"]["type"],
+        "object"
     );
 }
 

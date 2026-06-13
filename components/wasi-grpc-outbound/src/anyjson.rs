@@ -51,6 +51,21 @@ fn value_to_json(value: &prost_types::Value) -> serde_json::Value {
     }
 }
 
+/// Parse a JSON object (text) into a `google.protobuf.Struct` — used for
+/// conversation tool parameters and the response-format schema, which the
+/// proto carries as `Struct`.
+pub fn json_to_struct(json_text: &str) -> Result<prost_types::Struct, crate::types::Error> {
+    let parsed: serde_json::Value = serde_json::from_str(json_text).map_err(|e| {
+        crate::types::Error::InvalidArgument(format!("expected a JSON object: {e}"))
+    })?;
+    match json_to_value(&parsed).kind {
+        Some(prost_types::value::Kind::StructValue(object)) => Ok(object),
+        _ => Err(crate::types::Error::InvalidArgument(
+            "expected a JSON object".to_string(),
+        )),
+    }
+}
+
 /// Pack a JSON document (text) as `Any(google.protobuf.Value)`.
 pub fn pack_json(json_text: &str) -> Result<prost_types::Any, crate::types::Error> {
     let parsed: serde_json::Value = serde_json::from_str(json_text).map_err(|e| {

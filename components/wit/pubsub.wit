@@ -21,12 +21,13 @@ interface pubsub {
   }
 
   /// Publish `data` to `topic` on the pub/sub component `pubsub-name`.
-  /// `data-content-type` is the MIME type of `data`, e.g. `application/json`.
+  /// `data-content-type` is the MIME type of `data`, e.g. `application/json`;
+  /// when absent the sidecar defaults it (`text/plain`).
   publish: func(
     pubsub-name: string,
     topic: string,
     data: list<u8>,
-    data-content-type: string,
+    data-content-type: option<string>,
     metadata: metadata,
   ) -> result<_, error>;
 

@@ -139,7 +139,7 @@ fn publish_orders(n: u64) -> Result<u64, String> {
             PUBSUB,
             TOPIC,
             json!({ "orderId": order_id }).to_string().as_bytes(),
-            "application/json",
+            Some("application/json"),
             &[],
         )
         .map_err(|e| format!("publishing order {order_id} failed: {e:?}"))?;

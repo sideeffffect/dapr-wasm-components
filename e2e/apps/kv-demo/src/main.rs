@@ -78,7 +78,7 @@ fn run() -> Result<(), String> {
         PUBSUB,
         TOPIC,
         br#"{"message":"kv-demo roundtrip done"}"#,
-        "application/json",
+        Some("application/json"),
         &[],
     )
     .map_err(|e| format!("publish failed: {e:?}"))?;

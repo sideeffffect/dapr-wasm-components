@@ -10,7 +10,11 @@ use crate::types::{Error, Metadata};
 use crate::Component;
 
 impl Guest for Component {
-    fn get_secret(store_name: String, key: String, metadata: Metadata) -> Result<Secret, Error> {
+    fn get_secret(
+        store_name: String,
+        key: String,
+        metadata: Metadata,
+    ) -> Result<Option<Secret>, Error> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         push_metadata_query(&mut query, &metadata);
@@ -22,11 +26,11 @@ impl Guest for Component {
         let response = sidecar.expect_success(Method::GET, &path, &[], Vec::new())?;
         // 204 = secret not found.
         if response.status == 204 {
-            return Err(Error::NotFound(format!("secret {key} in {store_name}")));
+            return Ok(None);
         }
         let secret: BTreeMap<String, String> = serde_json::from_slice(&response.body)
             .map_err(|e| Error::Internal(format!("unexpected secret response: {e}")))?;
-        Ok(secret.into_iter().collect())
+        Ok(Some(secret.into_iter().collect()))
     }
 
     fn get_bulk_secret(
