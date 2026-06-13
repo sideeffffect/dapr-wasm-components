@@ -332,15 +332,6 @@ spec:
     value: "{redis_host}"
   - name: redisPassword
     value: ""
-  # A RETRY'd delivery (the app hit a transient app↔sidecar blip and asked
-  # for redelivery) sits un-acked in Redis Streams' pending list. Dapr only
-  # reclaims it after `processingTimeout`, on each `redeliverInterval` tick —
-  # both default to tens of seconds, which races the scenario's deadline and
-  # flaked CI. Shrink them so a RETRY recovers in a few seconds.
-  - name: processingTimeout
-    value: "5s"
-  - name: redeliverInterval
-    value: "2s"
 "#
         ),
     );
