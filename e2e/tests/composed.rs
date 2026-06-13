@@ -9,7 +9,7 @@ use wasmtime::Store;
 use dapr_wasm_components_e2e::mock::MockSidecar;
 use dapr_wasm_components_e2e::{
     compose, engine, http_inbound_path, http_outbound_path, kv_demo_path, linker,
-    microservice_path, Ctx,
+    microservice_path, serve_inbound, Ctx,
 };
 
 #[tokio::test]
@@ -57,4 +57,47 @@ async fn full_composition_is_valid() {
     // Component::new fully validates the encoded component bytes.
     let engine = engine().unwrap();
     Component::new(&engine, &composed).expect("composed component is invalid");
+}
+
+/// Inbound config-update delivery: a sidecar `POST /configuration/<store>/<key>`
+/// carrying Dapr's `UpdateEvent` must reach the app's `on-configuration-event`.
+/// The microservice persists each delivered item to state, so we assert the
+/// resulting state write landed on the mock sidecar.
+#[tokio::test]
+async fn inbound_configuration_update_is_delivered() {
+    let sidecar = MockSidecar::start().await.unwrap();
+
+    let app = std::fs::read(microservice_path()).expect("microservice component not built");
+    let outbound = std::fs::read(http_outbound_path()).expect("http-outbound not built");
+    let inbound = std::fs::read(http_inbound_path()).expect("http-inbound not built");
+    let composed = compose::plug_full(app, outbound, inbound).expect("full composition failed");
+
+    // Dapr's UpdateEvent: `items` is a map keyed by configuration key.
+    let body = serde_json::json!({
+        "id": "sub-1",
+        "items": {
+            "feature-flag": { "value": "enabled", "version": "v2" }
+        }
+    })
+    .to_string()
+    .into_bytes();
+
+    let (status, _) = serve_inbound(
+        &composed,
+        &sidecar.endpoint,
+        "POST",
+        "/configuration/configstore/feature-flag",
+        "application/json",
+        body,
+    )
+    .await
+    .expect("inbound handler errored");
+    assert_eq!(status, 200, "config-update delivery should return 200");
+
+    let recorded = sidecar.recorded.lock().unwrap();
+    let stored = recorded
+        .state
+        .get(&("statestore".to_string(), "config-feature-flag".to_string()))
+        .expect("app did not persist the delivered config item");
+    assert_eq!(stored, &serde_json::json!("enabled"));
 }

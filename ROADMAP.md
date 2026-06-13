@@ -17,12 +17,6 @@ for the inbound spec.
   field on the test `DaprdConfig`, and a scenario variant that drives the app
   *through* daprd's invoke API (since the app no longer speaks HTTP directly when
   the app channel is gRPC).
-- **Configuration-update delivery.** `configuration-callback` (the inbound side of
-  `configuration.subscribe`) is defined in WIT but the `wasi-http-inbound` router
-  does not yet recognise the sidecar's config-update POST and dispatch it to
-  `on-configuration-event`. Needs the route + the JSON→typed mapping. (Over gRPC,
-  config updates are a server stream on the `Dapr` service, not an `AppCallback`
-  flow, so the `wasi-grpc-inbound` provider deliberately does not carry them.)
 - **Input-binding response field names.** `bindings-callback.on-binding-event` can
   ask the sidecar to persist state / forward to output bindings; the JSON shape
   the `wasi-http-inbound` provider emits follows the bindings API reference but is
@@ -60,6 +54,17 @@ for the inbound spec.
 - **Composition ergonomics.** Composition uses the repo's [`compose.wac`](compose.wac)
   (`outbound → app → inbound`, acyclic). A thin wrapper or template could make the
   three-dependency `wac compose` invocation a one-liner.
+
+## Recently shipped
+
+- **Configuration-update delivery (inbound).** The `wasi-http-inbound` router now
+  recognises the sidecar's config-update push (`POST /configuration/<store>/<key>`
+  carrying Dapr's `UpdateEvent` — `items` is a map keyed by configuration key) and
+  dispatches it to `configuration-callback.on-configuration-event`. Verified by a
+  composed in-process test (`e2e/tests/composed.rs`
+  `inbound_configuration_update_is_delivered`), driven through the real inbound
+  handler via the new `serve_inbound` harness helper (`e2e/src/lib.rs`) — which
+  also unlocks in-process testing of the other inbound flows.
 
 ## Standing design constraints (not TODOs)
 

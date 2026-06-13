@@ -22,6 +22,7 @@
 //! served app channel (`/smoke`, `/publish?n=N`, `/invoke-self`, …); the
 //! inbound provider routes those unknown paths to [`DaprApp::on_invoke`].
 
+use dapr_app::callback::configuration_callback::ConfigurationUpdate;
 use dapr_app::callback::invocation_callback::{HttpResponse, InvokeRequest};
 use dapr_app::callback::pubsub_callback::{TopicEvent, TopicEventResponse, TopicSubscription};
 use dapr_app::dapr::{invocation, runtime, state};
@@ -68,6 +69,26 @@ impl DaprApp for Microservice {
             Err(error) => {
                 eprintln!("order processing failed: {error}");
                 TopicEventResponse::Retry
+            }
+        }
+    }
+
+    fn on_configuration_event(update: ConfigurationUpdate) {
+        // Persist each delivered item under `config-<key>` so the round-trip is
+        // observable from outside (the harness asserts on the state writes).
+        for (key, item) in &update.items {
+            if let Err(error) = state::save(
+                STATE_STORE,
+                &[state::StateItem {
+                    key: format!("config-{key}"),
+                    value: item.value.clone().into_bytes(),
+                    etag: None,
+                    metadata: Vec::new(),
+                    options: None,
+                }],
+                &[],
+            ) {
+                eprintln!("persisting config item {key} failed: {error:?}");
             }
         }
     }

@@ -122,6 +122,73 @@ pub fn engine() -> wasmtime::Result<Engine> {
     Engine::new(&Config::new())
 }
 
+/// Drive a composed **inbound** server (one that exports
+/// `wasi:http/incoming-handler`, i.e. `outbound → app → inbound`) with a single
+/// synthetic app-channel request — exactly what a Dapr sidecar would POST. The
+/// app's outbound calls during handling hit the real `sidecar_endpoint` (the
+/// mock), so a test can assert on what the delivery caused. Returns the app
+/// channel's HTTP status and response body.
+pub async fn serve_inbound(
+    component_bytes: &[u8],
+    sidecar_endpoint: &str,
+    method: &str,
+    path: &str,
+    content_type: &str,
+    body: Vec<u8>,
+) -> anyhow::Result<(u16, Vec<u8>)> {
+    use http_body_util::{BodyExt, Full};
+    use wasmtime_wasi_http::p2::bindings::http::types::{ErrorCode, Scheme};
+    use wasmtime_wasi_http::p2::bindings::ProxyPre;
+
+    let engine = engine()?;
+    let component = Component::new(&engine, component_bytes)?;
+    let linker = linker(&engine)?;
+    let pre = ProxyPre::new(linker.instantiate_pre(&component)?)?;
+
+    let env = vec![(
+        "DAPR_HTTP_ENDPOINT".to_string(),
+        sidecar_endpoint.to_string(),
+    )];
+    let mut store = Store::new(&engine, Ctx::new(&env));
+
+    let request = hyper::Request::builder()
+        .method(method)
+        .uri(format!("http://app{path}"))
+        .header("content-type", content_type)
+        .body(
+            Full::new(bytes::Bytes::from(body))
+                .map_err(|e: std::convert::Infallible| -> ErrorCode { match e {} }),
+        )?;
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let req = store
+        .data_mut()
+        .http()
+        .new_incoming_request(Scheme::Http, request)?;
+    let out = store.data_mut().http().new_response_outparam(sender)?;
+
+    let task = tokio::task::spawn(async move {
+        let proxy = pre.instantiate_async(&mut store).await?;
+        proxy
+            .wasi_http_incoming_handler()
+            .call_handle(&mut store, req, out)
+            .await
+    });
+
+    let response = match receiver.await {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => anyhow::bail!("inbound handler returned an error: {error:?}"),
+        Err(_) => {
+            // The guest never set the response outparam; surface the trap.
+            task.await??;
+            anyhow::bail!("guest never produced a response");
+        }
+    };
+    let status = response.status().as_u16();
+    let bytes = response.into_body().collect().await?.to_bytes().to_vec();
+    Ok((status, bytes))
+}
+
 pub fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
     let mut linker = Linker::<Ctx>::new(engine);
     wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;

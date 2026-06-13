@@ -21,6 +21,7 @@
 //! | `POST <pubsub route>`                     | `pubsub-callback.on-topic-event`      |
 //! | `POST /<input-binding>`                   | `bindings-callback.on-binding-event`  |
 //! | `POST /job/<name>`                        | `jobs-callback.on-job-event`          |
+//! | `POST /configuration/<store>/<key>`       | `configuration-callback.on-configuration-event` |
 //! | `PUT /actors/<t>/<id>/method/timer/<n>`   | `actors-callback.on-timer`            |
 //! | `PUT /actors/<t>/<id>/method/remind/<n>`  | `actors-callback.on-reminder`         |
 //! | `PUT /actors/<t>/<id>/method/<m>`         | `actors-callback.on-invoke`           |
@@ -46,7 +47,8 @@ pub(crate) use wit::dapr_wasm_components::interfaces as imports;
 use imports::invocation::{HttpResponse, HttpVerb};
 use imports::types::Error;
 use imports::{
-    actors_callback, bindings_callback, invocation_callback, jobs_callback, pubsub_callback,
+    actors_callback, bindings_callback, configuration_callback, invocation_callback, jobs_callback,
+    pubsub_callback,
 };
 
 /// Render bytes as a JSON value: a value that already parses as JSON is kept
@@ -132,6 +134,16 @@ fn route(
     if method == Method::POST {
         if let Some(name) = path.strip_prefix("/job/") {
             return deliver_job(decode(name), &headers, body);
+        }
+    }
+
+    // Configuration update push: `POST /configuration/<store>/<key>`. The
+    // sidecar sends one POST per changed key, each carrying the whole update.
+    if method == Method::POST {
+        if let Some(rest) = path.strip_prefix("/configuration/") {
+            if let Some(store) = rest.split('/').next().filter(|s| !s.is_empty()) {
+                return deliver_config_update(decode(store), body);
+            }
         }
     }
 
@@ -349,6 +361,61 @@ fn deliver_job(name: String, headers: &[(String, String)], body: Vec<u8>) -> Res
         Ok(()) => text(StatusCode::OK, ""),
         Err(error) => error_response(&error),
     }
+}
+
+// --- configuration ---------------------------------------------------------
+
+/// Deliver a sidecar configuration-update push to `on-configuration-event`.
+/// The body is Dapr's `UpdateEvent`: `{ "id", "items": { <key>: { value,
+/// version, metadata } } }` (items is a map keyed by configuration key).
+fn deliver_config_update(store_name: String, body: Vec<u8>) -> Response<Body> {
+    #[derive(Deserialize, Default)]
+    struct ItemJson {
+        #[serde(default)]
+        value: String,
+        #[serde(default)]
+        version: String,
+        #[serde(default)]
+        metadata: std::collections::BTreeMap<String, String>,
+    }
+    #[derive(Deserialize, Default)]
+    struct UpdateJson {
+        #[serde(default)]
+        id: String,
+        #[serde(default)]
+        items: std::collections::BTreeMap<String, ItemJson>,
+    }
+
+    let raw: UpdateJson = match serde_json::from_slice(&body) {
+        Ok(raw) => raw,
+        Err(error) => {
+            eprintln!("dropping unparseable configuration update: {error}");
+            return text(StatusCode::OK, "");
+        }
+    };
+
+    let items = raw
+        .items
+        .into_iter()
+        .map(|(key, item)| {
+            (
+                key,
+                configuration_callback::ConfigurationItem {
+                    value: item.value,
+                    version: item.version,
+                    metadata: item.metadata.into_iter().collect(),
+                },
+            )
+        })
+        .collect();
+
+    let update = configuration_callback::ConfigurationUpdate {
+        store_name,
+        id: raw.id,
+        items,
+    };
+    configuration_callback::on_configuration_event(&update);
+    text(StatusCode::OK, "")
 }
 
 // --- actors ----------------------------------------------------------------
