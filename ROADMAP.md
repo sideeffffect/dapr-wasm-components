@@ -24,10 +24,6 @@ for the inbound spec.
 - **Pub/sub routing rules and bulk subscribe.** `pubsub-callback` models one route
   per topic (dispatch on `pubsub-name` + `topic`). Dapr's CEL routing rules
   (`TopicRoutes`) and bulk subscribe (`OnBulkTopicEvent`) are not exposed.
-- **CloudEvent extensions over gRPC.** The `wasi-http-inbound` provider surfaces
-  CloudEvent extension attributes in `topic-event.extensions`; the
-  `wasi-grpc-inbound` provider currently passes them empty (the proto carries them
-  as a `google.protobuf.Struct`, not yet mapped).
 
 ## gRPC provider
 
@@ -57,6 +53,12 @@ for the inbound spec.
 
 ## Recently shipped
 
+- **CloudEvent extensions over gRPC.** `wasi-grpc-inbound` now maps
+  `TopicEventRequest.extensions` (a `google.protobuf.Struct`) into
+  `topic-event.extensions`, stringifying each value the same way the HTTP
+  provider does (string verbatim, otherwise JSON text) — implemented JSON-dep-free
+  to keep the published component lean. Compile-checked (the gRPC provider's
+  standing posture); exercised opportunistically by the spin E2E.
 - **Configuration-update delivery (inbound).** The `wasi-http-inbound` router now
   recognises the sidecar's config-update push (`POST /configuration/<store>/<key>`
   carrying Dapr's `UpdateEvent` — `items` is a map keyed by configuration key) and

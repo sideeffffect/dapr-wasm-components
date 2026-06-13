@@ -143,7 +143,7 @@ fn on_topic_event(payload: &[u8]) -> Response<Body> {
         topic: event.topic,
         pubsub_name: event.pubsub_name,
         path: non_empty(event.path),
-        extensions: Vec::new(),
+        extensions: extensions_from_struct(event.extensions.as_ref()),
     };
     let status = match pubsub_callback::on_topic_event(&wit_event) {
         pubsub_callback::TopicEventResponse::Success => {
@@ -304,6 +304,82 @@ fn verb_from_proto(verb: i32) -> HttpVerb {
         // NONE/POST/CONNECT/TRACE → POST (no WIT verb for the last two).
         _ => HttpVerb::Post,
     }
+}
+
+/// Map the `extensions` field (a `google.protobuf.Struct` carrying the
+/// CloudEvent extension attributes) to the WIT `list<tuple<string, string>>`.
+/// Each value is stringified the same way the wasi-http inbound provider does:
+/// a string passes through verbatim, anything else becomes its JSON text.
+fn extensions_from_struct(extensions: Option<&prost_types::Struct>) -> Vec<(String, String)> {
+    match extensions {
+        None => Vec::new(),
+        Some(object) => object
+            .fields
+            .iter()
+            .map(|(key, value)| (key.clone(), value_to_string(value)))
+            .collect(),
+    }
+}
+
+/// Stringify a `google.protobuf.Value`: strings pass through; everything else
+/// renders as JSON text (numbers without a trailing `.0` when integral, to line
+/// up with the JSON the HTTP provider produces). Written by hand so the gRPC
+/// provider keeps no JSON dependency.
+fn value_to_string(value: &prost_types::Value) -> String {
+    use prost_types::value::Kind;
+    match &value.kind {
+        Some(Kind::StringValue(text)) => text.clone(),
+        Some(Kind::NumberValue(number)) => {
+            if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e15 {
+                format!("{}", *number as i64)
+            } else {
+                number.to_string()
+            }
+        }
+        Some(Kind::BoolValue(boolean)) => boolean.to_string(),
+        None | Some(Kind::NullValue(_)) => "null".to_string(),
+        Some(Kind::StructValue(object)) => {
+            let fields: Vec<String> = object
+                .fields
+                .iter()
+                .map(|(key, value)| format!("{}:{}", json_string(key), value_to_json(value)))
+                .collect();
+            format!("{{{}}}", fields.join(","))
+        }
+        Some(Kind::ListValue(list)) => {
+            let items: Vec<String> = list.values.iter().map(value_to_json).collect();
+            format!("[{}]", items.join(","))
+        }
+    }
+}
+
+/// Like [`value_to_string`] but always emits valid JSON (strings are quoted) —
+/// used for values *inside* a nested struct/list.
+fn value_to_json(value: &prost_types::Value) -> String {
+    use prost_types::value::Kind;
+    match &value.kind {
+        Some(Kind::StringValue(text)) => json_string(text),
+        _ => value_to_string(value),
+    }
+}
+
+/// Encode a string as a JSON string literal (quotes + the mandatory escapes).
+fn json_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn non_empty(value: String) -> Option<String> {
