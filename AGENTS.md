@@ -41,6 +41,7 @@ cargo test --test spin -- --ignored
 ## Git
 
 - **Always keep pushing to `main` — directly, without asking.** This is a solo, trunk-based repo: commit your finished work and push it straight to `origin/main` as you go. Don't ask for permission to commit or push, and don't open a PR or use a side branch — push directly to `main` even when working from a worktree branch (push your `HEAD` to `main`). Don't leave finished changes sitting uncommitted in a worktree. Rebase onto the latest `origin/main` before pushing. (Wiki/`raw` edits count too.)
+- **Cut releases as GitHub releases, never bare git tags.** Use `gh release create` (which creates the underlying tag for you) so each release has notes and is what CI keys off — don't `git tag`/`git push --tags` by hand. The release tag must match the WIT package version (see [Conventions](#conventions)).
 
 ## Conventions
 
