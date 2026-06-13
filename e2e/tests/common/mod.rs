@@ -401,7 +401,9 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
     assert_eq!(published["published"], 3, "publish failed: {published}");
 
     // 5. Cross-sidecar pub/sub delivery: the consumer's counter reaches 3.
-    let deadline = Instant::now() + Duration::from_secs(30);
+    //    Generous deadline — a transient app↔sidecar connection blip makes the
+    //    app return RETRY, and daprd redelivers with backoff; give it room.
+    let deadline = Instant::now() + Duration::from_secs(90);
     loop {
         let count = get_json(&format!("{consumer_base}/count"));
         if count["processed"] == 3 {

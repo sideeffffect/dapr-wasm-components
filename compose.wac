@@ -1,0 +1,37 @@
+// Compose a dapr-wasm-components application with an outbound and an inbound
+// provider into one runnable server component. The graph is acyclic by
+// construction — outbound → app → inbound — which is why outbound and inbound
+// are separate components (a single bidirectional provider would form an
+// app ↔ provider instantiation cycle the component model forbids).
+//
+// The three packages are supplied on the command line; pick the providers for
+// the transport you want (the two directions are independent — e.g. gRPC out,
+// HTTP in is valid):
+//
+//   wac compose \
+//     --dep dapr:app=my_app.wasm \
+//     --dep dapr:outbound=dapr_wasm_components_wasi_http_outbound.wasm \
+//     --dep dapr:inbound=dapr_wasm_components_wasi_http_inbound.wasm \
+//     compose.wac -o composed.wasm
+//
+// Run the result with `wasmtime serve -S cli composed.wasm` (or `spin up`),
+// next to a Dapr sidecar.
+
+package dapr-wasm-components:composed;
+
+// The outbound provider has no app-facing imports (only host wasi:*), so it
+// instantiates first; `...` pulls its wasi imports from the top level.
+let outbound = new dapr:outbound { ... };
+
+// The app's building-block imports are satisfied by the outbound provider's
+// exports; any remaining imports come from the top level.
+let app = new dapr:app { ...outbound, ... };
+
+// The inbound provider takes the app's callback exports, plus the type-only
+// building-block interfaces (state/invocation/types, referenced by the
+// callback interfaces) from the outbound provider; wasi:* from the top level.
+let inbound = new dapr:inbound { ...app, ...outbound, ... };
+
+// The composed server exposes the inbound provider's app-channel entry point
+// (`wasi:http/incoming-handler`).
+export inbound...;
