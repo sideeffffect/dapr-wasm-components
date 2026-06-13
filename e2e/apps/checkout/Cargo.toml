@@ -7,5 +7,5 @@ description = "E2E microservice: publishes orders via Dapr pub/sub and verifies 
 publish = false
 
 [dependencies]
+dapr-app = { path = "../../../app-sdk/dapr-app" }
 serde_json = "1"
-wit-bindgen = "0.58"

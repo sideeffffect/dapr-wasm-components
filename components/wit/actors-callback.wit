@@ -1,0 +1,65 @@
+/// Inbound actors — the application side of Dapr actor hosting.
+/// `config` declares the hosted actor types and runtime options (rendered to
+/// `GET /dapr/config`); the remaining functions are the activation lifecycle:
+/// method invoke, timer/reminder firing, and deactivation. Actor *state* is
+/// read and written through the outbound `actors` interface, not here.
+///
+/// Note: Dapr's gRPC `AppCallback` service has no actor methods — actor
+/// hosting is served over the HTTP app channel only. Turn-based concurrency
+/// follows from the single-threaded wasm instance; `reentrancy-*` is surfaced
+/// for the sidecar but enforced by it, not by this component.
+/// https://docs.dapr.io/reference/api/actors_api/
+interface actors-callback {
+  use types.{error};
+
+  /// Actor runtime configuration returned to the sidecar at startup.
+  record actor-config {
+    /// The actor types this application hosts.
+    entities: list<string>,
+    /// Go-duration strings (e.g. "1h", "30s") where present.
+    actor-idle-timeout: option<string>,
+    actor-scan-interval: option<string>,
+    drain-ongoing-call-timeout: option<string>,
+    drain-rebalanced-actors: option<bool>,
+    reentrancy-enabled: option<bool>,
+    reentrancy-max-stack-depth: option<u32>,
+    reminders-storage-partitions: option<u32>,
+  }
+
+  /// A fired timer.
+  record actor-timer-event {
+    actor-type: string,
+    actor-id: string,
+    name: string,
+    due-time: option<string>,
+    period: option<string>,
+    data: list<u8>,
+    /// The actor method to invoke for this timer, when set.
+    callback: option<string>,
+  }
+
+  /// A fired reminder.
+  record actor-reminder-event {
+    actor-type: string,
+    actor-id: string,
+    name: string,
+    due-time: option<string>,
+    period: option<string>,
+    data: list<u8>,
+  }
+
+  /// Declare hosted actor types and runtime options. Called at startup.
+  config: func() -> actor-config;
+
+  /// Invoke `method` on the actor instance `actor-type`/`actor-id`.
+  on-invoke: func(actor-type: string, actor-id: string, method: string, data: list<u8>) -> result<list<u8>, error>;
+
+  /// Fire a timer on an actor instance.
+  on-timer: func(event: actor-timer-event) -> result<_, error>;
+
+  /// Fire a reminder on an actor instance.
+  on-reminder: func(event: actor-reminder-event) -> result<_, error>;
+
+  /// Deactivate (garbage-collect) an actor instance.
+  deactivate: func(actor-type: string, actor-id: string) -> result<_, error>;
+}

@@ -1,4 +1,4 @@
-package dapr-wasm-components:interfaces@0.1.0;
+package dapr-wasm-components:interfaces@0.2.0;
 
 /// Shared types used by all Dapr building-block interfaces.
 interface types {

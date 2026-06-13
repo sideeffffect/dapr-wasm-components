@@ -1,33 +1,26 @@
-//! Spin-demo microservice (a `wasi:http` server component).
+//! Spin-demo: the typed Dapr application for the wasi-grpc provider's E2E.
 //!
-//! The E2E app for the wasi-grpc provider: composed with it and served by
-//! `spin up`, next to a daprd sidecar whose app channel points back at
-//! Spin's listener. Routes:
+//! A reactor component (no HTTP of its own): it implements [`DaprApp`] and is
+//! composed behind the wasi-grpc provider, which serves the sidecar's gRPC
+//! app channel (`AppCallback`) and turns each call into the typed callbacks
+//! below. The test drives it through Dapr **service invocation** — every old
+//! control route is now an `on-invoke` method:
 //!
-//! - `/smoke` — state roundtrip over gRPC, with *binary* values
-//!   (byte-exact, which the HTTP provider cannot do), etag CAS, delete,
-//!   and a metadata sanity check
-//! - `/invoke-self` — Dapr service invocation of our own `/echo` (gRPC
-//!   `InvokeService` out, app channel back in)
-//! - `/publish` — publish an order to the `orders` topic
-//! - `/orders` — pub/sub delivery route (counts orders)
-//! - `/count` — current processed-order count
-//! - `/dapr/subscribe` — programmatic subscription declaration
-//! - `/echo`, `/healthz`
+//! - `smoke` — state roundtrip over gRPC with *binary* values (byte-exact),
+//!   etag CAS, delete, metadata sanity check
+//! - `invoke-self` — Dapr service invocation of our own `echo` method (gRPC
+//!   `InvokeService` out, `AppCallback.OnInvoke` back in)
+//! - `publish` — publish an order to the `orders` topic
+//! - `count` — current processed-order count
+//! - `echo` — echo the request body
+//!
+//! and the `orders` topic subscription counts delivered orders.
 
+use dapr_app::callback::invocation_callback::{HttpResponse, InvokeRequest};
+use dapr_app::callback::pubsub_callback::{TopicEvent, TopicEventResponse, TopicSubscription};
+use dapr_app::dapr::{invocation, runtime, state};
+use dapr_app::DaprApp;
 use serde_json::json;
-use wstd::http::body::Body;
-use wstd::http::{Request, Response, StatusCode};
-
-wit_bindgen::generate!({
-    world: "dapr-client",
-    path: "../../../components/wit",
-});
-
-use dapr_wasm_components::interfaces::invocation;
-use dapr_wasm_components::interfaces::pubsub;
-use dapr_wasm_components::interfaces::runtime;
-use dapr_wasm_components::interfaces::state;
 
 const STATE_STORE: &str = "statestore";
 const PUBSUB: &str = "pubsub";
@@ -38,76 +31,55 @@ fn app_id() -> String {
     std::env::var("APP_ID").unwrap_or_else(|_| "spin-demo".to_string())
 }
 
-#[wstd::http_server]
-async fn main(mut request: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
-    let path = request.uri().path().to_string();
-    let response = match path.as_str() {
-        "/dapr/subscribe" => json_response(
-            StatusCode::OK,
-            json!([{ "pubsubname": PUBSUB, "topic": TOPIC, "route": "/orders" }]),
-        ),
-        "/orders" => {
-            let body = request.body_mut().contents().await?;
-            match process_order(body) {
-                Ok(()) => json_response(StatusCode::OK, json!({ "status": "SUCCESS" })),
-                Err(error) => {
-                    eprintln!("order processing failed: {error}");
-                    json_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        json!({ "status": "RETRY" }),
-                    )
-                }
+struct SpinDemo;
+
+impl DaprApp for SpinDemo {
+    fn list_topic_subscriptions() -> Vec<TopicSubscription> {
+        vec![TopicSubscription {
+            pubsub_name: PUBSUB.to_string(),
+            topic: TOPIC.to_string(),
+            metadata: Vec::new(),
+            dead_letter_topic: None,
+        }]
+    }
+
+    fn on_topic_event(event: TopicEvent) -> TopicEventResponse {
+        match process_order(&event.data) {
+            Ok(()) => TopicEventResponse::Success,
+            Err(error) => {
+                eprintln!("order processing failed: {error}");
+                TopicEventResponse::Retry
             }
         }
-        "/smoke" => match smoke() {
-            Ok(value) => json_response(StatusCode::OK, value),
-            Err(error) => {
-                json_response(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": error }))
+    }
+
+    fn on_invoke(request: InvokeRequest) -> HttpResponse {
+        let result = match request.method.as_str() {
+            "smoke" => smoke(),
+            "invoke-self" => invoke_self(),
+            "publish" => publish_order().map(|()| json!({ "published": true })),
+            "count" => read_counter().map(|count| json!({ "processed": count })),
+            "echo" => {
+                let echoed = String::from_utf8_lossy(&request.data).into_owned();
+                Ok(json!({ "echo": echoed }))
             }
-        },
-        "/echo" => {
-            let body = request.body_mut().contents().await?;
-            let echoed = String::from_utf8_lossy(body).into_owned();
-            json_response(StatusCode::OK, json!({ "echo": echoed }))
+            other => {
+                return json_response(404, &json!({ "error": format!("unknown method: {other}") }))
+            }
+        };
+        match result {
+            Ok(value) => json_response(200, &value),
+            Err(error) => json_response(500, &json!({ "error": error })),
         }
-        "/invoke-self" => match invoke_self() {
-            Ok(value) => json_response(StatusCode::OK, value),
-            Err(error) => {
-                json_response(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": error }))
-            }
-        },
-        "/publish" => match publish_order() {
-            Ok(()) => json_response(StatusCode::OK, json!({ "published": true })),
-            Err(error) => {
-                json_response(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": error }))
-            }
-        },
-        "/count" => match read_counter() {
-            Ok(count) => json_response(StatusCode::OK, json!({ "processed": count })),
-            Err(error) => {
-                json_response(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": error }))
-            }
-        },
-        "/" | "/healthz" => json_response(StatusCode::OK, json!({ "status": "ok" })),
-        _ => json_response(StatusCode::NOT_FOUND, json!({ "error": "not found" })),
-    };
-    Ok(response)
+    }
 }
 
-fn json_response(status: StatusCode, value: serde_json::Value) -> Response<Body> {
-    let mut response = Response::new(Body::from(value.to_string().into_bytes()));
-    *response.status_mut() = status;
-    response.headers_mut().insert(
-        "content-type",
-        wstd::http::HeaderValue::from_static("application/json"),
-    );
-    response
-}
+dapr_app::export_app!(SpinDemo);
 
 /// State over gRPC, end to end: binary roundtrip, etag CAS, delete.
 fn smoke() -> Result<serde_json::Value, String> {
-    // Bytes that are deliberately not valid JSON nor UTF-8: the gRPC
-    // provider must return them byte-exact (the HTTP provider cannot).
+    // Bytes that are deliberately not valid JSON nor UTF-8: the gRPC provider
+    // must return them byte-exact (the HTTP provider cannot).
     let binary: Vec<u8> = vec![0x00, 0xFF, 0x9F, 0x92, 0x96, b'"', b'{'];
 
     state::save(
@@ -191,8 +163,8 @@ fn smoke() -> Result<serde_json::Value, String> {
     Ok(json!({ "ok": true, "appId": id }))
 }
 
-/// Service invocation of our own `/echo` route: out through gRPC
-/// `InvokeService`, back in through the app channel.
+/// Service invocation of our own `echo` method: out through gRPC
+/// `InvokeService`, back in through the app channel (`AppCallback.OnInvoke`).
 fn invoke_self() -> Result<serde_json::Value, String> {
     let response = invocation::invoke(
         &app_id(),
@@ -219,7 +191,7 @@ fn invoke_self() -> Result<serde_json::Value, String> {
 }
 
 fn publish_order() -> Result<(), String> {
-    pubsub::publish(
+    dapr_app::dapr::pubsub::publish(
         PUBSUB,
         TOPIC,
         json!({ "orderId": 1 }).to_string().as_bytes(),
@@ -229,12 +201,12 @@ fn publish_order() -> Result<(), String> {
     .map_err(|e| format!("publish failed: {e:?}"))
 }
 
-fn process_order(cloud_event: &[u8]) -> Result<(), String> {
-    let event: serde_json::Value =
-        serde_json::from_slice(cloud_event).map_err(|e| format!("invalid CloudEvent: {e}"))?;
-    event["data"]["orderId"]
+fn process_order(order: &[u8]) -> Result<(), String> {
+    let order: serde_json::Value =
+        serde_json::from_slice(order).map_err(|e| format!("invalid order payload: {e}"))?;
+    order["orderId"]
         .as_u64()
-        .ok_or_else(|| format!("event without orderId: {event}"))?;
+        .ok_or_else(|| format!("order without orderId: {order}"))?;
     increment_counter()
 }
 
@@ -286,4 +258,12 @@ fn read_counter() -> Result<u64, String> {
                 .unwrap_or(0)
         })
         .unwrap_or(0))
+}
+
+fn json_response(status: u16, value: &serde_json::Value) -> HttpResponse {
+    HttpResponse {
+        status,
+        headers: vec![("content-type".to_string(), "application/json".to_string())],
+        body: value.to_string().into_bytes(),
+    }
 }

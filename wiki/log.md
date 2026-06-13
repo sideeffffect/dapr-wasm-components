@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-06-13] new | dapr-wasm-components Inbound Design (spec from design interview: adapter handles Dapr→app inbound as typed WIT — all six flows + health, app never touches the wire; new *-handler interfaces, dapr-app/dapr-host worlds, both providers; supersedes "outbound only")
+- Supersedes: dapr-wasm-components Architecture (§"Outbound only" decision)
+
 ## [2026-06-13] update | dapr-wasm-components Architecture (repo restructure: components/ = only the 3 published artifacts, demo apps → e2e/apps wasm-only workspace; WIT worlds imports→dapr-client, provider→dapr-server; README two-directions explanation; shared e2e test scaffolding in tests/common)
 
 ## [2026-06-12] ingest | dapr-wasm-components Architecture (wasi-grpc provider PoC: tonic+wasi-grpc+spin-executor stack, h2c exact-match trap, spin trigger subprocess trap, ephemeral-port trap, gRPC semantic gaps)

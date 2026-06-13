@@ -1,0 +1,11 @@
+/// Inbound app health — the application liveness probe. Dapr calls it when
+/// app health checks are enabled (`GET /healthz` over HTTP,
+/// `AppCallbackHealthCheck.HealthCheck` over gRPC). `ok` means healthy.
+/// https://docs.dapr.io/operations/resiliency/health-checks/app-health/
+interface health-callback {
+  use types.{error};
+
+  /// Report application health. An `error` (or a trap) marks the app
+  /// unhealthy to the sidecar.
+  health-check: func() -> result<_, error>;
+}

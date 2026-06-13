@@ -7,15 +7,18 @@ use wasmtime::component::Component;
 use wasmtime::Store;
 
 use dapr_wasm_components_e2e::mock::MockSidecar;
-use dapr_wasm_components_e2e::{compose, engine, kv_demo_path, linker, provider_path, Ctx};
+use dapr_wasm_components_e2e::{
+    app_path, compose, engine, http_inbound_path, http_outbound_path, kv_demo_path, linker, Ctx,
+};
 
 #[tokio::test]
 async fn composed_kv_demo_runs() {
     let sidecar = MockSidecar::start().await.unwrap();
 
     let app_bytes = std::fs::read(kv_demo_path()).expect("kv-demo component not built");
-    let provider_bytes = std::fs::read(provider_path()).expect("provider component not built");
-    let composed = compose::plug(app_bytes, provider_bytes).expect("composition failed");
+    let outbound_bytes =
+        std::fs::read(http_outbound_path()).expect("http-outbound provider not built");
+    let composed = compose::plug(app_bytes, outbound_bytes).expect("composition failed");
 
     let engine = engine().unwrap();
     let component = Component::new(&engine, &composed).unwrap();
@@ -37,4 +40,24 @@ async fn composed_kv_demo_runs() {
     // ...and exactly one event was published.
     assert_eq!(recorded.published.len(), 1);
     assert_eq!(recorded.published[0].topic, "kv-demo");
+}
+
+/// The full bidirectional composition (`outbound → app → inbound`) must encode
+/// to a valid server component that exports `wasi:http/incoming-handler`.
+#[tokio::test]
+async fn full_composition_is_valid() {
+    let app = std::fs::read(app_path(
+        "ORDER_PROCESSOR_COMPONENT",
+        "order_processor.wasm",
+    ))
+    .expect("order-processor component not built");
+    let outbound = std::fs::read(http_outbound_path()).expect("http-outbound not built");
+    let inbound = std::fs::read(http_inbound_path()).expect("http-inbound not built");
+
+    let composed =
+        compose::plug_full(app, outbound, inbound).expect("full composition failed to encode");
+
+    // Component::new fully validates the encoded component bytes.
+    let engine = engine().unwrap();
+    Component::new(&engine, &composed).expect("composed component is invalid");
 }

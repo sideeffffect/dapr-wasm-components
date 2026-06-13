@@ -1,0 +1,19 @@
+/// Inbound jobs — the application side of the Dapr jobs building block.
+/// At trigger time the sidecar sends the scheduled job back to the app
+/// (`POST /job/<name>` over HTTP, `AppCallback.OnJobEvent` over gRPC). Jobs
+/// are scheduled via the outbound `jobs` interface; there is no discovery
+/// call — dispatch on `name`.
+/// https://docs.dapr.io/reference/api/jobs_api/
+interface jobs-callback {
+  use types.{error};
+
+  /// A triggered job. `data` is the payload supplied at schedule time.
+  record job-event {
+    name: string,
+    data: list<u8>,
+    content-type: option<string>,
+  }
+
+  /// Handle one job trigger.
+  on-job-event: func(event: job-event) -> result<_, error>;
+}

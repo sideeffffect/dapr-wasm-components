@@ -1,0 +1,50 @@
+/// Inbound pub/sub — the application side of Dapr publish & subscribe.
+/// `list-topic-subscriptions` declares what the app subscribes to (the
+/// provider renders it to `GET /dapr/subscribe` or `ListTopicSubscriptions`),
+/// and `on-topic-event` receives each delivered CloudEvent. Mirrors
+/// `AppCallback.ListTopicSubscriptions` / `OnTopicEvent`.
+/// https://docs.dapr.io/reference/api/pubsub_api/
+interface pubsub-callback {
+  use types.{metadata};
+
+  /// One topic this application subscribes to. Routing rules (CEL) and bulk
+  /// subscribe are not modelled in this version — one route per topic, with
+  /// in-app dispatch on (`pubsub-name`, `topic`).
+  record topic-subscription {
+    pubsub-name: string,
+    topic: string,
+    metadata: metadata,
+    dead-letter-topic: option<string>,
+  }
+
+  /// A delivered event, compatible with CloudEvents spec v1.0. The provider
+  /// parses the envelope; the app deserializes its domain payload from `data`.
+  record topic-event {
+    id: string,
+    source: string,
+    %type: string,
+    spec-version: string,
+    data-content-type: option<string>,
+    data: list<u8>,
+    topic: string,
+    pubsub-name: string,
+    /// The matched subscription path, when the sidecar supplies one.
+    path: option<string>,
+    /// CloudEvent extension attributes.
+    extensions: metadata,
+  }
+
+  /// How the app handled the event. Maps to Dapr's
+  /// SUCCESS / RETRY / DROP status.
+  enum topic-event-response {
+    success,
+    retry,
+    drop,
+  }
+
+  /// Declares the topics this app subscribes to. Called at startup.
+  list-topic-subscriptions: func() -> list<topic-subscription>;
+
+  /// Handle one delivered event. Dispatch on (`pubsub-name`, `topic`).
+  on-topic-event: func(event: topic-event) -> topic-event-response;
+}

@@ -1,0 +1,18 @@
+[package]
+name = "dapr-wasm-components-wasi-http-inbound"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pure-wasm Dapr provider (inbound): exports wasi:http/incoming-handler and translates the Dapr HTTP app channel into typed dapr-wasm-components callback calls"
+repository = "https://github.com/sideeffffect/dapr-wasm-components"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+urlencoding = "2"
+wit-bindgen = "0.58"
+wstd = "0.6"

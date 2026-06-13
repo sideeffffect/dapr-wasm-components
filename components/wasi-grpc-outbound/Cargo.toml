@@ -1,9 +1,9 @@
 [package]
-name = "dapr-wasm-components-wasi-grpc"
+name = "dapr-wasm-components-wasi-grpc-outbound"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Pure-wasm Dapr provider: exports the dapr-wasm-components:interfaces and talks to the Dapr sidecar's gRPC API via wasi:http outgoing HTTP/2 (requires a Spin >= 3.4 host with SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE)"
+description = "Pure-wasm Dapr provider (outbound): exports the dapr-wasm-components building blocks and talks to the Dapr sidecar's gRPC API via wasi:http outgoing HTTP/2 (requires a Spin >= 3.4 host with SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE)"
 repository = "https://github.com/sideeffffect/dapr-wasm-components"
 publish = false
 

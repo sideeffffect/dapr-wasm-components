@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["wasi-http", "wasi-grpc"]
+members = [
+    "wasi-http-outbound",
+    "wasi-http-inbound",
+    "wasi-grpc-outbound",
+]
 
 [profile.release]
 strip = "debuginfo"

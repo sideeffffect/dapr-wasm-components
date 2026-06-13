@@ -1,0 +1,45 @@
+/// Inbound bindings — the application side of Dapr input bindings.
+/// `list-input-bindings` declares which input binding components the app
+/// consumes (the provider uses it to answer `OPTIONS /<name>` /
+/// `ListInputBindings`), and `on-binding-event` receives each event. The
+/// reply may persist state and forward data to output bindings in one shot.
+/// Mirrors `AppCallback.ListInputBindings` / `OnBindingEvent`.
+/// https://docs.dapr.io/reference/api/bindings_api/
+interface bindings-callback {
+  use types.{metadata, error};
+  use state.{state-item};
+
+  /// An event delivered from an input binding component. Dispatch on `name`.
+  record binding-event {
+    name: string,
+    data: list<u8>,
+    /// Metadata set by the input binding component.
+    metadata: metadata,
+  }
+
+  /// Order in which the sidecar forwards `data` to the `to` output bindings.
+  enum binding-concurrency {
+    sequential,
+    parallel,
+  }
+
+  /// Optional side effects the app asks the sidecar to perform after handling
+  /// the event: persist `states` to `store-name`, and/or forward `data` to the
+  /// output bindings named in `to`.
+  record binding-event-response {
+    /// State store to persist `states` into.
+    store-name: option<string>,
+    states: list<state-item>,
+    /// Output bindings to forward `data` to.
+    to: list<string>,
+    /// Payload sent to the `to` output bindings.
+    data: option<list<u8>>,
+    concurrency: binding-concurrency,
+  }
+
+  /// Declares the input binding names this app handles. Called at startup.
+  list-input-bindings: func() -> list<string>;
+
+  /// Handle one input binding event.
+  on-binding-event: func(event: binding-event) -> result<binding-event-response, error>;
+}

@@ -1,11 +1,23 @@
-/// The world an application targets: it imports every Dapr building-block
-/// interface and calls them to talk *to* Dapr — the application is a Dapr
-/// **client**. These cover only the outbound direction (app → Dapr). Inbound
-/// flows (pub/sub deliveries, input bindings, job triggers, actor callbacks,
-/// configuration updates) come *from* Dapr over the application's HTTP app
-/// channel — export `wasi:http/incoming-handler` for those; they do not go
-/// through this world or its implementation.
-world dapr-client {
+/// The world a Dapr **application** targets. It has two faces:
+///
+///  - *outbound* (app → Dapr): the app **imports** every building-block
+///    interface and calls them to talk to its sidecar.
+///  - *inbound* (Dapr → app): the app **exports** the callback interfaces;
+///    the sidecar's deliveries (service invocation, pub/sub, input bindings,
+///    jobs, actor hosting, configuration updates, health) reach them through
+///    a provider that translates the wire protocol into these typed calls.
+///
+/// The application never touches HTTP or gRPC in either direction. Compose an
+/// app targeting this world with an **outbound** provider (`dapr-outbound`,
+/// which satisfies its building-block imports) and an **inbound** provider
+/// (`dapr-inbound`, which consumes its callback exports): the graph
+/// `outbound → app → inbound` is acyclic. See the repo's `compose.wac`.
+///
+/// Every callback export is mandatory (the component model has no optional
+/// exports); apps that don't use a block implement a trivial default — the
+/// Rust helper crate provides those, so an app overrides only what it uses.
+world app {
+  // outbound — call Dapr
   import types;
   import state;
   import pubsub;
@@ -20,15 +32,30 @@ world dapr-client {
   import conversation;
   import actors;
   import runtime;
+
+  // inbound — be called by Dapr
+  export invocation-callback;
+  export pubsub-callback;
+  export bindings-callback;
+  export jobs-callback;
+  export actors-callback;
+  export configuration-callback;
+  export health-callback;
 }
 
-/// The world a provider component implements — e.g.
-/// dapr-wasm-components-wasi-http or dapr-wasm-components-wasi-grpc. It
-/// **serves** every building-block interface to the application (the
-/// component-model server side: it exports what `dapr-client` imports), then
-/// forwards each call to the real Dapr sidecar over its own transport
-/// (wasi:http or gRPC). Compose an app's `dapr-client` imports against this.
-world dapr-server {
+/// The **outbound** provider world: the adapter that serves the building
+/// blocks to the app and forwards each call to the real sidecar over its
+/// transport (`dapr-wasm-components-wasi-http-outbound`,
+/// `-wasi-grpc-outbound`). It has no app-facing imports, so it instantiates
+/// first in a composition.
+///
+/// Outbound and inbound are split into two worlds (and two provider
+/// components) on purpose: a single provider that both *exported* the
+/// building blocks and *imported* the callbacks would form an instantiation
+/// cycle with the app (the app imports the building blocks; the provider
+/// imports the callbacks), which the component model forbids. Splitting makes
+/// the graph acyclic — `outbound` → `app` → `inbound`.
+world dapr-outbound {
   export types;
   export state;
   export pubsub;
@@ -43,4 +70,21 @@ world dapr-server {
   export conversation;
   export actors;
   export runtime;
+}
+
+/// The **inbound** provider world: the adapter that receives deliveries from
+/// the sidecar on its transport and invokes the app's callbacks
+/// (`dapr-wasm-components-wasi-http-inbound` exports
+/// `wasi:http/incoming-handler`; `-wasi-grpc-inbound` serves Dapr's
+/// `AppCallback` gRPC service — that transport export is provider-specific and
+/// not part of this package). It imports only the callback interfaces, so it
+/// instantiates last, after the app it calls into.
+world dapr-inbound {
+  import invocation-callback;
+  import pubsub-callback;
+  import bindings-callback;
+  import jobs-callback;
+  import actors-callback;
+  import configuration-callback;
+  import health-callback;
 }

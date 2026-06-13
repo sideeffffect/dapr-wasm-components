@@ -37,7 +37,7 @@ use common::{
     binary, relax_permissions, wait_http_ok, write_resource, Daprd, DaprdConfig, DaprdPorts,
     Service, DAPRD_MOUNT, STATESTORE_IN_MEMORY,
 };
-use dapr_wasm_components_e2e::{app_path, compose};
+use dapr_wasm_components_e2e::{app_path, compose, http_inbound_path, http_outbound_path};
 
 const ORDER_PROCESSOR_APP_PORT: u16 = 8091;
 const OP_DAPR_HTTP: u16 = 3551;
@@ -110,12 +110,14 @@ fn microservices_through_real_dapr() {
         }
     };
 
-    // Compose both microservices with the wasi-http provider.
-    let provider = std::fs::read(dapr_wasm_components_e2e::provider_path())
-        .expect("provider component not built");
+    // Compose both microservices with the wasi-http provider. order-processor
+    // is a reactor (receives deliveries) → it needs both directions
+    // (`plug_full`); checkout is an outbound-only command (`plug`).
+    let outbound = std::fs::read(http_outbound_path()).expect("http-outbound provider not built");
+    let inbound = std::fs::read(http_inbound_path()).expect("http-inbound provider not built");
     let order_processor = std::fs::read(app_path(
         "ORDER_PROCESSOR_COMPONENT",
-        "order-processor.wasm",
+        "order_processor.wasm",
     ))
     .expect("order-processor component not built");
     let checkout = std::fs::read(app_path("CHECKOUT_COMPONENT", "checkout.wasm"))
@@ -125,13 +127,13 @@ fn microservices_through_real_dapr() {
     let op_composed = dir.path().join("order-processor-composed.wasm");
     std::fs::write(
         &op_composed,
-        compose::plug(order_processor, provider.clone()).unwrap(),
+        compose::plug_full(order_processor, outbound.clone(), inbound).unwrap(),
     )
     .unwrap();
     let checkout_composed = dir.path().join("checkout-composed.wasm");
     std::fs::write(
         &checkout_composed,
-        compose::plug(checkout, provider).unwrap(),
+        compose::plug(checkout, outbound).unwrap(),
     )
     .unwrap();
 

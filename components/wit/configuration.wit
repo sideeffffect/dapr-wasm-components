@@ -1,6 +1,7 @@
-/// Dapr configuration building block (read side).
-/// Subscriptions (watch) push updates to the application's HTTP app channel
-/// and are not part of this outbound interface.
+/// Dapr configuration building block (read + subscribe side).
+/// `subscribe` starts a watch; the sidecar then pushes updates to the
+/// application, which the provider delivers as typed calls to the
+/// `configuration-callback` interface (inbound direction).
 /// https://docs.dapr.io/reference/api/configuration_api/
 interface configuration {
   use types.{metadata, error};
@@ -14,4 +15,13 @@ interface configuration {
   /// Get the configuration items named `keys` (all items when empty)
   /// from the configuration store `store-name`, as (key, item) pairs.
   get: func(store-name: string, keys: list<string>, metadata: metadata) -> result<list<tuple<string, configuration-item>>, error>;
+
+  /// Subscribe to changes of the items named `keys` (all items when empty)
+  /// in `store-name`. Returns the subscription id; updates are delivered to
+  /// the application through the `configuration-callback` interface.
+  /// https://docs.dapr.io/reference/api/configuration_api/#watch-configuration
+  subscribe: func(store-name: string, keys: list<string>, metadata: metadata) -> result<string, error>;
+
+  /// Stop the subscription identified by `id` on `store-name`.
+  unsubscribe: func(store-name: string, id: string) -> result<_, error>;
 }

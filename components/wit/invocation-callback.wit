@@ -1,0 +1,27 @@
+/// Inbound service invocation — the application side of Dapr service
+/// invocation. The sidecar routes an incoming call to the app; the provider
+/// translates it into `on-invoke` and turns the returned response back into
+/// the wire reply. Mirrors `AppCallback.OnInvoke`
+/// (dapr.proto.runtime.v1) and the HTTP app channel.
+/// https://docs.dapr.io/reference/api/service_invocation_api/
+interface invocation-callback {
+  use types.{metadata};
+  use invocation.{http-verb, http-response};
+
+  /// A service-invocation call delivered to this application. Dispatch on
+  /// `method` (the invoked method path, e.g. "orders/42") inside the app.
+  record invoke-request {
+    method: string,
+    /// HTTP verb the caller used (gRPC callers always map to `post`).
+    verb: http-verb,
+    headers: metadata,
+    /// Raw query string without the leading `?`, when present.
+    query: option<string>,
+    content-type: string,
+    data: list<u8>,
+  }
+
+  /// Handle a service-invocation call. A non-2xx status is a normal response,
+  /// not a trap; a panic maps to HTTP 500 / gRPC internal.
+  on-invoke: func(request: invoke-request) -> http-response;
+}

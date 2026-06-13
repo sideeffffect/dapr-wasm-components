@@ -1,0 +1,10 @@
+# Wasm-only workspace for the app-side SDK. Application components depend on
+# this rlib, implement the `DaprApp` trait (overriding only the callbacks they
+# use), and call Dapr through the re-exported building-block interfaces — never
+# touching HTTP or gRPC. Guest-only, so it has its own wasm-only workspace.
+[workspace]
+resolver = "2"
+members = ["dapr-app"]
+
+[profile.release]
+strip = "debuginfo"

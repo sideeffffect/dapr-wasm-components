@@ -7,14 +7,14 @@
 
 use std::time::Duration;
 
-wit_bindgen::generate!({
-    world: "dapr-client",
-    path: "../../../components/wit",
-});
+use dapr_app::dapr::{invocation, pubsub, runtime};
+use dapr_app::DaprApp;
 
-use dapr_wasm_components::interfaces::invocation;
-use dapr_wasm_components::interfaces::pubsub;
-use dapr_wasm_components::interfaces::runtime;
+/// checkout is an outbound-only client (driven by its `main`), so it overrides
+/// no callbacks.
+struct Checkout;
+impl DaprApp for Checkout {}
+dapr_app::export_app!(Checkout);
 
 const PUBSUB: &str = "pubsub";
 const TOPIC: &str = "orders";

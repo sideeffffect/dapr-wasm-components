@@ -26,6 +26,7 @@ jobs:
           workspaces: |
             . -> target
             components -> components/target
+            app-sdk -> app-sdk/target
             e2e/apps -> e2e/apps/target
 
       - name: Install wkg and wasm-tools
@@ -37,6 +38,7 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo fmt --all --check --manifest-path components/Cargo.toml
+          cargo fmt --all --check --manifest-path app-sdk/Cargo.toml
           cargo fmt --all --check --manifest-path e2e/apps/Cargo.toml
 
       - name: Validate WIT package
@@ -47,19 +49,24 @@ jobs:
       - name: Build components (providers)
         run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
 
+      - name: Build app SDK
+        run: cargo build --release --target wasm32-wasip2 --manifest-path app-sdk/Cargo.toml
+
       - name: Build e2e demo apps
         run: cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml
 
       - name: Validate components
         run: |
-          wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http.wasm
-          wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc.wasm
+          wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_outbound.wasm
+          wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_inbound.wasm
+          wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_outbound.wasm
           wasm-tools validate e2e/apps/target/wasm32-wasip2/release/kv-demo.wasm
 
       - name: Clippy
         run: |
           cargo clippy --all-targets -- -D warnings
           cargo clippy --target wasm32-wasip2 --manifest-path components/Cargo.toml -- -D warnings
+          cargo clippy --target wasm32-wasip2 --manifest-path app-sdk/Cargo.toml -- -D warnings
           cargo clippy --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml -- -D warnings
 
       - name: Test (provider + composed app against a mock sidecar)
@@ -84,6 +91,7 @@ jobs:
           workspaces: |
             . -> target
             components -> components/target
+            app-sdk -> app-sdk/target
             e2e/apps -> e2e/apps/target
 
       - name: Install wasmtime CLI
@@ -123,6 +131,7 @@ jobs:
           workspaces: |
             . -> target
             components -> components/target
+            app-sdk -> app-sdk/target
             e2e/apps -> e2e/apps/target
 
       - name: Install spin CLI
@@ -195,8 +204,7 @@ jobs:
       - name: Build modules
         run: |
           wkg wit build --wit-dir components/wit -o dapr-wasm-components-interface.wasm
-          cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml \
-            -p dapr-wasm-components-wasi-http -p dapr-wasm-components-wasi-grpc
+          cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
 
       - name: Publish interface module
         run: |
@@ -206,18 +214,26 @@ jobs:
             --annotation "org.opencontainers.image.description=WIT interfaces for Dapr building blocks (dapr-wasm-components:interfaces)" \
             --annotation "org.opencontainers.image.licenses=Apache-2.0"
 
-      - name: Publish wasi-http implementation module
+      - name: Publish wasi-http outbound module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-http:${{ steps.tag.outputs.tag }}" \
-            components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http.wasm \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-http-outbound:${{ steps.tag.outputs.tag }}" \
+            components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_outbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
-            --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider implementing dapr-wasm-components:interfaces over wasi:http" \
+            --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (outbound): the dapr-wasm-components building blocks over the Dapr HTTP API via wasi:http" \
             --annotation "org.opencontainers.image.licenses=Apache-2.0"
 
-      - name: Publish wasi-grpc implementation module
+      - name: Publish wasi-http inbound module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-grpc:${{ steps.tag.outputs.tag }}" \
-            components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc.wasm \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-http-inbound:${{ steps.tag.outputs.tag }}" \
+            components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_inbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
-            --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider implementing dapr-wasm-components:interfaces over the Dapr gRPC API (requires Spin >= 3.4 for outbound h2c)" \
+            --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (inbound): exports wasi:http/incoming-handler and dispatches the Dapr HTTP app channel to typed dapr-wasm-components callbacks" \
+            --annotation "org.opencontainers.image.licenses=Apache-2.0"
+
+      - name: Publish wasi-grpc outbound module
+        run: |
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-grpc-outbound:${{ steps.tag.outputs.tag }}" \
+            components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_outbound.wasm \
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (outbound): the dapr-wasm-components building blocks over the Dapr gRPC API (requires Spin >= 3.4 for outbound h2c)" \
             --annotation "org.opencontainers.image.licenses=Apache-2.0"

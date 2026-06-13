@@ -15,7 +15,7 @@ use wasmtime_wasi_http::WasiHttpCtx;
 pub mod bindings {
     wasmtime::component::bindgen!({
         path: "../components/wit",
-        world: "dapr-server",
+        world: "dapr-outbound",
         exports: { default: async },
     });
 }
@@ -82,14 +82,29 @@ pub fn app_path(env_var: &str, file_name: &str) -> PathBuf {
     resolve(env_var, "apps/target/wasm32-wasip2/release", file_name)
 }
 
-pub fn provider_path() -> PathBuf {
-    provider_artifact("PROVIDER_COMPONENT", "dapr_wasm_components_wasi_http.wasm")
+/// The wasi-http **outbound** provider (exports the building blocks).
+pub fn http_outbound_path() -> PathBuf {
+    provider_artifact(
+        "HTTP_OUTBOUND_COMPONENT",
+        "dapr_wasm_components_wasi_http_outbound.wasm",
+    )
 }
 
-pub fn grpc_provider_path() -> PathBuf {
+/// The wasi-http **inbound** provider (exports `wasi:http/incoming-handler`,
+/// imports the callbacks). Composes with any outbound provider — including the
+/// gRPC one — since the two directions are independent.
+pub fn http_inbound_path() -> PathBuf {
     provider_artifact(
-        "GRPC_PROVIDER_COMPONENT",
-        "dapr_wasm_components_wasi_grpc.wasm",
+        "HTTP_INBOUND_COMPONENT",
+        "dapr_wasm_components_wasi_http_inbound.wasm",
+    )
+}
+
+/// The wasi-grpc **outbound** provider (exports the building blocks over gRPC).
+pub fn grpc_outbound_path() -> PathBuf {
+    provider_artifact(
+        "GRPC_OUTBOUND_COMPONENT",
+        "dapr_wasm_components_wasi_grpc_outbound.wasm",
     )
 }
 
@@ -108,19 +123,21 @@ pub fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
     Ok(linker)
 }
 
-/// Instantiate the wasi-http provider with `DAPR_HTTP_ENDPOINT` pointing at
-/// the given mock sidecar address.
+/// Instantiate the wasi-http outbound provider with `DAPR_HTTP_ENDPOINT`
+/// pointing at the given mock sidecar address. The `dapr-outbound` world has
+/// no app-facing imports, so it instantiates standalone.
 pub async fn load_provider(
     sidecar_endpoint: &str,
-) -> wasmtime::Result<(Store<Ctx>, bindings::DaprServer)> {
+) -> wasmtime::Result<(Store<Ctx>, bindings::DaprOutbound)> {
     let engine = engine()?;
-    let component = Component::from_file(&engine, provider_path())?;
+    let component = Component::from_file(&engine, http_outbound_path())?;
     let linker = linker(&engine)?;
     let env = vec![(
         "DAPR_HTTP_ENDPOINT".to_string(),
         sidecar_endpoint.to_string(),
     )];
     let mut store = Store::new(&engine, Ctx::new(&env));
-    let provider = bindings::DaprServer::instantiate_async(&mut store, &component, &linker).await?;
+    let provider =
+        bindings::DaprOutbound::instantiate_async(&mut store, &component, &linker).await?;
     Ok((store, provider))
 }

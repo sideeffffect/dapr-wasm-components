@@ -1,0 +1,11 @@
+[package]
+name = "dapr-app"
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "App-side SDK for dapr-wasm-components: implement the DaprApp trait and talk to Dapr through typed function calls, never HTTP or gRPC"
+repository = "https://github.com/sideeffffect/dapr-wasm-components"
+publish = false
+
+[dependencies]
+wit-bindgen = "0.58"

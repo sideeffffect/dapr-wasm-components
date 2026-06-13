@@ -1,0 +1,19 @@
+/// Inbound configuration — delivery of configuration updates the app
+/// subscribed to via the outbound `configuration.subscribe`. The sidecar
+/// pushes changes; the provider delivers them as `on-configuration-event`.
+/// https://docs.dapr.io/reference/api/configuration_api/#watch-configuration
+interface configuration-callback {
+  use configuration.{configuration-item};
+
+  /// A batch of changed configuration items for one subscription.
+  record configuration-update {
+    store-name: string,
+    /// The subscription id returned by `configuration.subscribe`.
+    id: string,
+    /// Changed items as (key, item) pairs.
+    items: list<tuple<string, configuration-item>>,
+  }
+
+  /// Handle a configuration update push.
+  on-configuration-event: func(update: configuration-update);
+}

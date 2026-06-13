@@ -6,7 +6,9 @@ license = "Apache-2.0"
 description = "E2E microservice: consumes orders from pub/sub, counts them in a state store, answers summary invocations"
 publish = false
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
+dapr-app = { path = "../../../app-sdk/dapr-app" }
 serde_json = "1"
-wit-bindgen = "0.58"
-wstd = "0.6"

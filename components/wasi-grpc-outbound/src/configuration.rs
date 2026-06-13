@@ -1,6 +1,13 @@
-//! Configuration (read side) over gRPC — the stable `GetConfiguration`
-//! (not the `Alpha1` variant). Subscriptions are server-streaming and out
-//! of scope for this outbound interface, matching the WIT contract.
+//! Configuration over gRPC — the stable `GetConfiguration` (not the `Alpha1`
+//! variant) for the read side.
+//!
+//! `subscribe`/`unsubscribe` are unsupported here: gRPC delivers configuration
+//! updates over a *server stream* on the `Dapr` service itself (the first
+//! message carries the subscription id, subsequent ones carry updates), not
+//! through the `AppCallback` app channel. That streaming-delivery model does
+//! not map onto the sync, app-channel-based `configuration-callback` inbound
+//! interface this provider drives, so we surface a clear error. Use the
+//! wasi-http provider for configuration subscriptions.
 
 use crate::exports::configuration::{ConfigurationItem, Guest};
 use crate::proto::common as pbc;
@@ -41,5 +48,26 @@ impl Guest for Component {
             .collect();
         items.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(items)
+    }
+
+    fn subscribe(
+        _store_name: String,
+        _keys: Vec<String>,
+        _metadata: Metadata,
+    ) -> Result<String, Error> {
+        Err(Error::Other(
+            "configuration subscribe is not supported by the wasi-grpc provider: gRPC delivers \
+             updates over a server stream on the Dapr service, not the AppCallback app channel; \
+             use the wasi-http provider"
+                .to_string(),
+        ))
+    }
+
+    fn unsubscribe(_store_name: String, _id: String) -> Result<(), Error> {
+        Err(Error::Other(
+            "configuration unsubscribe is not supported by the wasi-grpc provider; \
+             use the wasi-http provider"
+                .to_string(),
+        ))
     }
 }

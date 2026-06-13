@@ -1,8 +1,6 @@
-/// Dapr publish & subscribe building block — publishing side.
-/// Subscriptions are delivered to the application over its HTTP app channel
-/// (export `wasi:http/incoming-handler` and implement the `/dapr/subscribe`
-/// programmatic-subscription convention); they are not part of this
-/// outbound interface.
+/// Dapr publish & subscribe building block — publishing (outbound) side.
+/// Subscribing and event delivery are the inbound direction: see the
+/// `pubsub-callback` interface.
 /// https://docs.dapr.io/reference/api/pubsub_api/
 interface pubsub {
   use types.{metadata, error};

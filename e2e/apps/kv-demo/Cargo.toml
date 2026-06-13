@@ -7,4 +7,4 @@ description = "Example Dapr app component: exercises state, pub/sub, secrets and
 publish = false
 
 [dependencies]
-wit-bindgen = "0.58"
+dapr-app = { path = "../../../app-sdk/dapr-app" }

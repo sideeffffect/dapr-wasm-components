@@ -11,15 +11,14 @@
 //! All the Dapr calls below are plain synchronous function calls; the
 //! provider component turns them into wasi:http requests to the sidecar.
 
-wit_bindgen::generate!({
-    world: "dapr-client",
-    path: "../../../components/wit",
-});
+use dapr_app::dapr::{lock, pubsub, runtime, state};
+use dapr_app::DaprApp;
 
-use dapr_wasm_components::interfaces::lock;
-use dapr_wasm_components::interfaces::pubsub;
-use dapr_wasm_components::interfaces::runtime;
-use dapr_wasm_components::interfaces::state;
+/// kv-demo is an outbound-only client, so it overrides no callbacks — the
+/// `DaprApp` defaults (no subscriptions, healthy, etc.) apply.
+struct KvDemo;
+impl DaprApp for KvDemo {}
+dapr_app::export_app!(KvDemo);
 
 const STATE_STORE: &str = "statestore";
 const PUBSUB: &str = "pubsub";

@@ -1,6 +1,6 @@
 /// Dapr bindings building block — output (outbound) bindings.
-/// Input bindings are delivered to the application over its HTTP app
-/// channel and are not part of this outbound interface.
+/// Input bindings are the inbound direction: see the `bindings-callback`
+/// interface.
 /// https://docs.dapr.io/reference/api/bindings_api/
 interface bindings {
   use types.{metadata, error};

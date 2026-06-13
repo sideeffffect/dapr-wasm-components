@@ -39,7 +39,7 @@ use common::{
     binary, get_json, relax_permissions, wait_http_ok, write_resource, Daprd, DaprdConfig,
     DaprdPorts, Service, PUBSUB_IN_MEMORY, STATESTORE_IN_MEMORY,
 };
-use dapr_wasm_components_e2e::{app_path, compose, grpc_provider_path};
+use dapr_wasm_components_e2e::{app_path, compose, grpc_outbound_path, http_inbound_path};
 
 // Below 32768: Docker's ephemeral port range (32768+) is where stray
 // docker-proxy mappings (e.g. testcontainers ryuk) land — daprd would fail
@@ -92,15 +92,19 @@ fn app_json(path: &str) -> serde_json::Value {
 fn microservice_through_real_dapr_grpc_on_spin() {
     let spin = binary("SPIN_BIN", "spin");
 
-    // Compose the demo app with the wasi-grpc provider.
-    let provider = std::fs::read(grpc_provider_path()).expect("wasi-grpc provider not built");
-    let app = std::fs::read(app_path("SPIN_DEMO_COMPONENT", "spin-demo.wasm"))
+    // Compose the demo app with the wasi-grpc **outbound** provider (gRPC to
+    // the sidecar) and the wasi-http **inbound** provider (the app channel is
+    // HTTP — Spin serves it, and daprd is configured `--app-protocol http`).
+    // The two directions are independent: gRPC out, HTTP in.
+    let outbound = std::fs::read(grpc_outbound_path()).expect("wasi-grpc outbound not built");
+    let inbound = std::fs::read(http_inbound_path()).expect("wasi-http inbound not built");
+    let app = std::fs::read(app_path("SPIN_DEMO_COMPONENT", "spin_demo.wasm"))
         .expect("spin-demo component not built");
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("composed.wasm"),
-        compose::plug(app, provider).unwrap(),
+        compose::plug_full(app, outbound, inbound).unwrap(),
     )
     .unwrap();
     let manifest = write_spin_manifest(dir.path());

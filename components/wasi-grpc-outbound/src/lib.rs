@@ -35,7 +35,7 @@ mod workflow;
 
 mod wit {
     wit_bindgen::generate!({
-        world: "dapr-server",
+        world: "dapr-outbound",
         path: "../wit",
         default_bindings_module: "crate::wit",
     });
