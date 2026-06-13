@@ -47,12 +47,15 @@ for the inbound spec.
 
 - **Publish the `dapr-app` SDK.** It is consumed today as a git/path dependency;
   publishing it (crates.io or a stable git tag) would make app authoring smoother.
-- **Composition ergonomics.** Composition uses the repo's [`compose.wac`](compose.wac)
-  (`outbound → app → inbound`, acyclic). A thin wrapper or template could make the
-  three-dependency `wac compose` invocation a one-liner.
 
 ## Recently shipped
 
+- **Composition ergonomics.** The [`compose.sh`](compose.sh) wrapper turns the
+  three-dependency `wac compose` into a one-liner: it resolves the outbound and
+  inbound providers (a local `components/target/` release build when present,
+  otherwise an OCI pull via `wkg`), picks transports independently (`--out`/`--in`,
+  http or grpc), and runs `wac` against `compose.wac`. Verified to produce a valid
+  `wasi:http/incoming-handler` server for all three transport combinations.
 - **CloudEvent extensions over gRPC.** `wasi-grpc-inbound` now maps
   `TopicEventRequest.extensions` (a `google.protobuf.Struct`) into
   `topic-event.extensions`, stringifying each value the same way the HTTP

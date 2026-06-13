@@ -128,18 +128,25 @@ See `e2e/apps/kv-demo/` for an outbound-only command and `e2e/apps/microservice/
 
 ### Composing
 
-A composed component is `outbound → app → inbound` (acyclic — see [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr)). Plain `wac plug` can't express it (it would re-export the app's callbacks); use the repo's [`compose.wac`](compose.wac) script with [`wac`](https://github.com/bytecodealliance/wac), picking the providers for the transport(s) you want — the two directions are independent (e.g. gRPC out, HTTP in is valid):
+A composed component is `outbound → app → inbound` (acyclic — see [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr)). Plain `wac plug` can't express it (it would re-export the app's callbacks). The repo ships a [`compose.sh`](compose.sh) wrapper that makes it a one-liner — it resolves the providers (a local `components/target/` release build when present, otherwise an OCI pull with `wkg`) and runs `wac` for you. The two directions are independent, so the transports are picked separately (e.g. gRPC out, HTTP in is valid):
 
 ```sh
-cargo build --release --target wasm32-wasip2
+./compose.sh my_app.wasm                       # http out + http in -> composed.wasm
+./compose.sh my_app.wasm --out grpc --in http  # mixed transports
+./compose.sh my_app.wasm -o server.wasm --tag 0.2.0   # explicit output + OCI tag
+
+dapr run --app-id my-app -- wasmtime serve -S cli composed.wasm   # reactor (app channel)
+# outbound-only command apps: `wac plug app.wasm --plug http-outbound.wasm` + `wasmtime run -S http`
+```
+
+Under the hood it invokes the repo's [`compose.wac`](compose.wac) with [`wac`](https://github.com/bytecodealliance/wac); to drive `wac` yourself (or in CI without the wrapper):
+
+```sh
 wac compose \
   --dep dapr:app=my_app.wasm \
   --dep dapr:outbound=http-outbound.wasm \
   --dep dapr:inbound=http-inbound.wasm \
   compose.wac -o composed.wasm
-
-dapr run --app-id my-app -- wasmtime serve -S cli composed.wasm   # reactor (app channel)
-# outbound-only command apps: `wac plug app.wasm --plug http-outbound.wasm` + `wasmtime run -S http`
 ```
 
 The outbound provider resolves the sidecar like other Dapr SDKs: `DAPR_HTTP_ENDPOINT`, then `http://127.0.0.1:$DAPR_HTTP_PORT`, then `http://127.0.0.1:3500`; `DAPR_API_TOKEN` is attached as the `dapr-api-token` header when set.
@@ -181,6 +188,7 @@ Divergences from the wasi-http provider (inherent to the gRPC API): service invo
 | `components/wasi-grpc-outbound/` | wasi:grpc **outbound** provider — the building blocks over the Dapr gRPC API (Spin ≥ 3.4; vendored protos + checked-in tonic codegen) |
 | `components/wasi-grpc-inbound/` | wasi:grpc **inbound** provider — serves Dapr's `AppCallback` gRPC service over `wasi:http/incoming-handler` (Spin h2c inbound), dispatching to the typed callbacks |
 | `app-sdk/dapr-app/` | The app-side `dapr-app` SDK (`DaprApp` trait + `export_app!`); wasm-only |
+| `compose.wac` / `compose.sh` | The `outbound → app → inbound` composition graph, and a wrapper that resolves the providers and runs `wac` as a one-liner |
 | `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es (shared scenario in `tests/common/`) |
 | `e2e/apps/` | Demo/fixture app components the E2Es compose and drive (their own wasm-only workspace) |
 | `e2e/apps/kv-demo/` | Outbound-only example (`wasi:cli` command), used by the mock composition test |
