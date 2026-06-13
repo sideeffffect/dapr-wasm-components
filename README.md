@@ -62,12 +62,13 @@ flowchart LR
 
     subgraph composed["your composed component (outbound → app → inbound, via wac)"]
         direction TB
-        outbound["outbound provider<br/>exports building blocks"]
         inbound["inbound provider<br/>exports wasi:http/incoming-handler<br/>imports *-callback"]
+        outbound["outbound provider<br/>exports building blocks"]
         app["your app (world: app)<br/>imports building blocks<br/>exports *-callback"]
     end
 
-    %% invisible rank hints keep the order sidecar → host → providers → app
+    %% invisible rank hints keep app rightmost; outbound on the bottom so the
+    %% app→outbound back-edge dives into open space instead of crossing inbound
     host ~~~ outbound
     outbound ~~~ app
 
