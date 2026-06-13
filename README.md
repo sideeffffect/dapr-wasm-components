@@ -52,7 +52,7 @@ A Dapr application communicates with its sidecar in two directions, and **the pr
 
 Why two provider components per transport? A single provider that both *exported* the building blocks and *imported* the callbacks would form an instantiation **cycle** with the app (the app imports the building blocks; the provider imports the callbacks) — which the component model forbids. Splitting outbound from inbound makes the graph acyclic: **`outbound → app → inbound`**.
 
-The app channel is HTTP regardless of the outbound transport — the two directions are independent, so a `wasi-grpc`-outbound app still receives its deliveries through the portable `wasi-http` **inbound** provider. (Dapr can drive the app channel over gRPC — `--app-protocol grpc` — but that needs Dapr's `AppCallback` gRPC service, which the inbound gRPC provider does not yet implement; see [Status & limitations](#status--limitations).)
+The two directions are independent, so you mix and match: the portable `wasi-http` **inbound** provider serves the HTTP app channel on any runtime (even behind a `wasi-grpc`-outbound app), while the `wasi-grpc` **inbound** provider serves Dapr's `AppCallback` gRPC service (`--app-protocol grpc`) on a Spin host that accepts inbound h2c.
 
 ```mermaid
 flowchart LR
@@ -165,6 +165,7 @@ Divergences from the wasi-http provider (inherent to the gRPC API): service invo
 | `components/wasi-http-outbound/` | wasi:http **outbound** provider — the building blocks over the Dapr HTTP API (portable) |
 | `components/wasi-http-inbound/` | wasi:http **inbound** provider — exports `wasi:http/incoming-handler`, dispatches the app channel to the typed callbacks (portable) |
 | `components/wasi-grpc-outbound/` | wasi:grpc **outbound** provider — the building blocks over the Dapr gRPC API (Spin ≥ 3.4; vendored protos + checked-in tonic codegen) |
+| `components/wasi-grpc-inbound/` | wasi:grpc **inbound** provider — serves Dapr's `AppCallback` gRPC service over `wasi:http/incoming-handler` (Spin h2c inbound), dispatching to the typed callbacks |
 | `app-sdk/dapr-app/` | The app-side `dapr-app` SDK (`DaprApp` trait + `export_app!`); wasm-only |
 | `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es (shared scenario in `tests/common/`) |
 | `e2e/apps/` | Demo/fixture app components the E2Es compose and drive (their own wasm-only workspace) |
@@ -224,7 +225,7 @@ Experimental.
 - Values in the HTTP state/bindings APIs are JSON: bytes that parse as JSON are sent as-is, anything else is sent as a JSON string (UTF-8 lossy). Store JSON if you need byte-exact roundtrips — **or use the wasi-grpc provider**, where values are raw protobuf bytes.
 - Crypto is one-shot (no streaming). Conversation models the alpha2 text subset (no tool calling yet).
 - **Inbound (Dapr → app) is typed via the `*-callback` interfaces**, implemented by the **`wasi-http-inbound`** provider (full HTTP app-channel router) and the `dapr-app` SDK; both real-Dapr E2Es exercise it (pub/sub delivery + service invocation, self and cross-app). Pub/sub is single-route-per-topic (no CEL routing rules or bulk subscribe yet); input-binding response field names follow the bindings API reference and are pending an integration check; configuration-update delivery (`configuration-callback`) is defined but not yet wired in the router.
-- **Inbound is over HTTP, for both outbound transports.** The app channel is independent of the outbound transport, so a `wasi-grpc`-outbound app still uses the portable `wasi-http-inbound` provider. A **wasi-grpc inbound** provider (serving Dapr's `AppCallback` gRPC service, for `--app-protocol grpc`) is not yet built — actor *hosting* would remain HTTP-only regardless, since Dapr's `AppCallback` has no actor methods.
+- **Inbound transport is independent of outbound.** The portable `wasi-http-inbound` provider serves the HTTP app channel on any runtime (including behind a `wasi-grpc`-outbound app). The `wasi-grpc-inbound` provider serves Dapr's `AppCallback` gRPC service (`--app-protocol grpc`); it is verified working over Spin's inbound h2c with `grpcurl` (`ListTopicSubscriptions`, `HealthCheck`) but does not yet have an automated daprd `--app-protocol grpc` E2E. Actor *hosting* is HTTP-only regardless, since Dapr's `AppCallback` has no actor methods.
 - The wasi-grpc (outbound) provider remains a proof of concept: it runs only on Spin ≥ 3.4 (outbound h2c), its h2c allowlist holds a single authority, and most interfaces are compile-checked but only the E2E surface (state, invocation, pub/sub, metadata) is integration-tested.
 
 ## License

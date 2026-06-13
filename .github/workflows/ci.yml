@@ -60,6 +60,7 @@ jobs:
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_outbound.wasm
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_inbound.wasm
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_outbound.wasm
+          wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_inbound.wasm
           wasm-tools validate e2e/apps/target/wasm32-wasip2/release/kv-demo.wasm
           wasm-tools validate e2e/apps/target/wasm32-wasip2/release/microservice.wasm
 
@@ -237,4 +238,12 @@ jobs:
             components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_outbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (outbound): the dapr-wasm-components building blocks over the Dapr gRPC API (requires Spin >= 3.4 for outbound h2c)" \
+            --annotation "org.opencontainers.image.licenses=Apache-2.0"
+
+      - name: Publish wasi-grpc inbound module
+        run: |
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-grpc-inbound:${{ steps.tag.outputs.tag }}" \
+            components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_inbound.wasm \
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (inbound): serves Dapr's AppCallback gRPC service over wasi:http/incoming-handler and dispatches to typed dapr-wasm-components callbacks (requires a Spin host that accepts inbound h2c)" \
             --annotation "org.opencontainers.image.licenses=Apache-2.0"

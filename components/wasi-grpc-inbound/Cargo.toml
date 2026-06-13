@@ -1,0 +1,21 @@
+[package]
+name = "dapr-wasm-components-wasi-grpc-inbound"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pure-wasm Dapr provider (inbound): serves Dapr's AppCallback gRPC service over wasi:http/incoming-handler and dispatches to typed dapr-wasm-components callbacks (requires a Spin >= 3.4 host that accepts inbound h2c)"
+repository = "https://github.com/sideeffffect/dapr-wasm-components"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+prost = "0.13"
+prost-types = "0.13"
+tonic = { version = "0.13.1", default-features = false, features = ["codegen", "prost"] }
+wit-bindgen = "0.58"
+wstd = "0.6"
