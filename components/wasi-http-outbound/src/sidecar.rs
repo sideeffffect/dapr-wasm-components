@@ -43,6 +43,22 @@ impl Sidecar {
 
     /// Execute a request against the sidecar. `path_and_query` must start
     /// with `/`. Returns the raw response, whatever the status code.
+    ///
+    /// The sidecar is a localhost hop, but a *transient* connect failure still
+    /// happens — daprd resetting a fresh connection under a delivery burst, or
+    /// not yet accepting on a port. Such a blip surfaces from `send` as an
+    /// error (no response was produced), so we retry it a few times with a
+    /// short backoff rather than immediately returning `Unavailable`. Without
+    /// this the caller's only recourse is to fail the operation and lean on
+    /// redelivery — which, for pub/sub over Redis Streams, Dapr does *not* do
+    /// reliably; it flaked the e2e suite. The gRPC provider doesn't need this
+    /// (tonic multiplexes one persistent h2 connection).
+    ///
+    /// Only the connect/transport `send` failure is retried — never an HTTP
+    /// response (any status is returned as-is). A reset means the sidecar
+    /// never saw a complete request/response, so re-issuing is safe; the few
+    /// non-idempotent paths (publish, save) sit behind Dapr's already
+    /// at-least-once / CAS semantics.
     pub fn request(
         &self,
         method: Method,
@@ -50,26 +66,41 @@ impl Sidecar {
         headers: &[(String, String)],
         body: Vec<u8>,
     ) -> Result<HttpResult, Error> {
+        const MAX_ATTEMPTS: u32 = 4;
+        const BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
+
         let url = format!("{}{}", self.base, path_and_query);
 
-        let mut builder = Request::builder().method(method).uri(&url);
-        if let Some(token) = &self.api_token {
-            builder = builder.header("dapr-api-token", token);
-        }
-        for (name, value) in headers {
-            builder = builder.header(name.as_str(), value.as_str());
-        }
-        let request = builder
-            .body(Body::from(body))
-            .map_err(|e| Error::InvalidArgument(format!("invalid request for {url}: {e}")))?;
+        let build_request = || {
+            let mut builder = Request::builder().method(method.clone()).uri(&url);
+            if let Some(token) = &self.api_token {
+                builder = builder.header("dapr-api-token", token);
+            }
+            for (name, value) in headers {
+                builder = builder.header(name.as_str(), value.as_str());
+            }
+            builder
+                .body(Body::from(body.clone()))
+                .map_err(|e| Error::InvalidArgument(format!("invalid request for {url}: {e}")))
+        };
 
         block_on(async {
-            let response = Client::new().send(request).await.map_err(|e| {
-                Error::Unavailable(format!(
-                    "cannot reach the Dapr sidecar at {}: {e}",
-                    self.base
-                ))
-            })?;
+            let mut attempt = 0;
+            let response = loop {
+                attempt += 1;
+                match Client::new().send(build_request()?).await {
+                    Ok(response) => break response,
+                    Err(_) if attempt < MAX_ATTEMPTS => {
+                        wstd::task::sleep((BACKOFF * attempt).into()).await;
+                    }
+                    Err(e) => {
+                        return Err(Error::Unavailable(format!(
+                            "cannot reach the Dapr sidecar at {} after {attempt} attempts: {e}",
+                            self.base
+                        )));
+                    }
+                }
+            };
 
             let status = response.status().as_u16();
             let headers = response
