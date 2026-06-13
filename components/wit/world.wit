@@ -8,9 +8,9 @@
 ///    a provider that translates the wire protocol into these typed calls.
 ///
 /// The application never touches HTTP or gRPC in either direction. Compose an
-/// app targeting this world with an **outbound** provider (`dapr-outbound`,
+/// app targeting this world with an **outbound** provider (`outbound`,
 /// which satisfies its building-block imports) and an **inbound** provider
-/// (`dapr-inbound`, which consumes its callback exports): the graph
+/// (`inbound`, which consumes its callback exports): the graph
 /// `outbound → app → inbound` is acyclic. See the repo's `compose.wac`.
 ///
 /// Every callback export is mandatory (the component model has no optional
@@ -55,7 +55,7 @@ world app {
 /// cycle with the app (the app imports the building blocks; the provider
 /// imports the callbacks), which the component model forbids. Splitting makes
 /// the graph acyclic — `outbound` → `app` → `inbound`.
-world dapr-outbound {
+world outbound {
   export types;
   export state;
   export pubsub;
@@ -79,7 +79,7 @@ world dapr-outbound {
 /// `AppCallback` gRPC service — that transport export is provider-specific and
 /// not part of this package). It imports only the callback interfaces, so it
 /// instantiates last, after the app it calls into.
-world dapr-inbound {
+world inbound {
   import invocation-callback;
   import pubsub-callback;
   import bindings-callback;

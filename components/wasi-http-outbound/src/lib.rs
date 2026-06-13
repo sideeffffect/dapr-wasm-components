@@ -2,7 +2,7 @@
 //!
 //! A pure-wasm Dapr provider component for the **outbound** direction. It
 //! exports every building-block interface of the `dapr-wasm-components:interfaces`
-//! WIT package (world `dapr-outbound`) and implements them by calling the Dapr
+//! WIT package (world `outbound`) and implements them by calling the Dapr
 //! sidecar's HTTP API through `wasi:http` outgoing requests (via the `wstd`
 //! client). Compose it with an application that imports those interfaces, and
 //! run on any WASI 0.2 runtime with `wasi:http` support — no native host, no
@@ -30,7 +30,7 @@ mod workflow;
 
 mod wit {
     wit_bindgen::generate!({
-        world: "dapr-outbound",
+        world: "outbound",
         path: "../wit",
         default_bindings_module: "crate::wit",
     });

@@ -17,7 +17,7 @@ Dapr distributed application runtime: HTTP API, Rust SDK, and Wasm integration.
 |---------|---------|---------|
 | [Dapr HTTP API](dapr/dapr-http-api.md) | Sidecar REST API: version-prefix map (stable/alpha1/alpha2) and field-naming traps | 2026-06-11 |
 | [dapr-wasm-components Architecture](dapr/dapr-wasm-components-architecture.md) | v2 design: interface package + two pure-wasm providers (wasi:http portable, wasi-grpc on Spin), composition, OCI publishing, real-Dapr E2Es | 2026-06-12 |
-| [dapr-wasm-components Inbound Design](dapr/dapr-wasm-components-inbound-design.md) | Spec: adapter handles Dapr→app inbound as typed WIT (all six flows + health), app never touches the wire; new handler interfaces + dapr-app/dapr-host worlds, both providers | 2026-06-13 |
+| [dapr-wasm-components Inbound Design](dapr/dapr-wasm-components-inbound-design.md) | Spec: adapter handles Dapr→app inbound as typed WIT (all six flows + health), app never touches the wire; new handler interfaces + `app`/`outbound`/`inbound` worlds, both providers | 2026-06-13 |
 | [Dapr Rust SDK](dapr/dapr-rust-sdk.md) | Alpha async (tokio/tonic) client: versions, building-block matrix, app-callback server (no longer used by this project) | 2026-06-11 |
 | [gRPC to Dapr from Wasm](dapr/dapr-grpc-from-wasm.md) | The HTTP/2-from-wasm crux, transport options, why the wasi-grpc crate is Spin-locked — and the shipped Spin-only PoC outcome | 2026-06-12 |
 | [Dapr × Wasm Prior Art](dapr/dapr-wasm-prior-art.md) | Existing Dapr+Wasm work (http-wasm middleware, DeisLabs, WasmEdge) — none uses WIT; space is open | 2026-06-11 |

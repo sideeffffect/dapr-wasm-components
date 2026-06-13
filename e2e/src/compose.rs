@@ -2,10 +2,10 @@
 //! using wac-graph — the programmatic equivalent of `wac plug`.
 //!
 //! The graph is acyclic by construction: `outbound → app → inbound`.
-//!   - the **outbound** provider (`dapr-outbound`) has no app-facing imports,
+//!   - the **outbound** provider (`outbound`) has no app-facing imports,
 //!     so it instantiates first and satisfies the app's building-block imports;
 //!   - the **app** exports the callbacks;
-//!   - the **inbound** provider (`dapr-inbound`) instantiates last, taking the
+//!   - the **inbound** provider (`inbound`) instantiates last, taking the
 //!     callbacks from the app and its type-only building-block imports
 //!     (`state`/`invocation`/`types`, pulled in by the callback interfaces)
 //!     from the outbound provider.

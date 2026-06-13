@@ -4,7 +4,7 @@
 //! serves Dapr's `AppCallback` (+ `AppCallbackHealthCheck`) service so a
 //! sidecar configured with `--app-protocol grpc` can reach a composed
 //! application, and translates each call into a typed call on the imported
-//! callback interfaces (world `dapr-inbound`). The application never sees gRPC.
+//! callback interfaces (world `inbound`). The application never sees gRPC.
 //!
 //! The `wasi-grpc` crate is client-only, so the server side is implemented by
 //! hand on top of `wasi:http/incoming-handler`: the host (Spin, which accepts
@@ -33,7 +33,7 @@ use proto::runtime as pb;
 
 mod wit {
     wit_bindgen::generate!({
-        world: "dapr-inbound",
+        world: "inbound",
         path: "../wit",
         default_bindings_module: "crate::wit",
     });
