@@ -4,7 +4,7 @@
 //! exports `wasi:http/incoming-handler` so the Dapr sidecar's HTTP app
 //! channel reaches a composed application, and translates every app-channel
 //! request into a typed call on the imported callback interfaces (world
-//! `dapr-inbound`). The application never sees HTTP.
+//! `inbound`). The application never sees HTTP.
 //!
 //! It is a separate component from `dapr-wasm-components-wasi-http-outbound`
 //! so the composition graph (`outbound → app → inbound`) stays acyclic: this
@@ -35,7 +35,7 @@ use wstd::http::{Method, Request, Response, StatusCode};
 
 mod wit {
     wit_bindgen::generate!({
-        world: "dapr-inbound",
+        world: "inbound",
         path: "../wit",
         default_bindings_module: "crate::wit",
     });

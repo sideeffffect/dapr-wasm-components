@@ -15,7 +15,7 @@ use wasmtime_wasi_http::WasiHttpCtx;
 pub mod bindings {
     wasmtime::component::bindgen!({
         path: "../components/wit",
-        world: "dapr-outbound",
+        world: "outbound",
         exports: { default: async },
     });
 }
@@ -197,11 +197,11 @@ pub fn linker(engine: &Engine) -> wasmtime::Result<Linker<Ctx>> {
 }
 
 /// Instantiate the wasi-http outbound provider with `DAPR_HTTP_ENDPOINT`
-/// pointing at the given mock sidecar address. The `dapr-outbound` world has
+/// pointing at the given mock sidecar address. The `outbound` world has
 /// no app-facing imports, so it instantiates standalone.
 pub async fn load_provider(
     sidecar_endpoint: &str,
-) -> wasmtime::Result<(Store<Ctx>, bindings::DaprOutbound)> {
+) -> wasmtime::Result<(Store<Ctx>, bindings::Outbound)> {
     let engine = engine()?;
     let component = Component::from_file(&engine, http_outbound_path())?;
     let linker = linker(&engine)?;
@@ -210,7 +210,6 @@ pub async fn load_provider(
         sidecar_endpoint.to_string(),
     )];
     let mut store = Store::new(&engine, Ctx::new(&env));
-    let provider =
-        bindings::DaprOutbound::instantiate_async(&mut store, &component, &linker).await?;
+    let provider = bindings::Outbound::instantiate_async(&mut store, &component, &linker).await?;
     Ok((store, provider))
 }

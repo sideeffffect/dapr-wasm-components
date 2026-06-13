@@ -42,7 +42,7 @@ Write your app against the interfaces, [compose](#composing) it with an outbound
 | `configuration-callback` | Configuration update pushes | `on-configuration-event` |
 | `health-callback` | App health checks | `health-check` |
 
-Worlds: **`app`** (an application — imports the building blocks, exports the callbacks), **`dapr-outbound`** (a provider that exports the building blocks) and **`dapr-inbound`** (a provider that imports the callbacks). The two provider directions are *separate components* so the composition graph stays acyclic — see below.
+Worlds: **`app`** (an application — imports the building blocks, exports the callbacks), **`outbound`** (a provider that exports the building blocks) and **`inbound`** (a provider that imports the callbacks). The two provider directions are *separate components* so the composition graph stays acyclic — see below.
 
 ## Two directions: calling Dapr vs. being called by Dapr — both typed
 
@@ -138,7 +138,7 @@ A composed component is `outbound → app → inbound` (acyclic — see [Two dir
 ```sh
 ./compose.sh my_app.wasm                       # http out + http in -> composed.wasm
 ./compose.sh my_app.wasm --out grpc --in http  # mixed transports
-./compose.sh my_app.wasm -o server.wasm --tag 0.2.0   # explicit output + OCI tag
+./compose.sh my_app.wasm -o server.wasm --tag 0.3.0   # explicit output + OCI tag
 
 dapr run --app-id my-app -- wasmtime serve -S cli composed.wasm   # reactor (app channel)
 # outbound-only command apps: `wac plug app.wasm --plug http-outbound.wasm` + `wasmtime run -S http`
@@ -187,7 +187,7 @@ Divergences from the wasi-http provider (inherent to the gRPC API): service invo
 
 | Path | What |
 |---|---|
-| `components/wit/` | The `dapr-wasm-components:interfaces` WIT package (worlds `app`, `dapr-outbound`, `dapr-inbound`) |
+| `components/wit/` | The `dapr-wasm-components:interfaces` WIT package (worlds `app`, `outbound`, `inbound`) |
 | `components/wasi-http-outbound/` | wasi:http **outbound** provider — the building blocks over the Dapr HTTP API (portable) |
 | `components/wasi-http-inbound/` | wasi:http **inbound** provider — exports `wasi:http/incoming-handler`, dispatches the app channel to the typed callbacks (portable) |
 | `components/wasi-grpc-outbound/` | wasi:grpc **outbound** provider — the building blocks over the Dapr gRPC API (Spin ≥ 3.4; vendored protos + checked-in tonic codegen) |
