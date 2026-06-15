@@ -1,5 +1,7 @@
 # Wiki Log
 
+## [2026-06-15] update | dapr-wasm-components Architecture (error-model redesign: removed the single shared `error` variant; recoverable failures are now per-interface tier-2 + per-function tier-1 `variant`s, absences are `option`, and unrecoverable/infra failures trap instead of being typed — modelled on wasi-keyvalue; inbound callbacks use `types.app-error`; `lock.unlock-status` dropped `internal-error`; breaking, bumped package `0.4.0` → `0.5.0`; mirrored across both providers, both inbound providers, the dapr-app SDK, and the e2e mock/tests)
+
 ## [2026-06-14] update | dapr-wasm-components Architecture (world rename: provider worlds `dapr-outbound`/`dapr-inbound` → bare `outbound`/`inbound`; `app` kept; `dapr-` prefix dropped as redundant inside the `dapr-wasm-components:interfaces` package and now matches `compose.wac`'s `dapr:outbound`/`dapr:inbound` aliases; bindgen struct `DaprOutbound` → `Outbound`; breaking, bumped package `0.3.0` → `0.4.0`, released as v0.4.0; the 0.3.0 API-faithfulness pass is released separately as v0.3.0)
 
 ## [2026-06-13] new | dapr-wasm-components Inbound Design (typed Dapr→app inbound — seven *-callback interfaces + the dapr-app SDK, built and merged; worlds app/dapr-outbound/dapr-inbound; providers split outbound+inbound to break the app↔provider compose cycle; supersedes "outbound only")

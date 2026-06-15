@@ -7,11 +7,19 @@
 
 use std::collections::HashMap;
 
-use crate::exports::secrets::{Guest, Secret};
+use crate::exports::secrets::{Guest, Secret, SecretsError};
 use crate::proto::runtime as pb;
-use crate::sidecar::{metadata_map, Sidecar};
-use crate::types::{Error, Metadata};
+use crate::sidecar::{metadata_map, DaprFailure, Sidecar};
+use crate::types::Metadata;
 use crate::Component;
+
+fn secrets_error(f: DaprFailure) -> SecretsError {
+    if f.is_permission() {
+        SecretsError::PermissionDenied(f.message)
+    } else {
+        SecretsError::StoreNotFound(f.message)
+    }
+}
 
 /// Proto maps have no order — sort the secret entries for determinism
 /// (the HTTP provider does the same via `BTreeMap`).
@@ -26,31 +34,35 @@ impl Guest for Component {
         store_name: String,
         key: String,
         metadata: Metadata,
-    ) -> Result<Option<Secret>, Error> {
-        let sidecar = Sidecar::from_env()?;
-        let response = sidecar.unary(
-            pb::GetSecretRequest {
-                store_name,
-                key,
-                metadata: metadata_map(&metadata),
-            },
-            |mut client, request| async move { client.get_secret(request).await },
-        )?;
+    ) -> Result<Option<Secret>, SecretsError> {
+        let sidecar = Sidecar::from_env();
+        let response = sidecar
+            .unary(
+                pb::GetSecretRequest {
+                    store_name,
+                    key,
+                    metadata: metadata_map(&metadata),
+                },
+                |mut client, request| async move { client.get_secret(request).await },
+            )
+            .map_err(secrets_error)?;
         Ok(Some(secret_pairs(response.data)))
     }
 
     fn get_bulk_secret(
         store_name: String,
         metadata: Metadata,
-    ) -> Result<Vec<(String, Secret)>, Error> {
-        let sidecar = Sidecar::from_env()?;
-        let response = sidecar.unary(
-            pb::GetBulkSecretRequest {
-                store_name,
-                metadata: metadata_map(&metadata),
-            },
-            |mut client, request| async move { client.get_bulk_secret(request).await },
-        )?;
+    ) -> Result<Vec<(String, Secret)>, SecretsError> {
+        let sidecar = Sidecar::from_env();
+        let response = sidecar
+            .unary(
+                pb::GetBulkSecretRequest {
+                    store_name,
+                    metadata: metadata_map(&metadata),
+                },
+                |mut client, request| async move { client.get_bulk_secret(request).await },
+            )
+            .map_err(secrets_error)?;
         let mut secrets: Vec<(String, Secret)> = response
             .data
             .into_iter()

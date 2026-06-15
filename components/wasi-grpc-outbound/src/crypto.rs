@@ -6,12 +6,47 @@
 //! chunks in `seq` order. Streaming RPCs through the Spin h2c path are
 //! thus exercised only in this one-shot form here.
 
-use crate::exports::crypto::{EncryptOptions, Guest};
+use crate::exports::crypto::{CryptoError, DecryptError, EncryptError, EncryptOptions, Guest};
 use crate::proto::common as pbc;
 use crate::proto::runtime as pb;
-use crate::sidecar::{status_to_error, Sidecar};
-use crate::types::Error;
+use crate::sidecar::{classify, DaprFailure, Sidecar};
 use crate::Component;
+
+fn crypto_error(f: DaprFailure) -> CryptoError {
+    if f.is_permission() {
+        CryptoError::PermissionDenied(f.message)
+    } else {
+        CryptoError::ComponentNotFound(f.message)
+    }
+}
+
+fn encrypt_error(f: DaprFailure) -> EncryptError {
+    if f.status == 404
+        || f.error_code
+            .as_deref()
+            .is_some_and(|c| c.contains("KEY_NOT_FOUND") || c.contains("NOT_FOUND"))
+    {
+        return EncryptError::KeyNotFound(f.message);
+    }
+    if f.status == 400 {
+        return EncryptError::UnsupportedAlgorithm(f.message);
+    }
+    EncryptError::Crypto(crypto_error(f))
+}
+
+fn decrypt_error(f: DaprFailure) -> DecryptError {
+    if f.status == 404
+        || f.error_code
+            .as_deref()
+            .is_some_and(|c| c.contains("KEY_NOT_FOUND") || c.contains("NOT_FOUND"))
+    {
+        return DecryptError::KeyNotFound(f.message);
+    }
+    if f.status == 400 {
+        return DecryptError::MalformedCiphertext(f.message);
+    }
+    DecryptError::Crypto(crypto_error(f))
+}
 
 /// Drain the response stream, concatenating the payload chunks in `seq`
 /// order (a single gRPC stream already delivers them in order; sorting
@@ -35,8 +70,8 @@ impl Guest for Component {
         component_name: String,
         data: Vec<u8>,
         options: EncryptOptions,
-    ) -> Result<Vec<u8>, Error> {
-        let sidecar = Sidecar::from_env()?;
+    ) -> Result<Vec<u8>, EncryptError> {
+        let sidecar = Sidecar::from_env();
         let message = pb::EncryptRequest {
             options: Some(pb::EncryptRequestOptions {
                 component_name,
@@ -48,21 +83,21 @@ impl Guest for Component {
             }),
             payload: Some(pbc::StreamPayload { data, seq: 0 }),
         };
-        let request = sidecar.request(futures::stream::iter(vec![message]))?;
+        let request = sidecar.request(futures::stream::iter(vec![message]));
         let mut client = sidecar.client();
         spin_executor::run(async move {
             let streaming = client.encrypt_alpha1(request).await?.into_inner();
             collect_payload(streaming, |response: pb::EncryptResponse| response.payload).await
         })
-        .map_err(status_to_error)
+        .map_err(|s| encrypt_error(classify(s)))
     }
 
     fn decrypt(
         component_name: String,
         data: Vec<u8>,
         key_name: Option<String>,
-    ) -> Result<Vec<u8>, Error> {
-        let sidecar = Sidecar::from_env()?;
+    ) -> Result<Vec<u8>, DecryptError> {
+        let sidecar = Sidecar::from_env();
         let message = pb::DecryptRequest {
             options: Some(pb::DecryptRequestOptions {
                 component_name,
@@ -70,12 +105,12 @@ impl Guest for Component {
             }),
             payload: Some(pbc::StreamPayload { data, seq: 0 }),
         };
-        let request = sidecar.request(futures::stream::iter(vec![message]))?;
+        let request = sidecar.request(futures::stream::iter(vec![message]));
         let mut client = sidecar.client();
         spin_executor::run(async move {
             let streaming = client.decrypt_alpha1(request).await?.into_inner();
             collect_payload(streaming, |response: pb::DecryptResponse| response.payload).await
         })
-        .map_err(status_to_error)
+        .map_err(|s| decrypt_error(classify(s)))
     }
 }

@@ -3,7 +3,26 @@
 /// alpha1 shape is not exposed.
 /// https://docs.dapr.io/reference/api/conversation_api/
 interface conversation {
-  use types.{error, json, metadata};
+  use types.{json, metadata};
+
+  /// Setup/config failures common to every conversation operation.
+  variant conversation-error {
+    /// No conversation/LLM component named `component-name` is configured.
+    component-not-found(string),
+    /// This app is not allowed to use the component (API token / scoping).
+    permission-denied(string),
+  }
+
+  /// Failure of `converse`.
+  variant converse-error {
+    /// `context-id` does not refer to a known chat to continue.
+    context-not-found(string),
+    /// The request was rejected by the model/component's content policy.
+    content-filtered(string),
+    /// The request was malformed (e.g. bad tool/response-format schema).
+    invalid-request(string),
+    conversation(conversation-error),
+  }
 
   /// A single content part of a message. alpha2 carries message content as
   /// an ordered list of parts; only text parts exist today.
@@ -162,5 +181,5 @@ interface conversation {
     component-name: string,
     inputs: list<conversation-input>,
     options: option<conversation-options>,
-  ) -> result<conversation-response, error>;
+  ) -> result<conversation-response, converse-error>;
 }

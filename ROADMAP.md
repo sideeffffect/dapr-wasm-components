@@ -1,7 +1,7 @@
 # Roadmap / follow-ups
 
 Tracked follow-up work for `dapr-wasm-components`, current as of package
-`dapr-wasm-components:interfaces@0.4.0`. Grouped by area; each item notes *why*
+`dapr-wasm-components:interfaces@0.5.0`. Grouped by area; each item notes *why*
 it's open and roughly *what* it needs. See
 [wiki/dapr/dapr-wasm-components-architecture.md](wiki/dapr/dapr-wasm-components-architecture.md)
 for the design rationale and [wiki/dapr/dapr-wasm-components-inbound-design.md](wiki/dapr/dapr-wasm-components-inbound-design.md)
@@ -49,6 +49,15 @@ for the inbound spec.
 
 ## Recently shipped
 
+- **Interfaces 0.5.0 — error-model redesign (breaking).** Dropped the single
+  shared 7-case `error` variant that every operation returned. Failures are now
+  sorted by who acts on them: expected outcomes are `option` in the success type
+  (missing value = `none`), recoverable failures are per-interface + per-function
+  `variant`s (e.g. `state.save` → `write-error { etag-mismatch, state }`), and
+  unrecoverable/infra failures (sidecar down, 5xx, timeouts, I/O) are no longer
+  typed at all — the provider traps. Inbound callbacks use `types.app-error`.
+  Modelled on wasi-keyvalue. Mirrored across both providers, both inbound
+  providers, the `dapr-app` SDK, and the e2e mock/tests.
 - **Interfaces 0.4.0.** The WIT package was tightened across 0.3.0 → 0.4.0 to
   follow the Dapr HTTP API faithfully, the provider worlds were renamed
   `dapr-outbound`/`dapr-inbound` → `outbound`/`inbound`, and the published OCI

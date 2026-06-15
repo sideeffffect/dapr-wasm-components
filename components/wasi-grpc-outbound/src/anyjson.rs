@@ -54,23 +54,19 @@ fn value_to_json(value: &prost_types::Value) -> serde_json::Value {
 /// Parse a JSON object (text) into a `google.protobuf.Struct` — used for
 /// conversation tool parameters and the response-format schema, which the
 /// proto carries as `Struct`.
-pub fn json_to_struct(json_text: &str) -> Result<prost_types::Struct, crate::types::Error> {
-    let parsed: serde_json::Value = serde_json::from_str(json_text).map_err(|e| {
-        crate::types::Error::InvalidArgument(format!("expected a JSON object: {e}"))
-    })?;
+pub fn json_to_struct(json_text: &str) -> Result<prost_types::Struct, String> {
+    let parsed: serde_json::Value =
+        serde_json::from_str(json_text).map_err(|e| format!("expected a JSON object: {e}"))?;
     match json_to_value(&parsed).kind {
         Some(prost_types::value::Kind::StructValue(object)) => Ok(object),
-        _ => Err(crate::types::Error::InvalidArgument(
-            "expected a JSON object".to_string(),
-        )),
+        _ => Err("expected a JSON object".to_string()),
     }
 }
 
 /// Pack a JSON document (text) as `Any(google.protobuf.Value)`.
-pub fn pack_json(json_text: &str) -> Result<prost_types::Any, crate::types::Error> {
-    let parsed: serde_json::Value = serde_json::from_str(json_text).map_err(|e| {
-        crate::types::Error::InvalidArgument(format!("payload is not valid JSON: {e}"))
-    })?;
+pub fn pack_json(json_text: &str) -> Result<prost_types::Any, String> {
+    let parsed: serde_json::Value =
+        serde_json::from_str(json_text).map_err(|e| format!("payload is not valid JSON: {e}"))?;
     Ok(prost_types::Any {
         type_url: VALUE_TYPE_URL.to_string(),
         value: json_to_value(&parsed).encode_to_vec(),
@@ -158,22 +154,20 @@ pub mod wrappers {
 /// this provider cannot encode.
 pub fn pack_protojson_wrapper(
     object: &serde_json::Map<String, serde_json::Value>,
-) -> Option<Result<prost_types::Any, crate::types::Error>> {
-    use crate::types::Error;
-
+) -> Option<Result<prost_types::Any, String>> {
     let type_url = object.get("@type")?.as_str()?.to_string();
     let value = object
         .get("value")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
 
-    fn parse<T: std::str::FromStr>(value: &serde_json::Value, what: &str) -> Result<T, Error> {
+    fn parse<T: std::str::FromStr>(value: &serde_json::Value, what: &str) -> Result<T, String> {
         // protojson allows 64-bit ints (and more) as JSON strings.
         match value {
             serde_json::Value::String(text) => text.parse().ok(),
             other => other.to_string().parse().ok(),
         }
-        .ok_or_else(|| Error::InvalidArgument(format!("@type {what}: invalid value {value}")))
+        .ok_or_else(|| format!("@type {what}: invalid value {value}"))
     }
 
     let suffix = type_url.rsplit('/').next().unwrap_or(&type_url);
@@ -198,15 +192,11 @@ pub fn pack_protojson_wrapper(
         }
         "google.protobuf.BoolValue" => value
             .as_bool()
-            .ok_or_else(|| {
-                crate::types::Error::InvalidArgument(format!("@type {suffix}: invalid value"))
-            })
+            .ok_or_else(|| format!("@type {suffix}: invalid value"))
             .map(|value| wrappers::BoolValue { value }.encode_to_vec()),
         "google.protobuf.StringValue" => value
             .as_str()
-            .ok_or_else(|| {
-                crate::types::Error::InvalidArgument(format!("@type {suffix}: invalid value"))
-            })
+            .ok_or_else(|| format!("@type {suffix}: invalid value"))
             .map(|text| {
                 wrappers::StringValue {
                     value: text.to_string(),
@@ -214,9 +204,7 @@ pub fn pack_protojson_wrapper(
                 .encode_to_vec()
             }),
         "google.protobuf.Value" => Ok(json_to_value(&value).encode_to_vec()),
-        other => Err(crate::types::Error::InvalidArgument(format!(
-            "@type {other} is not supported here"
-        ))),
+        other => Err(format!("@type {other} is not supported here")),
     };
     Some(encoded.map(|value| prost_types::Any { type_url, value }))
 }

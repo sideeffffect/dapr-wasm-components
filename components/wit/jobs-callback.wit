@@ -5,7 +5,7 @@
 /// call — dispatch on `name`.
 /// https://docs.dapr.io/reference/api/jobs_api/
 interface jobs-callback {
-  use types.{error};
+  use types.{app-error};
 
   /// A triggered job. `data` is the payload supplied at schedule time.
   record job-event {
@@ -15,5 +15,5 @@ interface jobs-callback {
   }
 
   /// Handle one job trigger.
-  on-job-event: func(event: job-event) -> result<_, error>;
+  on-job-event: func(event: job-event) -> result<_, app-error>;
 }

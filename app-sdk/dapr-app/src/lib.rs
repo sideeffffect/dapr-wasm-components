@@ -58,7 +58,7 @@ use callback::configuration_callback as cc;
 use callback::invocation_callback as ic;
 use callback::jobs_callback as jc;
 use callback::pubsub_callback as pc;
-use dapr::types::Error;
+use dapr::types::AppError;
 
 /// The inbound surface of a Dapr application. Implement this trait and export
 /// it with [`export_app!`]. Every method has a default, so an outbound-only
@@ -98,7 +98,7 @@ pub trait DaprApp {
     }
 
     /// Handle an input-binding event. Default: acknowledge with no side effects.
-    fn on_binding_event(event: bc::BindingEvent) -> Result<bc::BindingEventResponse, Error> {
+    fn on_binding_event(event: bc::BindingEvent) -> Result<bc::BindingEventResponse, AppError> {
         Ok(bc::BindingEventResponse {
             store_name: None,
             states: Vec::new(),
@@ -111,7 +111,7 @@ pub trait DaprApp {
     // --- jobs ---
 
     /// Handle a job trigger. Default: acknowledge.
-    fn on_job_event(event: jc::JobEvent) -> Result<(), Error> {
+    fn on_job_event(event: jc::JobEvent) -> Result<(), AppError> {
         Ok(())
     }
 
@@ -137,24 +137,24 @@ pub trait DaprApp {
         actor_id: String,
         method: String,
         data: Vec<u8>,
-    ) -> Result<Vec<u8>, Error> {
-        Err(Error::NotFound(format!(
-            "no actor type {actor_type} hosted"
-        )))
+    ) -> Result<Vec<u8>, AppError> {
+        Err(AppError {
+            message: format!("no actor type {actor_type} hosted"),
+        })
     }
 
     /// Fire an actor timer. Default: no-op.
-    fn on_actor_timer(event: ac::ActorTimerEvent) -> Result<(), Error> {
+    fn on_actor_timer(event: ac::ActorTimerEvent) -> Result<(), AppError> {
         Ok(())
     }
 
     /// Fire an actor reminder. Default: no-op.
-    fn on_actor_reminder(event: ac::ActorReminderEvent) -> Result<(), Error> {
+    fn on_actor_reminder(event: ac::ActorReminderEvent) -> Result<(), AppError> {
         Ok(())
     }
 
     /// Deactivate an actor instance. Default: no-op.
-    fn deactivate_actor(actor_type: String, actor_id: String) -> Result<(), Error> {
+    fn deactivate_actor(actor_type: String, actor_id: String) -> Result<(), AppError> {
         Ok(())
     }
 
@@ -166,7 +166,7 @@ pub trait DaprApp {
     // --- health ---
 
     /// Report application health. Default: healthy.
-    fn health_check() -> Result<(), Error> {
+    fn health_check() -> Result<(), AppError> {
         Ok(())
     }
 }
@@ -194,13 +194,13 @@ impl<T: DaprApp> bc::Guest for T {
     fn list_input_bindings() -> Vec<String> {
         <T as DaprApp>::list_input_bindings()
     }
-    fn on_binding_event(event: bc::BindingEvent) -> Result<bc::BindingEventResponse, Error> {
+    fn on_binding_event(event: bc::BindingEvent) -> Result<bc::BindingEventResponse, AppError> {
         <T as DaprApp>::on_binding_event(event)
     }
 }
 
 impl<T: DaprApp> jc::Guest for T {
-    fn on_job_event(event: jc::JobEvent) -> Result<(), Error> {
+    fn on_job_event(event: jc::JobEvent) -> Result<(), AppError> {
         <T as DaprApp>::on_job_event(event)
     }
 }
@@ -214,16 +214,16 @@ impl<T: DaprApp> ac::Guest for T {
         actor_id: String,
         method: String,
         data: Vec<u8>,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, AppError> {
         <T as DaprApp>::on_actor_invoke(actor_type, actor_id, method, data)
     }
-    fn on_timer(event: ac::ActorTimerEvent) -> Result<(), Error> {
+    fn on_timer(event: ac::ActorTimerEvent) -> Result<(), AppError> {
         <T as DaprApp>::on_actor_timer(event)
     }
-    fn on_reminder(event: ac::ActorReminderEvent) -> Result<(), Error> {
+    fn on_reminder(event: ac::ActorReminderEvent) -> Result<(), AppError> {
         <T as DaprApp>::on_actor_reminder(event)
     }
-    fn deactivate(actor_type: String, actor_id: String) -> Result<(), Error> {
+    fn deactivate(actor_type: String, actor_id: String) -> Result<(), AppError> {
         <T as DaprApp>::deactivate_actor(actor_type, actor_id)
     }
 }
@@ -235,7 +235,7 @@ impl<T: DaprApp> cc::Guest for T {
 }
 
 impl<T: DaprApp> callback::health_callback::Guest for T {
-    fn health_check() -> Result<(), Error> {
+    fn health_check() -> Result<(), AppError> {
         <T as DaprApp>::health_check()
     }
 }

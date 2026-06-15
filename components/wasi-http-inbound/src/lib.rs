@@ -45,7 +45,7 @@ mod wit {
 pub(crate) use wit::dapr_wasm_components::interfaces as imports;
 
 use imports::invocation::{HttpResponse, HttpVerb};
-use imports::types::Error;
+use imports::types::AppError;
 use imports::{
     actors_callback, bindings_callback, configuration_callback, invocation_callback, jobs_callback,
     pubsub_callback,
@@ -171,7 +171,7 @@ fn route(
 
 // --- health ---------------------------------------------------------------
 
-fn health_check() -> Result<(), Error> {
+fn health_check() -> Result<(), AppError> {
     imports::health_callback::health_check()
 }
 
@@ -671,20 +671,14 @@ fn bytes(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response<Body
     response
 }
 
-/// Map a WIT `error` from the app to the HTTP status the sidecar expects.
-fn error_response(error: &Error) -> Response<Body> {
-    let (status, message) = match error {
-        Error::InvalidArgument(m) => (StatusCode::BAD_REQUEST, m),
-        Error::NotFound(m) => (StatusCode::NOT_FOUND, m),
-        Error::PermissionDenied(m) => (StatusCode::FORBIDDEN, m),
-        Error::Aborted(m) => (StatusCode::CONFLICT, m),
-        Error::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, m),
-        Error::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
-        Error::Other(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
-    };
+/// Map an `app-error` reported by the app to the HTTP reply the sidecar
+/// expects. The app's recoverable failures are no longer typed by HTTP
+/// status — an `app-error` carries only a message — so a graceful callback
+/// failure is reported as a 500 with that message.
+fn error_response(error: &AppError) -> Response<Body> {
     json_response(
-        status,
-        &json!({ "errorCode": "ERR_APP", "message": message }),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        &json!({ "errorCode": "ERR_APP", "message": error.message }),
     )
 }
 

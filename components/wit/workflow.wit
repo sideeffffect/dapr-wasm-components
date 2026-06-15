@@ -4,7 +4,31 @@
 /// HTTP API in favor of SDKs; it is still served as of v1.18.
 /// https://docs.dapr.io/reference/api/workflow_api/
 interface workflow {
-  use types.{error};
+  /// Setup/config failures common to every workflow operation.
+  variant workflow-error {
+    /// No workflow component named `workflow-component` is configured.
+    component-not-found(string),
+    /// This app is not allowed to use the component (API token / scoping).
+    permission-denied(string),
+  }
+
+  /// Failure of `start`.
+  variant start-error {
+    /// An instance with that `instance-id` already exists.
+    instance-already-exists(string),
+    workflow(workflow-error),
+  }
+
+  /// Failure of the operations that act on an existing instance
+  /// (`terminate`/`raise-event`/`pause`/`resume`/`purge`).
+  variant instance-error {
+    /// No workflow instance with that `instance-id`.
+    not-found(string),
+    /// The instance is not in a state that permits this operation
+    /// (e.g. resuming a workflow that is not paused, purging a running one).
+    invalid-state(string),
+    workflow(workflow-error),
+  }
 
   record workflow-instance {
     instance-id: string,
@@ -23,13 +47,14 @@ interface workflow {
     workflow-name: string,
     instance-id: option<string>,
     input: list<u8>,
-  ) -> result<string, error>;
+  ) -> result<string, start-error>;
 
-  /// Get information about a workflow instance.
-  get: func(workflow-component: string, instance-id: string) -> result<workflow-instance, error>;
+  /// Get information about a workflow instance. Returns `none` when no
+  /// instance with that id exists.
+  get: func(workflow-component: string, instance-id: string) -> result<option<workflow-instance>, workflow-error>;
 
   /// Terminate a running workflow instance.
-  terminate: func(workflow-component: string, instance-id: string) -> result<_, error>;
+  terminate: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;
 
   /// Deliver an external event to a workflow instance.
   raise-event: func(
@@ -37,14 +62,14 @@ interface workflow {
     instance-id: string,
     event-name: string,
     event-data: list<u8>,
-  ) -> result<_, error>;
+  ) -> result<_, instance-error>;
 
   /// Pause a running workflow instance.
-  pause: func(workflow-component: string, instance-id: string) -> result<_, error>;
+  pause: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;
 
   /// Resume a paused workflow instance.
-  resume: func(workflow-component: string, instance-id: string) -> result<_, error>;
+  resume: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;
 
   /// Purge the state of a terminated/completed workflow instance.
-  purge: func(workflow-component: string, instance-id: string) -> result<_, error>;
+  purge: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;
 }

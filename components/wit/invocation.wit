@@ -1,7 +1,21 @@
 /// Dapr service invocation building block (HTTP semantics).
 /// https://docs.dapr.io/reference/api/service_invocation_api/
 interface invocation {
-  use types.{metadata, error};
+  use types.{metadata};
+
+  /// Failure of `invoke`. A non-2xx reply from the target application is a
+  /// normal `http-response`, not a failure; these are failures to *deliver*
+  /// the call at all.
+  variant invoke-error {
+    /// The target application `app-id` could not be resolved or reached
+    /// (unknown app id, name-resolution failure, the callee is down). Unlike
+    /// an unreachable *sidecar* (which traps), a peer being down is a normal
+    /// distributed-systems outcome the caller is expected to handle.
+    app-unreachable(string),
+    /// This app is not allowed to invoke `app-id` (API token / access
+    /// control).
+    permission-denied(string),
+  }
 
   enum http-verb {
     get,
@@ -31,5 +45,5 @@ interface invocation {
     headers: metadata,
     query: option<string>,
     body: list<u8>,
-  ) -> result<http-response, error>;
+  ) -> result<http-response, invoke-error>;
 }

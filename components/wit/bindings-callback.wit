@@ -6,7 +6,7 @@
 /// Mirrors `AppCallback.ListInputBindings` / `OnBindingEvent`.
 /// https://docs.dapr.io/reference/api/bindings_api/
 interface bindings-callback {
-  use types.{metadata, error};
+  use types.{metadata, app-error};
   use state.{state-item};
 
   /// An event delivered from an input binding component. Dispatch on `name`.
@@ -41,5 +41,5 @@ interface bindings-callback {
   list-input-bindings: func() -> list<string>;
 
   /// Handle one input binding event.
-  on-binding-event: func(event: binding-event) -> result<binding-event-response, error>;
+  on-binding-event: func(event: binding-event) -> result<binding-event-response, app-error>;
 }

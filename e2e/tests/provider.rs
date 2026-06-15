@@ -287,7 +287,12 @@ async fn jobs_roundtrip() {
     .unwrap()
     .unwrap();
 
-    let job = jobs.call_get(&mut store, "nightly").await.unwrap().unwrap();
+    let job = jobs
+        .call_get(&mut store, "nightly")
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("scheduled job should exist");
     assert_eq!(job.schedule.as_deref(), Some("@every 1m"));
     assert_eq!(job.repeats, Some(5));
     assert_eq!(job.data.as_deref(), Some(r#"{"value":42}"#));
@@ -326,14 +331,18 @@ async fn runtime_health_and_metadata() {
 }
 
 #[tokio::test]
-async fn unreachable_sidecar_is_unavailable() {
-    // Port 9 (discard) — nothing is listening there.
+async fn unreachable_sidecar_traps() {
+    // Port 9 (discard) — nothing is listening there. An unreachable sidecar is
+    // an unrecoverable (tier-3) failure: the provider traps rather than
+    // returning a recoverable error value, so the call itself errors.
     let (mut store, provider) = load_provider("http://127.0.0.1:9").await.unwrap();
 
-    let result = provider
+    let call = provider
         .dapr_wasm_components_interfaces_state()
         .call_get(&mut store, "statestore", "k", None, &Vec::new())
-        .await
-        .unwrap();
-    assert!(result.is_err(), "unreachable sidecar should be an error");
+        .await;
+    assert!(
+        call.is_err(),
+        "unreachable sidecar should trap, surfacing as an errored call"
+    );
 }

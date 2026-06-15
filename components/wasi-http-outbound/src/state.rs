@@ -5,12 +5,53 @@ use serde_json::json;
 use wstd::http::Method;
 
 use crate::exports::state::{
-    BulkStateItem, Concurrency, Consistency, GetStateResponse, Guest, QueryResponse,
-    QueryStateItem, StateItem, StateOptions, TransactionOperation, TransactionRequest,
+    BulkStateItem, Concurrency, Consistency, GetStateResponse, Guest, QueryError, QueryResponse,
+    QueryStateItem, StateError, StateItem, StateOptions, TransactionError, TransactionOperation,
+    TransactionRequest, WriteError,
 };
-use crate::sidecar::{push_metadata_query, seg, with_query, Sidecar};
-use crate::types::{Error, Metadata};
+use crate::sidecar::{push_metadata_query, seg, with_query, DaprFailure, Sidecar};
+use crate::types::Metadata;
 use crate::Component;
+
+/// Map a recoverable failure to the common state setup/config error.
+fn state_error(failure: DaprFailure) -> StateError {
+    if failure.is_permission() {
+        StateError::PermissionDenied(failure.message)
+    } else {
+        StateError::StoreNotFound(failure.message)
+    }
+}
+
+/// Map a recoverable failure of a conditional write.
+fn write_error(failure: DaprFailure) -> WriteError {
+    match failure.status {
+        409 | 412 => WriteError::EtagMismatch(None),
+        _ => WriteError::State(state_error(failure)),
+    }
+}
+
+/// Map a recoverable failure of a transaction.
+fn transaction_error(failure: DaprFailure) -> TransactionError {
+    if matches!(failure.status, 409 | 412) {
+        return TransactionError::EtagMismatch(None);
+    }
+    if failure
+        .error_code
+        .as_deref()
+        .is_some_and(|c| c.contains("NOT_SUPPORTED") || c.contains("NOT_TRANSACTIONAL"))
+    {
+        return TransactionError::NotTransactional;
+    }
+    TransactionError::State(state_error(failure))
+}
+
+/// Map a recoverable failure of a query.
+fn query_error(failure: DaprFailure) -> QueryError {
+    if failure.status == 400 {
+        return QueryError::InvalidQuery(failure.message);
+    }
+    QueryError::State(state_error(failure))
+}
 
 fn concurrency_str(value: Concurrency) -> Option<&'static str> {
     match value {
@@ -149,7 +190,7 @@ impl Guest for Component {
         key: String,
         consistency: Option<Consistency>,
         metadata: Metadata,
-    ) -> Result<Option<GetStateResponse>, Error> {
+    ) -> Result<Option<GetStateResponse>, StateError> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         if let Some(consistency) = consistency.and_then(consistency_str) {
@@ -161,7 +202,9 @@ impl Guest for Component {
             query,
         );
 
-        let response = sidecar.expect_success(Method::GET, &path, &[], Vec::new())?;
+        let response = sidecar
+            .expect_success(Method::GET, &path, &[], Vec::new())
+            .map_err(state_error)?;
         if response.status == 204 {
             return Ok(None);
         }
@@ -181,7 +224,7 @@ impl Guest for Component {
         keys: Vec<String>,
         parallelism: Option<u32>,
         metadata: Metadata,
-    ) -> Result<Vec<BulkStateItem>, Error> {
+    ) -> Result<Vec<BulkStateItem>, StateError> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         push_metadata_query(&mut query, &metadata);
@@ -191,20 +234,28 @@ impl Guest for Component {
         if let Some(parallelism) = parallelism {
             body["parallelism"] = json!(parallelism);
         }
-        let response = sidecar.json(Method::POST, &path, &body)?;
+        let response = sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(state_error)?;
         let items: Vec<StateItemJson> = serde_json::from_slice(&response.body)
-            .map_err(|e| Error::Internal(format!("unexpected bulk-get response: {e}")))?;
+            .unwrap_or_else(|e| panic!("unexpected bulk-get response: {e}"));
         Ok(items.into_iter().map(Into::into).collect())
     }
 
-    fn save(store_name: String, items: Vec<StateItem>, metadata: Metadata) -> Result<(), Error> {
+    fn save(
+        store_name: String,
+        items: Vec<StateItem>,
+        metadata: Metadata,
+    ) -> Result<(), WriteError> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         push_metadata_query(&mut query, &metadata);
         let path = with_query(format!("/v1.0/state/{}", seg(&store_name)), query);
 
         let body: Vec<serde_json::Value> = items.iter().map(item_to_json).collect();
-        sidecar.json(Method::POST, &path, &body)?;
+        sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(write_error)?;
         Ok(())
     }
 
@@ -214,7 +265,7 @@ impl Guest for Component {
         etag: Option<String>,
         options: Option<StateOptions>,
         metadata: Metadata,
-    ) -> Result<(), Error> {
+    ) -> Result<(), WriteError> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         if let Some(options) = &options {
@@ -235,7 +286,9 @@ impl Guest for Component {
             Some(etag) => vec![("if-match".to_string(), etag)],
             None => Vec::new(),
         };
-        sidecar.expect_success(Method::DELETE, &path, &headers, Vec::new())?;
+        sidecar
+            .expect_success(Method::DELETE, &path, &headers, Vec::new())
+            .map_err(write_error)?;
         Ok(())
     }
 
@@ -243,7 +296,7 @@ impl Guest for Component {
         store_name: String,
         operations: Vec<TransactionRequest>,
         metadata: Metadata,
-    ) -> Result<(), Error> {
+    ) -> Result<(), TransactionError> {
         let sidecar = Sidecar::from_env();
         let path = format!("/v1.0/state/{}/transaction", seg(&store_name));
 
@@ -263,7 +316,9 @@ impl Guest for Component {
         if !metadata.is_empty() {
             body["metadata"] = metadata_object(&metadata);
         }
-        sidecar.json(Method::POST, &path, &body)?;
+        sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(transaction_error)?;
         Ok(())
     }
 
@@ -271,7 +326,7 @@ impl Guest for Component {
         store_name: String,
         query: String,
         metadata: Metadata,
-    ) -> Result<QueryResponse, Error> {
+    ) -> Result<QueryResponse, QueryError> {
         let sidecar = Sidecar::from_env();
         let mut query_params = Vec::new();
         push_metadata_query(&mut query_params, &metadata);
@@ -280,12 +335,14 @@ impl Guest for Component {
             query_params,
         );
 
-        let response = sidecar.expect_success(
-            Method::POST,
-            &path,
-            &[("content-type".to_string(), "application/json".to_string())],
-            query.into_bytes(),
-        )?;
+        let response = sidecar
+            .expect_success(
+                Method::POST,
+                &path,
+                &[("content-type".to_string(), "application/json".to_string())],
+                query.into_bytes(),
+            )
+            .map_err(query_error)?;
 
         #[derive(Deserialize)]
         struct QueryJson {
@@ -295,7 +352,7 @@ impl Guest for Component {
             token: Option<String>,
         }
         let parsed: QueryJson = serde_json::from_slice(&response.body)
-            .map_err(|e| Error::Internal(format!("unexpected query response: {e}")))?;
+            .unwrap_or_else(|e| panic!("unexpected query response: {e}"));
         Ok(QueryResponse {
             items: parsed.results.into_iter().map(Into::into).collect(),
             token: parsed.token,

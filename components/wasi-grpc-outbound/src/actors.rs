@@ -14,14 +14,22 @@ use serde_json::json;
 
 use crate::anyjson::unpack_json;
 use crate::exports::actors::{
-    ActorStateOperation, ActorStateOperationType, Guest, Reminder, Timer,
+    ActorStateOperation, ActorStateOperationType, ActorsError, Guest, InvokeActorError, Reminder,
+    Timer,
 };
 use crate::proto::runtime as pb;
-use crate::sidecar::Sidecar;
-use crate::types::Error;
+use crate::sidecar::{DaprFailure, Sidecar};
 use crate::Component;
 
-fn operation_pb(op: &ActorStateOperation) -> Result<pb::TransactionalActorStateOperation, Error> {
+fn actors_error(f: DaprFailure) -> ActorsError {
+    ActorsError::PermissionDenied(f.message)
+}
+
+fn invoke_actor_error(f: DaprFailure) -> InvokeActorError {
+    InvokeActorError::Actors(actors_error(f))
+}
+
+fn operation_pb(op: &ActorStateOperation) -> pb::TransactionalActorStateOperation {
     let (operation_type, value) = match op.operation {
         // daprd treats this `Any` opaquely — it unwraps `Any.value` as the
         // raw bytes to store; "type.googleapis.com/bytes" is the SDK
@@ -30,19 +38,21 @@ fn operation_pb(op: &ActorStateOperation) -> Result<pb::TransactionalActorStateO
             "upsert".to_string(),
             Some(prost_types::Any {
                 type_url: "type.googleapis.com/bytes".to_string(),
-                value: op.value.clone().ok_or_else(|| {
-                    Error::InvalidArgument(format!("upsert of {:?} requires a value", op.key))
-                })?,
+                // An upsert without a value is a programming error.
+                value: op
+                    .value
+                    .clone()
+                    .unwrap_or_else(|| panic!("upsert of {:?} requires a value", op.key)),
             }),
         ),
         ActorStateOperationType::Delete => ("delete".to_string(), None),
     };
-    Ok(pb::TransactionalActorStateOperation {
+    pb::TransactionalActorStateOperation {
         operation_type,
         key: op.key.clone(),
         value,
         metadata: HashMap::new(),
-    })
+    }
 }
 
 impl Guest for Component {
@@ -52,8 +62,8 @@ impl Guest for Component {
         method: String,
         body: Vec<u8>,
         content_type: Option<String>,
-    ) -> Result<Vec<u8>, Error> {
-        let sidecar = Sidecar::from_env()?;
+    ) -> Result<Vec<u8>, InvokeActorError> {
+        let sidecar = Sidecar::from_env();
         // gRPC carries the content type in the request metadata map; daprd
         // reads the key case-sensitively, lowercase. Default like the
         // wasi-http provider does.
@@ -62,16 +72,18 @@ impl Guest for Component {
             "content-type".to_string(),
             content_type.unwrap_or_else(|| "application/json".to_string()),
         );
-        let response = sidecar.unary(
-            pb::InvokeActorRequest {
-                actor_type,
-                actor_id,
-                method,
-                data: body,
-                metadata,
-            },
-            |mut client, request| async move { client.invoke_actor(request).await },
-        )?;
+        let response = sidecar
+            .unary(
+                pb::InvokeActorRequest {
+                    actor_type,
+                    actor_id,
+                    method,
+                    data: body,
+                    metadata,
+                },
+                |mut client, request| async move { client.invoke_actor(request).await },
+            )
+            .map_err(invoke_actor_error)?;
         Ok(response.data)
     }
 
@@ -79,16 +91,18 @@ impl Guest for Component {
         actor_type: String,
         actor_id: String,
         key: String,
-    ) -> Result<Option<Vec<u8>>, Error> {
-        let sidecar = Sidecar::from_env()?;
-        let response = sidecar.unary(
-            pb::GetActorStateRequest {
-                actor_type,
-                actor_id,
-                key,
-            },
-            |mut client, request| async move { client.get_actor_state(request).await },
-        )?;
+    ) -> Result<Option<Vec<u8>>, ActorsError> {
+        let sidecar = Sidecar::from_env();
+        let response = sidecar
+            .unary(
+                pb::GetActorStateRequest {
+                    actor_type,
+                    actor_id,
+                    key,
+                },
+                |mut client, request| async move { client.get_actor_state(request).await },
+            )
+            .map_err(actors_error)?;
         // gRPC GetActorState cannot distinguish a missing key from an empty
         // stored value (the HTTP API signals "not found" via 204): treat
         // empty data as absent.
@@ -102,21 +116,20 @@ impl Guest for Component {
         actor_type: String,
         actor_id: String,
         operations: Vec<ActorStateOperation>,
-    ) -> Result<(), Error> {
-        let sidecar = Sidecar::from_env()?;
-        sidecar.unary(
-            pb::ExecuteActorStateTransactionRequest {
-                actor_type,
-                actor_id,
-                operations: operations
-                    .iter()
-                    .map(operation_pb)
-                    .collect::<Result<_, _>>()?,
-            },
-            |mut client, request| async move {
-                client.execute_actor_state_transaction(request).await
-            },
-        )?;
+    ) -> Result<(), ActorsError> {
+        let sidecar = Sidecar::from_env();
+        sidecar
+            .unary(
+                pb::ExecuteActorStateTransactionRequest {
+                    actor_type,
+                    actor_id,
+                    operations: operations.iter().map(operation_pb).collect(),
+                },
+                |mut client, request| async move {
+                    client.execute_actor_state_transaction(request).await
+                },
+            )
+            .map_err(actors_error)?;
         Ok(())
     }
 
@@ -125,35 +138,46 @@ impl Guest for Component {
         actor_id: String,
         name: String,
         reminder: Reminder,
-    ) -> Result<(), Error> {
-        let sidecar = Sidecar::from_env()?;
-        sidecar.unary(
-            pb::RegisterActorReminderRequest {
-                actor_type,
-                actor_id,
-                name,
-                due_time: reminder.due_time.unwrap_or_default(),
-                period: reminder.period.unwrap_or_default(),
-                data: reminder.data.map(String::into_bytes).unwrap_or_default(),
-                ttl: reminder.ttl.unwrap_or_default(),
-                overwrite: None,
-                failure_policy: None,
-            },
-            |mut client, request| async move { client.register_actor_reminder(request).await },
-        )?;
+    ) -> Result<(), ActorsError> {
+        let sidecar = Sidecar::from_env();
+        sidecar
+            .unary(
+                pb::RegisterActorReminderRequest {
+                    actor_type,
+                    actor_id,
+                    name,
+                    due_time: reminder.due_time.unwrap_or_default(),
+                    period: reminder.period.unwrap_or_default(),
+                    data: reminder.data.map(String::into_bytes).unwrap_or_default(),
+                    ttl: reminder.ttl.unwrap_or_default(),
+                    overwrite: None,
+                    failure_policy: None,
+                },
+                |mut client, request| async move { client.register_actor_reminder(request).await },
+            )
+            .map_err(actors_error)?;
         Ok(())
     }
 
-    fn get_reminder(actor_type: String, actor_id: String, name: String) -> Result<String, Error> {
-        let sidecar = Sidecar::from_env()?;
-        let response = sidecar.unary(
+    fn get_reminder(
+        actor_type: String,
+        actor_id: String,
+        name: String,
+    ) -> Result<Option<String>, ActorsError> {
+        let sidecar = Sidecar::from_env();
+        let response = match sidecar.unary(
             pb::GetActorReminderRequest {
                 actor_type,
                 actor_id,
                 name,
             },
             |mut client, request| async move { client.get_actor_reminder(request).await },
-        )?;
+        ) {
+            Ok(response) => response,
+            // A missing reminder is absence, not an error.
+            Err(f) if f.status == 404 => return Ok(None),
+            Err(f) => return Err(actors_error(f)),
+        };
         // Shape the proto response like the HTTP API's reminder document.
         let mut object = json!({});
         if !response.actor_type.is_empty() {
@@ -177,23 +201,27 @@ impl Guest for Component {
             let text = unpack_json(data);
             object["data"] = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text));
         }
-        Ok(object.to_string())
+        Ok(Some(object.to_string()))
     }
 
     fn unregister_reminder(
         actor_type: String,
         actor_id: String,
         name: String,
-    ) -> Result<(), Error> {
-        let sidecar = Sidecar::from_env()?;
-        sidecar.unary(
-            pb::UnregisterActorReminderRequest {
-                actor_type,
-                actor_id,
-                name,
-            },
-            |mut client, request| async move { client.unregister_actor_reminder(request).await },
-        )?;
+    ) -> Result<(), ActorsError> {
+        let sidecar = Sidecar::from_env();
+        sidecar
+            .unary(
+                pb::UnregisterActorReminderRequest {
+                    actor_type,
+                    actor_id,
+                    name,
+                },
+                |mut client, request| async move {
+                    client.unregister_actor_reminder(request).await
+                },
+            )
+            .map_err(actors_error)?;
         Ok(())
     }
 
@@ -202,34 +230,42 @@ impl Guest for Component {
         actor_id: String,
         name: String,
         timer: Timer,
-    ) -> Result<(), Error> {
-        let sidecar = Sidecar::from_env()?;
-        sidecar.unary(
-            pb::RegisterActorTimerRequest {
-                actor_type,
-                actor_id,
-                name,
-                due_time: timer.due_time.unwrap_or_default(),
-                period: timer.period.unwrap_or_default(),
-                callback: timer.callback.unwrap_or_default(),
-                data: timer.data.map(String::into_bytes).unwrap_or_default(),
-                ttl: timer.ttl.unwrap_or_default(),
-            },
-            |mut client, request| async move { client.register_actor_timer(request).await },
-        )?;
+    ) -> Result<(), ActorsError> {
+        let sidecar = Sidecar::from_env();
+        sidecar
+            .unary(
+                pb::RegisterActorTimerRequest {
+                    actor_type,
+                    actor_id,
+                    name,
+                    due_time: timer.due_time.unwrap_or_default(),
+                    period: timer.period.unwrap_or_default(),
+                    callback: timer.callback.unwrap_or_default(),
+                    data: timer.data.map(String::into_bytes).unwrap_or_default(),
+                    ttl: timer.ttl.unwrap_or_default(),
+                },
+                |mut client, request| async move { client.register_actor_timer(request).await },
+            )
+            .map_err(actors_error)?;
         Ok(())
     }
 
-    fn unregister_timer(actor_type: String, actor_id: String, name: String) -> Result<(), Error> {
-        let sidecar = Sidecar::from_env()?;
-        sidecar.unary(
-            pb::UnregisterActorTimerRequest {
-                actor_type,
-                actor_id,
-                name,
-            },
-            |mut client, request| async move { client.unregister_actor_timer(request).await },
-        )?;
+    fn unregister_timer(
+        actor_type: String,
+        actor_id: String,
+        name: String,
+    ) -> Result<(), ActorsError> {
+        let sidecar = Sidecar::from_env();
+        sidecar
+            .unary(
+                pb::UnregisterActorTimerRequest {
+                    actor_type,
+                    actor_id,
+                    name,
+                },
+                |mut client, request| async move { client.unregister_actor_timer(request).await },
+            )
+            .map_err(actors_error)?;
         Ok(())
     }
 }

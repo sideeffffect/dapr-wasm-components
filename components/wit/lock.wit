@@ -1,13 +1,20 @@
 /// Dapr distributed lock building block (alpha).
 /// https://docs.dapr.io/reference/api/distributed_lock_api/
 interface lock {
-  use types.{error};
+  /// Setup/config failures common to every lock operation.
+  variant lock-error {
+    /// No lock store named `store-name` is configured.
+    store-not-found(string),
+    /// This app is not allowed to use the lock store (API token / scoping).
+    permission-denied(string),
+  }
 
+  /// The outcome of `unlock`. (An internal sidecar error traps rather than
+  /// being reported here.)
   enum unlock-status {
     success,
     lock-does-not-exist,
     lock-belongs-to-others,
-    internal-error,
   }
 
   /// Try to acquire a lock on `resource-id`. Returns whether the lock
@@ -17,8 +24,8 @@ interface lock {
     resource-id: string,
     lock-owner: string,
     expiry-in-seconds: u32,
-  ) -> result<bool, error>;
+  ) -> result<bool, lock-error>;
 
   /// Release a lock previously acquired by `lock-owner`.
-  unlock: func(store-name: string, resource-id: string, lock-owner: string) -> result<unlock-status, error>;
+  unlock: func(store-name: string, resource-id: string, lock-owner: string) -> result<unlock-status, lock-error>;
 }

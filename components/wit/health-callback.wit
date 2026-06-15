@@ -3,9 +3,9 @@
 /// `AppCallbackHealthCheck.HealthCheck` over gRPC). `ok` means healthy.
 /// https://docs.dapr.io/operations/resiliency/health-checks/app-health/
 interface health-callback {
-  use types.{error};
+  use types.{app-error};
 
-  /// Report application health. An `error` (or a trap) marks the app
+  /// Report application health. An `app-error` (or a trap) marks the app
   /// unhealthy to the sidecar.
-  health-check: func() -> result<_, error>;
+  health-check: func() -> result<_, app-error>;
 }

@@ -4,7 +4,7 @@
 /// `configuration-callback` interface (inbound direction).
 /// https://docs.dapr.io/reference/api/configuration_api/
 interface configuration {
-  use types.{metadata, error};
+  use types.{metadata};
 
   record configuration-item {
     value: string,
@@ -12,16 +12,31 @@ interface configuration {
     metadata: metadata,
   }
 
+  /// Setup/config failures common to every configuration operation.
+  variant configuration-error {
+    /// No configuration store named `store-name` is configured.
+    store-not-found(string),
+    /// This app is not allowed to use the store (API token / scoping).
+    permission-denied(string),
+  }
+
+  /// Failure of `unsubscribe`.
+  variant unsubscribe-error {
+    /// No active subscription with that `id`.
+    no-such-subscription(string),
+    configuration(configuration-error),
+  }
+
   /// Get the configuration items named `keys` (all items when empty)
   /// from the configuration store `store-name`, as (key, item) pairs.
-  get: func(store-name: string, keys: list<string>, metadata: metadata) -> result<list<tuple<string, configuration-item>>, error>;
+  get: func(store-name: string, keys: list<string>, metadata: metadata) -> result<list<tuple<string, configuration-item>>, configuration-error>;
 
   /// Subscribe to changes of the items named `keys` (all items when empty)
   /// in `store-name`. Returns the subscription id; updates are delivered to
   /// the application through the `configuration-callback` interface.
   /// https://docs.dapr.io/reference/api/configuration_api/#watch-configuration
-  subscribe: func(store-name: string, keys: list<string>, metadata: metadata) -> result<string, error>;
+  subscribe: func(store-name: string, keys: list<string>, metadata: metadata) -> result<string, configuration-error>;
 
   /// Stop the subscription identified by `id` on `store-name`.
-  unsubscribe: func(store-name: string, id: string) -> result<_, error>;
+  unsubscribe: func(store-name: string, id: string) -> result<_, unsubscribe-error>;
 }

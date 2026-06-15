@@ -3,7 +3,32 @@
 /// one-shot form (whole payload in memory).
 /// https://docs.dapr.io/reference/api/cryptography_api/
 interface crypto {
-  use types.{error};
+  /// Setup/config failures common to every crypto operation.
+  variant crypto-error {
+    /// No crypto component named `component-name` is configured.
+    component-not-found(string),
+    /// This app is not allowed to use the component (API token / scoping).
+    permission-denied(string),
+  }
+
+  /// Failure of `encrypt`.
+  variant encrypt-error {
+    /// The named key does not exist in the component's key vault.
+    key-not-found(string),
+    /// The key-wrap algorithm or data-encryption cipher is not supported.
+    unsupported-algorithm(string),
+    crypto(crypto-error),
+  }
+
+  /// Failure of `decrypt`.
+  variant decrypt-error {
+    /// The key needed to decrypt does not exist.
+    key-not-found(string),
+    /// The ciphertext is not a well-formed encrypted document, or its
+    /// authentication tag did not verify.
+    malformed-ciphertext(string),
+    crypto(crypto-error),
+  }
 
   record encrypt-options {
     /// Name (or name/version) of the key to use for the encryption.
@@ -19,9 +44,9 @@ interface crypto {
   }
 
   /// Encrypt `data` using the crypto component `component-name`.
-  encrypt: func(component-name: string, data: list<u8>, options: encrypt-options) -> result<list<u8>, error>;
+  encrypt: func(component-name: string, data: list<u8>, options: encrypt-options) -> result<list<u8>, encrypt-error>;
 
   /// Decrypt `data`. `key-name` is only needed when it was omitted from
   /// the encrypted document.
-  decrypt: func(component-name: string, data: list<u8>, key-name: option<string>) -> result<list<u8>, error>;
+  decrypt: func(component-name: string, data: list<u8>, key-name: option<string>) -> result<list<u8>, decrypt-error>;
 }

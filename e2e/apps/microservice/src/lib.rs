@@ -196,10 +196,7 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
     state::save(STATE_STORE, &[cas_item(key, b"second", etag.clone())], &[])
         .map_err(|e| format!("etag save failed: {e:?}"))?;
     let stale = state::save(STATE_STORE, &[cas_item(key, b"third", etag)], &[]);
-    if !matches!(
-        stale,
-        Err(state::Error::Aborted(_)) | Err(state::Error::Internal(_))
-    ) {
+    if !matches!(stale, Err(state::WriteError::EtagMismatch(_))) {
         return Err(format!("stale etag write was not rejected: {stale:?}"));
     }
 
@@ -341,7 +338,7 @@ fn increment_counter() -> Result<(), String> {
         );
         match result {
             Ok(()) => return Ok(()),
-            Err(state::Error::Aborted(_)) | Err(state::Error::Internal(_)) => continue,
+            Err(state::WriteError::EtagMismatch(_)) => continue,
             Err(other) => return Err(format!("incrementing counter failed: {other:?}")),
         }
     }

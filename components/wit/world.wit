@@ -16,6 +16,18 @@
 /// Every callback export is mandatory (the component model has no optional
 /// exports); apps that don't use a block implement a trivial default — the
 /// Rust helper crate provides those, so an app overrides only what it uses.
+///
+/// ## Error contract
+///
+/// The building-block functions return `result<_, <error>>` only for
+/// *recoverable* failures the application can act on (see the `types`
+/// interface). **Unrecoverable failures — the sidecar being unreachable or
+/// not ready, an internal sidecar/component error, a timeout, an I/O fault —
+/// are not in any return type: the provider traps** (the component-model
+/// equivalent of a Rust `panic!`). A trap aborts the in-flight call and
+/// propagates to the application as a trapped call rather than a value it can
+/// match on. Apps that need retries/circuit-breaking should rely on Dapr's
+/// resiliency policies rather than catching these per call.
 world app {
   // outbound — call Dapr
   import types;

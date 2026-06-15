@@ -14,12 +14,20 @@
 
 use tonic::metadata::{AsciiMetadataKey, AsciiMetadataValue, KeyAndValueRef};
 
-use crate::exports::invocation::{Guest, HttpResponse, HttpVerb};
+use crate::exports::invocation::{Guest, HttpResponse, HttpVerb, InvokeError};
 use crate::proto::common::{self as pbc, http_extension};
 use crate::proto::runtime as pb;
-use crate::sidecar::{opt_string, status_to_error, Sidecar};
-use crate::types::{Error, Metadata};
+use crate::sidecar::{classify, opt_string, DaprFailure, Sidecar};
+use crate::types::Metadata;
 use crate::Component;
+
+fn invoke_error(f: DaprFailure) -> InvokeError {
+    if f.is_permission() {
+        InvokeError::PermissionDenied(f.message)
+    } else {
+        InvokeError::AppUnreachable(f.message)
+    }
+}
 
 fn verb_pb(verb: HttpVerb) -> http_extension::Verb {
     match verb {
@@ -48,8 +56,8 @@ impl Guest for Component {
         headers: Metadata,
         query: Option<String>,
         body: Vec<u8>,
-    ) -> Result<HttpResponse, Error> {
-        let sidecar = Sidecar::from_env()?;
+    ) -> Result<HttpResponse, InvokeError> {
+        let sidecar = Sidecar::from_env();
 
         // `content-type` rides in a dedicated proto field; everything else
         // is passed through as gRPC request metadata.
@@ -82,20 +90,23 @@ impl Guest for Component {
 
         // Not `sidecar.unary`: the app's response headers come back as gRPC
         // initial metadata, which `Response::into_inner` would drop.
-        let mut request = sidecar.request(message)?;
+        let mut request = sidecar.request(message);
         for (name, value) in pass_through {
-            let key: AsciiMetadataKey = name.to_ascii_lowercase().parse().map_err(|e| {
-                Error::InvalidArgument(format!("header name {name:?} is not valid here: {e}"))
-            })?;
-            let value: AsciiMetadataValue = value.parse().map_err(|e| {
-                Error::InvalidArgument(format!("header {name:?} has a non-ascii value: {e}"))
-            })?;
+            // A header name/value the app passes that is not valid here is a
+            // programming error, not a recoverable failure.
+            let key: AsciiMetadataKey = name
+                .to_ascii_lowercase()
+                .parse()
+                .unwrap_or_else(|e| panic!("header name {name:?} is not valid here: {e}"));
+            let value: AsciiMetadataValue = value
+                .parse()
+                .unwrap_or_else(|e| panic!("header {name:?} has a non-ascii value: {e}"));
             request.metadata_mut().append(key, value);
         }
 
         let mut client = sidecar.client();
         let response = spin_executor::run(async move { client.invoke_service(request).await })
-            .map_err(status_to_error)?;
+            .map_err(|s| invoke_error(classify(s)))?;
 
         let mut response_headers: Metadata = response
             .metadata()

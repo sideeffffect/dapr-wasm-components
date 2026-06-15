@@ -10,7 +10,7 @@
 /// for the sidecar but enforced by it, not by this component.
 /// https://docs.dapr.io/reference/api/actors_api/
 interface actors-callback {
-  use types.{error};
+  use types.{app-error};
 
   /// Actor runtime configuration returned to the sidecar at startup.
   record actor-config {
@@ -52,14 +52,14 @@ interface actors-callback {
   config: func() -> actor-config;
 
   /// Invoke `method` on the actor instance `actor-type`/`actor-id`.
-  on-invoke: func(actor-type: string, actor-id: string, method: string, data: list<u8>) -> result<list<u8>, error>;
+  on-invoke: func(actor-type: string, actor-id: string, method: string, data: list<u8>) -> result<list<u8>, app-error>;
 
   /// Fire a timer on an actor instance.
-  on-timer: func(event: actor-timer-event) -> result<_, error>;
+  on-timer: func(event: actor-timer-event) -> result<_, app-error>;
 
   /// Fire a reminder on an actor instance.
-  on-reminder: func(event: actor-reminder-event) -> result<_, error>;
+  on-reminder: func(event: actor-reminder-event) -> result<_, app-error>;
 
   /// Deactivate (garbage-collect) an actor instance.
-  deactivate: func(actor-type: string, actor-id: string) -> result<_, error>;
+  deactivate: func(actor-type: string, actor-id: string) -> result<_, app-error>;
 }

@@ -2,9 +2,9 @@
 
 use wstd::http::Method;
 
-use crate::exports::invocation::{Guest, HttpResponse, HttpVerb};
+use crate::exports::invocation::{Guest, HttpResponse, HttpVerb, InvokeError};
 use crate::sidecar::{seg, Sidecar};
-use crate::types::{Error, Metadata};
+use crate::types::Metadata;
 use crate::Component;
 
 impl Guest for Component {
@@ -15,7 +15,7 @@ impl Guest for Component {
         headers: Metadata,
         query: Option<String>,
         body: Vec<u8>,
-    ) -> Result<HttpResponse, Error> {
+    ) -> Result<HttpResponse, InvokeError> {
         let sidecar = Sidecar::from_env();
         let method = match verb {
             HttpVerb::Get => Method::GET,
@@ -42,7 +42,7 @@ impl Guest for Component {
 
         // A non-2xx status from the target app is a valid response here,
         // so the raw request result is returned without mapping to error.
-        let response = sidecar.request(method, &path, &headers, body)?;
+        let response = sidecar.request(method, &path, &headers, body);
         Ok(HttpResponse {
             status: response.status,
             headers: response.headers,

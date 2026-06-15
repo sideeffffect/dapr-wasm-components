@@ -3,7 +3,23 @@
 /// `pubsub-callback` interface.
 /// https://docs.dapr.io/reference/api/pubsub_api/
 interface pubsub {
-  use types.{metadata, error};
+  use types.{metadata};
+
+  /// Setup/config failures common to every pub/sub operation.
+  variant pubsub-error {
+    /// No pub/sub component named `pubsub-name` is configured.
+    component-not-found(string),
+    /// This app is not allowed to publish (API token / scoping / the topic
+    /// is not in the component's publishing scope).
+    permission-denied(string),
+  }
+
+  /// Failure of `publish-bulk`.
+  variant publish-bulk-error {
+    /// The component does not support bulk publish.
+    not-supported,
+    pubsub(pubsub-error),
+  }
 
   /// One event of a bulk publish.
   record bulk-publish-entry {
@@ -29,7 +45,7 @@ interface pubsub {
     data: list<u8>,
     data-content-type: option<string>,
     metadata: metadata,
-  ) -> result<_, error>;
+  ) -> result<_, pubsub-error>;
 
   /// Publish several events in one request (alpha). Returns the entries
   /// that failed — an empty list means everything was published.
@@ -38,5 +54,5 @@ interface pubsub {
     topic: string,
     entries: list<bulk-publish-entry>,
     metadata: metadata,
-  ) -> result<list<bulk-publish-failed-entry>, error>;
+  ) -> result<list<bulk-publish-failed-entry>, publish-bulk-error>;
 }

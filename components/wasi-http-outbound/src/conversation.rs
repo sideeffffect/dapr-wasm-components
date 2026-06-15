@@ -9,14 +9,39 @@ use serde_json::json;
 use wstd::http::Method;
 
 use crate::exports::conversation::{
-    AssistantMessage, Choice, CompletionTokensDetails, ContentPart, ConversationInput,
-    ConversationOptions, ConversationOutput, ConversationResponse, Guest, Message,
-    ParticipantMessage, PromptTokensDetails, ResultMessage, Tool, ToolCall, ToolCallFunction,
-    ToolMessage, Usage,
+    AssistantMessage, Choice, CompletionTokensDetails, ContentPart, ConversationError,
+    ConversationInput, ConversationOptions, ConversationOutput, ConversationResponse,
+    ConverseError, Guest, Message, ParticipantMessage, PromptTokensDetails, ResultMessage, Tool,
+    ToolCall, ToolCallFunction, ToolMessage, Usage,
 };
-use crate::sidecar::{seg, Sidecar};
-use crate::types::Error;
+use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::Component;
+
+/// Map a recoverable failure to the conversation setup/config error.
+fn conversation_error(f: DaprFailure) -> ConversationError {
+    if f.is_permission() {
+        ConversationError::PermissionDenied(f.message)
+    } else {
+        ConversationError::ComponentNotFound(f.message)
+    }
+}
+
+/// Map a recoverable failure of a converse.
+fn converse_error(f: DaprFailure) -> ConverseError {
+    if f.status == 404 {
+        return ConverseError::ContextNotFound(f.message);
+    }
+    if f.error_code
+        .as_deref()
+        .is_some_and(|c| c.contains("CONTENT") || c.contains("FILTER"))
+    {
+        return ConverseError::ContentFiltered(f.message);
+    }
+    if f.status == 400 {
+        return ConverseError::InvalidRequest(f.message);
+    }
+    ConverseError::Conversation(conversation_error(f))
+}
 
 fn content_json(content: &[ContentPart]) -> serde_json::Value {
     serde_json::Value::Array(
@@ -87,7 +112,7 @@ fn message_json(message: &Message) -> serde_json::Value {
     }
 }
 
-fn tools_json(tools: &[Tool]) -> Result<serde_json::Value, Error> {
+fn tools_json(tools: &[Tool]) -> serde_json::Value {
     let mut out = Vec::with_capacity(tools.len());
     for tool in tools {
         let mut function = json!({ "name": tool.function.name });
@@ -95,13 +120,12 @@ fn tools_json(tools: &[Tool]) -> Result<serde_json::Value, Error> {
             function["description"] = json!(description);
         }
         if let Some(parameters) = &tool.function.parameters {
-            function["parameters"] = serde_json::from_str(parameters).map_err(|e| {
-                Error::InvalidArgument(format!("tool parameters is not valid JSON: {e}"))
-            })?;
+            function["parameters"] = serde_json::from_str(parameters)
+                .unwrap_or_else(|e| panic!("tool parameters is not valid JSON: {e}"));
         }
         out.push(json!({ "function": function }));
     }
-    Ok(serde_json::Value::Array(out))
+    serde_json::Value::Array(out)
 }
 
 impl Guest for Component {
@@ -109,7 +133,7 @@ impl Guest for Component {
         component_name: String,
         inputs: Vec<ConversationInput>,
         options: Option<ConversationOptions>,
-    ) -> Result<ConversationResponse, Error> {
+    ) -> Result<ConversationResponse, ConverseError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0-alpha2/conversation/{}/converse",
@@ -135,9 +159,8 @@ impl Guest for Component {
                 body["contextId"] = json!(context_id);
             }
             if let Some(parameters) = &options.parameters {
-                body["parameters"] = serde_json::from_str(parameters).map_err(|e| {
-                    Error::InvalidArgument(format!("parameters is not valid JSON: {e}"))
-                })?;
+                body["parameters"] = serde_json::from_str(parameters)
+                    .unwrap_or_else(|e| panic!("parameters is not valid JSON: {e}"));
             }
             if !options.metadata.is_empty() {
                 body["metadata"] = serde_json::Value::Object(
@@ -155,24 +178,25 @@ impl Guest for Component {
                 body["temperature"] = json!(temperature);
             }
             if !options.tools.is_empty() {
-                body["tools"] = tools_json(&options.tools)?;
+                body["tools"] = tools_json(&options.tools);
             }
             if let Some(tool_choice) = &options.tool_choice {
                 body["toolChoice"] = json!(tool_choice);
             }
             if let Some(response_format) = &options.response_format {
-                body["responseFormat"] = serde_json::from_str(response_format).map_err(|e| {
-                    Error::InvalidArgument(format!("response-format is not valid JSON: {e}"))
-                })?;
+                body["responseFormat"] = serde_json::from_str(response_format)
+                    .unwrap_or_else(|e| panic!("response-format is not valid JSON: {e}"));
             }
             if let Some(retention) = &options.prompt_cache_retention {
                 body["promptCacheRetention"] = json!(retention);
             }
         }
 
-        let response = sidecar.json(Method::POST, &path, &body)?;
+        let response = sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(converse_error)?;
         let parsed: ResponseJson = serde_json::from_slice(&response.body)
-            .map_err(|e| Error::Internal(format!("unexpected converse response: {e}")))?;
+            .unwrap_or_else(|e| panic!("unexpected converse response: {e}"));
         Ok(parsed.into())
     }
 }

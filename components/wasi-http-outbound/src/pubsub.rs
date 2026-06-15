@@ -4,11 +4,34 @@ use serde::Deserialize;
 use serde_json::json;
 use wstd::http::Method;
 
-use crate::exports::pubsub::{BulkPublishEntry, BulkPublishFailedEntry, Guest};
-use crate::sidecar::{push_metadata_query, seg, with_query, Sidecar};
+use crate::exports::pubsub::{
+    BulkPublishEntry, BulkPublishFailedEntry, Guest, PublishBulkError, PubsubError,
+};
+use crate::sidecar::{dapr_failure, push_metadata_query, seg, with_query, DaprFailure, Sidecar};
 use crate::state::value_to_json;
-use crate::types::{Error, Metadata};
+use crate::types::Metadata;
 use crate::Component;
+
+/// Map a recoverable failure to the pub/sub setup/config error.
+fn pubsub_error(f: DaprFailure) -> PubsubError {
+    if f.is_permission() {
+        PubsubError::PermissionDenied(f.message)
+    } else {
+        PubsubError::ComponentNotFound(f.message)
+    }
+}
+
+/// Map a recoverable failure of a bulk publish.
+fn publish_bulk_error(f: DaprFailure) -> PublishBulkError {
+    if f.error_code
+        .as_deref()
+        .is_some_and(|c| c.contains("NOT_SUPPORTED") || c.contains("UNSUPPORTED"))
+    {
+        PublishBulkError::NotSupported
+    } else {
+        PublishBulkError::Pubsub(pubsub_error(f))
+    }
+}
 
 impl Guest for Component {
     fn publish(
@@ -17,7 +40,7 @@ impl Guest for Component {
         data: Vec<u8>,
         data_content_type: Option<String>,
         metadata: Metadata,
-    ) -> Result<(), Error> {
+    ) -> Result<(), PubsubError> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         push_metadata_query(&mut query, &metadata);
@@ -31,7 +54,9 @@ impl Guest for Component {
             Some(content_type) => vec![("content-type".to_string(), content_type)],
             None => Vec::new(),
         };
-        sidecar.expect_success(Method::POST, &path, &headers, data)?;
+        sidecar
+            .expect_success(Method::POST, &path, &headers, data)
+            .map_err(pubsub_error)?;
         Ok(())
     }
 
@@ -40,7 +65,7 @@ impl Guest for Component {
         topic: String,
         entries: Vec<BulkPublishEntry>,
         metadata: Metadata,
-    ) -> Result<Vec<BulkPublishFailedEntry>, Error> {
+    ) -> Result<Vec<BulkPublishFailedEntry>, PublishBulkError> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         push_metadata_query(&mut query, &metadata);
@@ -75,13 +100,23 @@ impl Guest for Component {
             &path,
             &[("content-type".to_string(), "application/json".to_string())],
             serde_json::to_vec(&body)
-                .map_err(|e| Error::InvalidArgument(format!("failed to serialize entries: {e}")))?,
-        )?;
+                .unwrap_or_else(|e| panic!("failed to serialize entries: {e}")),
+        );
 
         // 2xx: everything published. On partial failure the sidecar returns
         // an error status with a failedEntries array.
         if result.status / 100 == 2 {
             return Ok(Vec::new());
+        }
+
+        // A 5xx is unrecoverable and traps (consistent with the rest of the
+        // provider), before classifying any partial-failure body.
+        if (500..=599).contains(&result.status) {
+            panic!(
+                "Dapr sidecar error: HTTP {}: {}",
+                result.status,
+                String::from_utf8_lossy(&result.body)
+            );
         }
 
         #[derive(Deserialize)]
@@ -108,6 +143,9 @@ impl Guest for Component {
                     .collect());
             }
         }
-        Err(crate::sidecar::status_to_error(result.status, &result.body))
+        Err(publish_bulk_error(dapr_failure(
+            result.status,
+            &result.body,
+        )))
     }
 }

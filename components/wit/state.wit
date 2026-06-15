@@ -1,7 +1,44 @@
 /// Dapr state management building block.
 /// https://docs.dapr.io/reference/api/state_api/
 interface state {
-  use types.{metadata, error, json};
+  use types.{metadata, json};
+
+  /// Setup/config failures common to every state operation.
+  variant state-error {
+    /// No state store named `store-name` is configured in the sidecar.
+    store-not-found(string),
+    /// This app is not allowed to use the store (API token / component
+    /// scoping / access control).
+    permission-denied(string),
+  }
+
+  /// Failure of a conditional write (`save`/`delete`).
+  variant write-error {
+    /// An etag check failed; nothing was written. Carries the store's
+    /// current etag of the first conflicting key when it reports one, so the
+    /// caller can re-read and retry.
+    etag-mismatch(option<string>),
+    /// A general state setup/config failure.
+    state(state-error),
+  }
+
+  /// Failure of `execute-transaction`.
+  variant transaction-error {
+    /// An etag check failed; the whole transaction was rejected.
+    etag-mismatch(option<string>),
+    /// The store does not support multi-item transactions.
+    not-transactional,
+    state(state-error),
+  }
+
+  /// Failure of `query`.
+  variant query-error {
+    /// The store does not support the query API.
+    not-queryable,
+    /// The query document was rejected as malformed.
+    invalid-query(string),
+    state(state-error),
+  }
 
   /// Concurrency mode for write operations.
   enum concurrency {
@@ -86,7 +123,7 @@ interface state {
     key: string,
     consistency: option<consistency>,
     metadata: metadata,
-  ) -> result<option<get-state-response>, error>;
+  ) -> result<option<get-state-response>, state-error>;
 
   /// Get several keys in one request.
   get-bulk: func(
@@ -94,10 +131,10 @@ interface state {
     keys: list<string>,
     parallelism: option<u32>,
     metadata: metadata,
-  ) -> result<list<bulk-state-item>, error>;
+  ) -> result<list<bulk-state-item>, state-error>;
 
   /// Save one or more key/value pairs (not transactional).
-  save: func(store-name: string, items: list<state-item>, metadata: metadata) -> result<_, error>;
+  save: func(store-name: string, items: list<state-item>, metadata: metadata) -> result<_, write-error>;
 
   /// Delete the value of `key`.
   delete: func(
@@ -106,15 +143,15 @@ interface state {
     etag: option<string>,
     options: option<state-options>,
     metadata: metadata,
-  ) -> result<_, error>;
+  ) -> result<_, write-error>;
 
   /// Execute upserts and deletes atomically (requires a transactional store).
   execute-transaction: func(
     store-name: string,
     operations: list<transaction-request>,
     metadata: metadata,
-  ) -> result<_, error>;
+  ) -> result<_, transaction-error>;
 
   /// Query state (alpha). `query` is the JSON query document.
-  query: func(store-name: string, query: json, metadata: metadata) -> result<query-response, error>;
+  query: func(store-name: string, query: json, metadata: metadata) -> result<query-response, query-error>;
 }

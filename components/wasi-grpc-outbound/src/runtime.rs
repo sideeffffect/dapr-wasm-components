@@ -8,11 +8,14 @@
 
 use serde_json::json;
 
-use crate::exports::runtime::Guest;
+use crate::exports::runtime::{Guest, RuntimeError};
 use crate::proto::runtime as pb;
-use crate::sidecar::Sidecar;
-use crate::types::Error;
+use crate::sidecar::{DaprFailure, Sidecar};
 use crate::Component;
+
+fn runtime_error(f: DaprFailure) -> RuntimeError {
+    RuntimeError::PermissionDenied(f.message)
+}
 
 /// Render the proto metadata as a JSON document shaped like the HTTP
 /// `/v1.0/metadata` response (the WIT contract returns JSON). Covers the
@@ -79,8 +82,8 @@ fn metadata_json(response: pb::GetMetadataResponse) -> serde_json::Value {
     document
 }
 
-fn get_metadata_pb() -> Result<pb::GetMetadataResponse, Error> {
-    let sidecar = Sidecar::from_env()?;
+fn get_metadata_pb() -> Result<pb::GetMetadataResponse, DaprFailure> {
+    let sidecar = Sidecar::from_env();
     sidecar.unary(
         pb::GetMetadataRequest {},
         |mut client, request| async move { client.get_metadata(request).await },
@@ -88,18 +91,22 @@ fn get_metadata_pb() -> Result<pb::GetMetadataResponse, Error> {
 }
 
 impl Guest for Component {
-    fn get_metadata() -> Result<String, Error> {
-        let response = get_metadata_pb()?;
-        serde_json::to_string(&metadata_json(response))
-            .map_err(|e| Error::Internal(format!("failed to serialize metadata: {e}")))
+    fn get_metadata() -> Result<String, RuntimeError> {
+        let response = get_metadata_pb().map_err(runtime_error)?;
+        // A metadata document we built ourselves must serialize; a failure is
+        // a programming error, not a recoverable one.
+        Ok(serde_json::to_string(&metadata_json(response))
+            .unwrap_or_else(|e| panic!("failed to serialize metadata: {e}")))
     }
 
-    fn set_metadata_label(key: String, value: String) -> Result<(), Error> {
-        let sidecar = Sidecar::from_env()?;
-        sidecar.unary(
-            pb::SetMetadataRequest { key, value },
-            |mut client, request| async move { client.set_metadata(request).await },
-        )?;
+    fn set_metadata_label(key: String, value: String) -> Result<(), RuntimeError> {
+        let sidecar = Sidecar::from_env();
+        sidecar
+            .unary(
+                pb::SetMetadataRequest { key, value },
+                |mut client, request| async move { client.set_metadata(request).await },
+            )
+            .map_err(runtime_error)?;
         Ok(())
     }
 

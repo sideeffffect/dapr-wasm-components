@@ -4,12 +4,23 @@ use serde_json::json;
 use wstd::http::Method;
 
 use crate::exports::actors::{
-    ActorStateOperation, ActorStateOperationType, Guest, Reminder, Timer,
+    ActorStateOperation, ActorStateOperationType, ActorsError, Guest, InvokeActorError, Reminder,
+    Timer,
 };
-use crate::sidecar::{seg, Sidecar};
+use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::state::value_to_json;
-use crate::types::Error;
 use crate::Component;
+
+/// Map a recoverable failure to the actors error (only permission-denied).
+fn actors_error(f: DaprFailure) -> ActorsError {
+    ActorsError::PermissionDenied(f.message)
+}
+
+/// Map a recoverable failure of an actor invoke. The actor method's error
+/// payload is carried as bytes; the failure message captures the HTTP body.
+fn invoke_actor_error(f: DaprFailure) -> InvokeActorError {
+    InvokeActorError::ActorError(f.message.into_bytes())
+}
 
 fn schedule_json(
     due_time: &Option<String>,
@@ -17,7 +28,7 @@ fn schedule_json(
     ttl: &Option<String>,
     data: &Option<String>,
     callback: Option<&String>,
-) -> Result<serde_json::Value, Error> {
+) -> serde_json::Value {
     let mut object = json!({});
     if let Some(due_time) = due_time {
         object["dueTime"] = json!(due_time);
@@ -29,13 +40,13 @@ fn schedule_json(
         object["ttl"] = json!(ttl);
     }
     if let Some(data) = data {
-        object["data"] = serde_json::from_str(data)
-            .map_err(|e| Error::InvalidArgument(format!("data is not valid JSON: {e}")))?;
+        object["data"] =
+            serde_json::from_str(data).unwrap_or_else(|e| panic!("data is not valid JSON: {e}"));
     }
     if let Some(callback) = callback {
         object["callback"] = json!(callback);
     }
-    Ok(object)
+    object
 }
 
 impl Guest for Component {
@@ -45,7 +56,7 @@ impl Guest for Component {
         method: String,
         body: Vec<u8>,
         content_type: Option<String>,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, InvokeActorError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/method/{}",
@@ -57,7 +68,9 @@ impl Guest for Component {
             "content-type".to_string(),
             content_type.unwrap_or_else(|| "application/json".to_string()),
         )];
-        let response = sidecar.expect_success(Method::POST, &path, &headers, body)?;
+        let response = sidecar
+            .expect_success(Method::POST, &path, &headers, body)
+            .map_err(invoke_actor_error)?;
         Ok(response.body)
     }
 
@@ -65,7 +78,7 @@ impl Guest for Component {
         actor_type: String,
         actor_id: String,
         key: String,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<Vec<u8>>, ActorsError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/state/{}",
@@ -73,7 +86,9 @@ impl Guest for Component {
             seg(&actor_id),
             seg(&key)
         );
-        let response = sidecar.expect_success(Method::GET, &path, &[], Vec::new())?;
+        let response = sidecar
+            .expect_success(Method::GET, &path, &[], Vec::new())
+            .map_err(actors_error)?;
         // 204 = key not found.
         if response.status == 204 {
             return Ok(None);
@@ -85,7 +100,7 @@ impl Guest for Component {
         actor_type: String,
         actor_id: String,
         operations: Vec<ActorStateOperation>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), ActorsError> {
         let sidecar = Sidecar::from_env();
         let path = format!("/v1.0/actors/{}/{}/state", seg(&actor_type), seg(&actor_id));
 
@@ -109,7 +124,9 @@ impl Guest for Component {
                 }),
             })
             .collect();
-        sidecar.json(Method::POST, &path, &body)?;
+        sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(actors_error)?;
         Ok(())
     }
 
@@ -118,7 +135,7 @@ impl Guest for Component {
         actor_id: String,
         name: String,
         reminder: Reminder,
-    ) -> Result<(), Error> {
+    ) -> Result<(), ActorsError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/reminders/{}",
@@ -132,12 +149,18 @@ impl Guest for Component {
             &reminder.ttl,
             &reminder.data,
             None,
-        )?;
-        sidecar.json(Method::POST, &path, &body)?;
+        );
+        sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(actors_error)?;
         Ok(())
     }
 
-    fn get_reminder(actor_type: String, actor_id: String, name: String) -> Result<String, Error> {
+    fn get_reminder(
+        actor_type: String,
+        actor_id: String,
+        name: String,
+    ) -> Result<Option<String>, ActorsError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/reminders/{}",
@@ -145,15 +168,19 @@ impl Guest for Component {
             seg(&actor_id),
             seg(&name)
         );
-        let response = sidecar.expect_success(Method::GET, &path, &[], Vec::new())?;
-        Ok(String::from_utf8_lossy(&response.body).into_owned())
+        let response = match sidecar.expect_success(Method::GET, &path, &[], Vec::new()) {
+            Ok(r) => r,
+            Err(f) if f.status == 404 => return Ok(None),
+            Err(f) => return Err(actors_error(f)),
+        };
+        Ok(Some(String::from_utf8_lossy(&response.body).into_owned()))
     }
 
     fn unregister_reminder(
         actor_type: String,
         actor_id: String,
         name: String,
-    ) -> Result<(), Error> {
+    ) -> Result<(), ActorsError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/reminders/{}",
@@ -161,7 +188,9 @@ impl Guest for Component {
             seg(&actor_id),
             seg(&name)
         );
-        sidecar.expect_success(Method::DELETE, &path, &[], Vec::new())?;
+        sidecar
+            .expect_success(Method::DELETE, &path, &[], Vec::new())
+            .map_err(actors_error)?;
         Ok(())
     }
 
@@ -170,7 +199,7 @@ impl Guest for Component {
         actor_id: String,
         name: String,
         timer: Timer,
-    ) -> Result<(), Error> {
+    ) -> Result<(), ActorsError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/timers/{}",
@@ -184,12 +213,18 @@ impl Guest for Component {
             &timer.ttl,
             &timer.data,
             timer.callback.as_ref(),
-        )?;
-        sidecar.json(Method::POST, &path, &body)?;
+        );
+        sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(actors_error)?;
         Ok(())
     }
 
-    fn unregister_timer(actor_type: String, actor_id: String, name: String) -> Result<(), Error> {
+    fn unregister_timer(
+        actor_type: String,
+        actor_id: String,
+        name: String,
+    ) -> Result<(), ActorsError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/timers/{}",
@@ -197,7 +232,9 @@ impl Guest for Component {
             seg(&actor_id),
             seg(&name)
         );
-        sidecar.expect_success(Method::DELETE, &path, &[], Vec::new())?;
+        sidecar
+            .expect_success(Method::DELETE, &path, &[], Vec::new())
+            .map_err(actors_error)?;
         Ok(())
     }
 }

@@ -2,14 +2,21 @@
 /// https://docs.dapr.io/reference/api/metadata_api/
 /// https://docs.dapr.io/reference/api/health_api/
 interface runtime {
-  use types.{error, json};
+  use types.{json};
+
+  /// Setup/config failures common to the metadata operations.
+  variant runtime-error {
+    /// This app is not allowed to read/write sidecar metadata (API token /
+    /// access control).
+    permission-denied(string),
+  }
 
   /// Get the sidecar's metadata document (components, subscriptions,
   /// app connection details, ...) as JSON.
-  get-metadata: func() -> result<json, error>;
+  get-metadata: func() -> result<json, runtime-error>;
 
   /// Add a custom label to the sidecar's metadata.
-  set-metadata-label: func(key: string, value: string) -> result<_, error>;
+  set-metadata-label: func(key: string, value: string) -> result<_, runtime-error>;
 
   /// Whether the sidecar is healthy.
   healthz: func() -> bool;

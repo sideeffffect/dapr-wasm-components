@@ -10,7 +10,7 @@
 
 Write your app against the interfaces, [compose](#composing) it with an outbound + an inbound provider (`wac`), and run it next to a Dapr sidecar. The single diagram in [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr) below shows the whole picture.
 
-## Interfaces (`dapr-wasm-components:interfaces@0.4.0`)
+## Interfaces (`dapr-wasm-components:interfaces@0.5.0`)
 
 **Outbound** — interfaces your app *imports* to call Dapr:
 
@@ -43,6 +43,26 @@ Write your app against the interfaces, [compose](#composing) it with an outbound
 | `health-callback` | App health checks | `health-check` |
 
 Worlds: **`app`** (an application — imports the building blocks, exports the callbacks), **`outbound`** (a provider that exports the building blocks) and **`inbound`** (a provider that imports the callbacks). The two provider directions are *separate components* so the composition graph stays acyclic — see below.
+
+### Error model
+
+There is **no shared, all-encompassing `error` type**. Each operation returns
+`result<…, E>` only for the failures it can actually produce, sorted by *who
+acts on them*:
+
+- **Expected outcomes** are in the *success* type: a missing value is `none`
+  (e.g. `state.get` → `option`), not an error.
+- **Recoverable failures** are per-interface/per-function `variant`s — setup/config
+  like `store-not-found`/`permission-denied`, plus the few operation-specific
+  rejections (e.g. `state.save` → `write-error` with `etag-mismatch`). Function
+  errors embed the building-block error as a fallback case.
+- **Unrecoverable failures** (sidecar unreachable/not ready, an internal sidecar
+  error, a timeout, an I/O fault) are **not in any type** — the provider **traps**
+  (the component-model equivalent of a Rust `panic!`). Use Dapr resiliency
+  policies, not per-call handling, for retries/circuit-breaking.
+
+Inbound callbacks report a graceful handling failure with `types.app-error`
+(a message); trapping from a callback also marks failure.
 
 ## Two directions: calling Dapr vs. being called by Dapr — both typed
 
@@ -138,7 +158,7 @@ A composed component is `outbound → app → inbound` (acyclic — see [Two dir
 ```sh
 ./compose.sh my_app.wasm                       # http out + http in -> composed.wasm
 ./compose.sh my_app.wasm --out grpc --in http  # mixed transports
-./compose.sh my_app.wasm -o server.wasm --tag 0.4.0   # explicit output + OCI tag
+./compose.sh my_app.wasm -o server.wasm --tag 0.5.0   # explicit output + OCI tag
 
 dapr run --app-id my-app -- wasmtime serve -S cli composed.wasm   # reactor (app channel)
 # outbound-only command apps: `wac plug app.wasm --plug http-outbound.wasm` + `wasmtime run -S http`

@@ -8,14 +8,43 @@ use std::collections::HashMap;
 
 use crate::anyjson::{json_to_struct, pack_json, pack_protojson_wrapper};
 use crate::exports::conversation::{
-    Choice, CompletionTokensDetails, ContentPart, ConversationInput, ConversationOptions,
-    ConversationOutput, ConversationResponse, Guest, Message, PromptTokensDetails, ResultMessage,
-    Tool, ToolCall, ToolCallFunction, Usage,
+    Choice, CompletionTokensDetails, ContentPart, ConversationError, ConversationInput,
+    ConversationOptions, ConversationOutput, ConversationResponse, ConverseError, Guest, Message,
+    PromptTokensDetails, ResultMessage, Tool, ToolCall, ToolCallFunction, Usage,
 };
 use crate::proto::runtime as pb;
-use crate::sidecar::{metadata_map, Sidecar};
-use crate::types::Error;
+use crate::sidecar::{metadata_map, DaprFailure, Sidecar};
 use crate::Component;
+
+fn conversation_error(f: DaprFailure) -> ConversationError {
+    if f.is_permission() {
+        ConversationError::PermissionDenied(f.message)
+    } else {
+        ConversationError::ComponentNotFound(f.message)
+    }
+}
+
+fn converse_error(f: DaprFailure) -> ConverseError {
+    if f.status == 404 {
+        return ConverseError::ContextNotFound(f.message);
+    }
+    if f.error_code
+        .as_deref()
+        .is_some_and(|c| c.contains("CONTENT") || c.contains("FILTER"))
+    {
+        return ConverseError::ContentFiltered(f.message);
+    }
+    if f.status == 400 {
+        return ConverseError::InvalidRequest(f.message);
+    }
+    ConverseError::Conversation(conversation_error(f))
+}
+
+/// Parse a JSON object into a `Struct`; malformed JSON the app supplied is a
+/// programming error, so it traps.
+fn json_to_struct_or_panic(json_text: &str) -> prost_types::Struct {
+    json_to_struct(json_text).unwrap_or_else(|e| panic!("{e}"))
+}
 
 fn content_pb(content: &[ContentPart]) -> Vec<pb::ConversationMessageContent> {
     content
@@ -78,7 +107,7 @@ fn input_pb(input: &ConversationInput) -> pb::ConversationInputAlpha2 {
     }
 }
 
-fn tools_pb(tools: &[Tool]) -> Result<Vec<pb::ConversationTools>, Error> {
+fn tools_pb(tools: &[Tool]) -> Vec<pb::ConversationTools> {
     use pb::conversation_tools::ToolTypes;
     tools
         .iter()
@@ -87,15 +116,14 @@ fn tools_pb(tools: &[Tool]) -> Result<Vec<pb::ConversationTools>, Error> {
                 .function
                 .parameters
                 .as_deref()
-                .map(json_to_struct)
-                .transpose()?;
-            Ok(pb::ConversationTools {
+                .map(json_to_struct_or_panic);
+            pb::ConversationTools {
                 tool_types: Some(ToolTypes::Function(pb::ConversationToolsFunction {
                     name: tool.function.name.clone(),
                     description: tool.function.description.clone(),
                     parameters,
                 })),
-            })
+            }
         })
         .collect()
 }
@@ -104,16 +132,14 @@ fn tools_pb(tools: &[Tool]) -> Result<Vec<pb::ConversationTools>, Error> {
 /// contract; the proto wants a `google.protobuf.Duration`. The HTTP provider
 /// passes the string through verbatim — humantime's grammar is close to but
 /// not exactly Go's `time.ParseDuration`.
-fn duration_pb(text: &str) -> Result<prost_types::Duration, Error> {
-    let duration = humantime::parse_duration(text).map_err(|e| {
-        Error::InvalidArgument(format!("invalid prompt-cache-retention {text:?}: {e}"))
-    })?;
-    Ok(prost_types::Duration {
-        seconds: i64::try_from(duration.as_secs()).map_err(|_| {
-            Error::InvalidArgument(format!("prompt-cache-retention {text:?} is out of range"))
-        })?,
+fn duration_pb(text: &str) -> prost_types::Duration {
+    let duration = humantime::parse_duration(text)
+        .unwrap_or_else(|e| panic!("invalid prompt-cache-retention {text:?}: {e}"));
+    prost_types::Duration {
+        seconds: i64::try_from(duration.as_secs())
+            .unwrap_or_else(|_| panic!("prompt-cache-retention {text:?} is out of range")),
         nanos: duration.subsec_nanos() as i32,
-    })
+    }
 }
 
 /// The WIT contract carries `options.parameters` as one JSON object; the
@@ -122,25 +148,23 @@ fn duration_pb(text: &str) -> Result<prost_types::Duration, Error> {
 /// "value": "100"}`) are packed as that wrapper — like daprd decodes them
 /// from the HTTP API; anything else is packed as
 /// `Any(google.protobuf.Value)`.
-fn parameters_pb(parameters: &str) -> Result<HashMap<String, prost_types::Any>, Error> {
+fn parameters_pb(parameters: &str) -> HashMap<String, prost_types::Any> {
     let parsed: serde_json::Value = serde_json::from_str(parameters)
-        .map_err(|e| Error::InvalidArgument(format!("parameters is not valid JSON: {e}")))?;
+        .unwrap_or_else(|e| panic!("parameters is not valid JSON: {e}"));
     let serde_json::Value::Object(entries) = parsed else {
-        return Err(Error::InvalidArgument(
-            "parameters must be a JSON object".to_string(),
-        ));
+        panic!("parameters must be a JSON object");
     };
     entries
         .iter()
         .map(|(key, value)| {
             let any = match value {
                 serde_json::Value::Object(object) => match pack_protojson_wrapper(object) {
-                    Some(wrapped) => wrapped?,
-                    None => pack_json(&value.to_string())?,
+                    Some(wrapped) => wrapped.unwrap_or_else(|e| panic!("{e}")),
+                    None => pack_json(&value.to_string()).unwrap_or_else(|e| panic!("{e}")),
                 },
-                other => pack_json(&other.to_string())?,
+                other => pack_json(&other.to_string()).unwrap_or_else(|e| panic!("{e}")),
             };
-            Ok((key.clone(), any))
+            (key.clone(), any)
         })
         .collect()
 }
@@ -208,8 +232,8 @@ impl Guest for Component {
         component_name: String,
         inputs: Vec<ConversationInput>,
         options: Option<ConversationOptions>,
-    ) -> Result<ConversationResponse, Error> {
-        let sidecar = Sidecar::from_env()?;
+    ) -> Result<ConversationResponse, ConverseError> {
+        let sidecar = Sidecar::from_env();
         let inputs: Vec<pb::ConversationInputAlpha2> = inputs.iter().map(input_pb).collect();
         let options = options.unwrap_or(ConversationOptions {
             context_id: None,
@@ -223,37 +247,34 @@ impl Guest for Component {
             prompt_cache_retention: None,
         });
         let parameters = match &options.parameters {
-            Some(parameters) => parameters_pb(parameters)?,
+            Some(parameters) => parameters_pb(parameters),
             None => HashMap::new(),
         };
-        let tools = tools_pb(&options.tools)?;
+        let tools = tools_pb(&options.tools);
         let response_format = options
             .response_format
             .as_deref()
-            .map(json_to_struct)
-            .transpose()?;
-        let prompt_cache_retention = options
-            .prompt_cache_retention
-            .as_deref()
-            .map(duration_pb)
-            .transpose()?;
+            .map(json_to_struct_or_panic);
+        let prompt_cache_retention = options.prompt_cache_retention.as_deref().map(duration_pb);
         let metadata = metadata_map(&options.metadata);
-        let response = sidecar.unary(
-            pb::ConversationRequestAlpha2 {
-                name: component_name,
-                context_id: options.context_id,
-                inputs,
-                parameters,
-                metadata,
-                scrub_pii: options.scrub_pii,
-                temperature: options.temperature,
-                tools,
-                tool_choice: options.tool_choice,
-                response_format,
-                prompt_cache_retention,
-            },
-            |mut client, request| async move { client.converse_alpha2(request).await },
-        )?;
+        let response = sidecar
+            .unary(
+                pb::ConversationRequestAlpha2 {
+                    name: component_name,
+                    context_id: options.context_id,
+                    inputs,
+                    parameters,
+                    metadata,
+                    scrub_pii: options.scrub_pii,
+                    temperature: options.temperature,
+                    tools,
+                    tool_choice: options.tool_choice,
+                    response_format,
+                    prompt_cache_retention,
+                },
+                |mut client, request| async move { client.converse_alpha2(request).await },
+            )
+            .map_err(converse_error)?;
         Ok(ConversationResponse {
             outputs: response.outputs.into_iter().map(output_wit).collect(),
             context_id: response.context_id,

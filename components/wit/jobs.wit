@@ -3,7 +3,22 @@
 /// and are not part of this outbound interface.
 /// https://docs.dapr.io/reference/api/jobs_api/
 interface jobs {
-  use types.{error, json};
+  use types.{json};
+
+  /// Setup/config failures common to every jobs operation.
+  variant jobs-error {
+    /// This app is not allowed to use the scheduler (API token / scoping).
+    permission-denied(string),
+  }
+
+  /// Failure of `schedule`.
+  variant schedule-error {
+    /// A job with that name already exists and `overwrite` was false.
+    already-exists(string),
+    /// The schedule/due-time/ttl could not be parsed.
+    invalid-schedule(string),
+    jobs(jobs-error),
+  }
 
   /// What the scheduler does when a job trigger fails to be delivered.
   variant job-failure-policy {
@@ -35,12 +50,12 @@ interface jobs {
   }
 
   /// Create the named job. `overwrite` replaces an existing job of the
-  /// same name instead of failing.
-  schedule: func(name: string, job: job, overwrite: bool) -> result<_, error>;
+  /// same name instead of failing with `already-exists`.
+  schedule: func(name: string, job: job, overwrite: bool) -> result<_, schedule-error>;
 
-  /// Get the named job's definition.
-  get: func(name: string) -> result<job, error>;
+  /// Get the named job's definition. Returns `none` when no such job exists.
+  get: func(name: string) -> result<option<job>, jobs-error>;
 
-  /// Delete the named job.
-  delete: func(name: string) -> result<_, error>;
+  /// Delete the named job (idempotent — deleting an absent job succeeds).
+  delete: func(name: string) -> result<_, jobs-error>;
 }

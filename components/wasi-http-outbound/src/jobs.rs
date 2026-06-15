@@ -4,13 +4,34 @@ use serde::Deserialize;
 use serde_json::json;
 use wstd::http::Method;
 
-use crate::exports::jobs::{Guest, Job, JobFailurePolicy, JobFailurePolicyConstant};
-use crate::sidecar::{seg, Sidecar};
-use crate::types::Error;
+use crate::exports::jobs::{
+    Guest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError, ScheduleError,
+};
+use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::Component;
 
+/// Map a recoverable failure to the jobs error (only permission-denied).
+fn jobs_error(f: DaprFailure) -> JobsError {
+    JobsError::PermissionDenied(f.message)
+}
+
+/// Map a recoverable failure of a schedule.
+fn schedule_error(f: DaprFailure) -> ScheduleError {
+    if f.status == 409
+        || f.error_code
+            .as_deref()
+            .is_some_and(|c| c.contains("ALREADY_EXISTS"))
+    {
+        return ScheduleError::AlreadyExists(f.message);
+    }
+    if f.status == 400 {
+        return ScheduleError::InvalidSchedule(f.message);
+    }
+    ScheduleError::Jobs(jobs_error(f))
+}
+
 impl Guest for Component {
-    fn schedule(name: String, job: Job, overwrite: bool) -> Result<(), Error> {
+    fn schedule(name: String, job: Job, overwrite: bool) -> Result<(), ScheduleError> {
         let sidecar = Sidecar::from_env();
         let path = format!("/v1.0/jobs/{}", seg(&name));
 
@@ -29,7 +50,7 @@ impl Guest for Component {
         }
         if let Some(data) = &job.data {
             body["data"] = serde_json::from_str(data)
-                .map_err(|e| Error::InvalidArgument(format!("job data is not valid JSON: {e}")))?;
+                .unwrap_or_else(|e| panic!("job data is not valid JSON: {e}"));
         }
         if overwrite {
             body["overwrite"] = json!(true);
@@ -50,14 +71,20 @@ impl Guest for Component {
             };
         }
 
-        sidecar.json(Method::POST, &path, &body)?;
+        sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(schedule_error)?;
         Ok(())
     }
 
-    fn get(name: String) -> Result<Job, Error> {
+    fn get(name: String) -> Result<Option<Job>, JobsError> {
         let sidecar = Sidecar::from_env();
         let path = format!("/v1.0/jobs/{}", seg(&name));
-        let response = sidecar.expect_success(Method::GET, &path, &[], Vec::new())?;
+        let response = match sidecar.expect_success(Method::GET, &path, &[], Vec::new()) {
+            Ok(r) => r,
+            Err(f) if f.status == 404 => return Ok(None),
+            Err(f) => return Err(jobs_error(f)),
+        };
 
         #[derive(Deserialize)]
         struct JobJson {
@@ -90,8 +117,8 @@ impl Guest for Component {
         }
 
         let parsed: JobJson = serde_json::from_slice(&response.body)
-            .map_err(|e| Error::Internal(format!("unexpected job response: {e}")))?;
-        Ok(Job {
+            .unwrap_or_else(|e| panic!("unexpected job response: {e}"));
+        Ok(Some(Job {
             schedule: parsed.schedule,
             repeats: parsed.repeats,
             due_time: parsed.due_time,
@@ -108,13 +135,15 @@ impl Guest for Component {
                     JobFailurePolicy::Drop
                 }
             }),
-        })
+        }))
     }
 
-    fn delete(name: String) -> Result<(), Error> {
+    fn delete(name: String) -> Result<(), JobsError> {
         let sidecar = Sidecar::from_env();
         let path = format!("/v1.0/jobs/{}", seg(&name));
-        sidecar.expect_success(Method::DELETE, &path, &[], Vec::new())?;
+        sidecar
+            .expect_success(Method::DELETE, &path, &[], Vec::new())
+            .map_err(jobs_error)?;
         Ok(())
     }
 }

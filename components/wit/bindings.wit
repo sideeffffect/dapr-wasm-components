@@ -3,12 +3,27 @@
 /// interface.
 /// https://docs.dapr.io/reference/api/bindings_api/
 interface bindings {
-  use types.{metadata, error};
+  use types.{metadata};
 
   record invoke-binding-response {
     data: list<u8>,
     /// Response metadata (returned as HTTP headers by the sidecar).
     metadata: metadata,
+  }
+
+  /// Setup/config failures common to every bindings operation.
+  variant bindings-error {
+    /// No output binding named `name` is configured.
+    binding-not-found(string),
+    /// This app is not allowed to use the binding (API token / scoping).
+    permission-denied(string),
+  }
+
+  /// Failure of `invoke-binding`.
+  variant invoke-binding-error {
+    /// The binding component does not support the requested `operation`.
+    operation-not-supported(string),
+    bindings(bindings-error),
   }
 
   /// Invoke `operation` (e.g. "create", "get") on the output binding `name`.
@@ -17,5 +32,5 @@ interface bindings {
     operation: string,
     data: list<u8>,
     metadata: metadata,
-  ) -> result<invoke-binding-response, error>;
+  ) -> result<invoke-binding-response, invoke-binding-error>;
 }
