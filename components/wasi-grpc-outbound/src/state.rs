@@ -4,9 +4,9 @@
 //! roundtrip byte-exact.
 
 use crate::exports::state::{
-    BulkStateItem, Concurrency, Consistency, GetStateResponse, Guest, QueryError, QueryResponse,
-    QueryStateItem, StateError, StateItem, StateOptions, TransactionError, TransactionOperation,
-    TransactionRequest, WriteError,
+    BulkStateItem, Concurrency, Consistency, GetError, GetStateResponse, Guest, QueryError,
+    QueryResponse, QueryStateItem, StateError, StateItem, StateOptions, TransactionError,
+    TransactionOperation, TransactionRequest, WriteError,
 };
 use crate::proto::common::{self, state_options};
 use crate::proto::runtime as pb;
@@ -20,6 +20,13 @@ fn state_error(f: DaprFailure) -> StateError {
     } else {
         StateError::StoreNotFound(f.message)
     }
+}
+
+/// Map a recoverable failure of `get` through the state setup/config error.
+/// The gRPC API has no analogue of HTTP 204, so absence is never detected
+/// here and the `key-not-found` case is never produced.
+fn get_error(f: DaprFailure) -> GetError {
+    GetError::State(state_error(f))
 }
 
 fn write_error(f: DaprFailure) -> WriteError {
@@ -119,7 +126,7 @@ impl Guest for Component {
         key: String,
         consistency: Option<Consistency>,
         metadata: Metadata,
-    ) -> Result<Option<GetStateResponse>, StateError> {
+    ) -> Result<GetStateResponse, GetError> {
         let sidecar = Sidecar::from_env();
         let response = sidecar
             .unary(
@@ -131,16 +138,14 @@ impl Guest for Component {
                 },
                 |mut client, request| async move { client.get_state(request).await },
             )
-            .map_err(state_error)?;
-        // gRPC GetState reports a missing key as an empty response, not an
-        // error: no data and no etag means "not found".
-        if response.data.is_empty() && response.etag.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(GetStateResponse {
+            .map_err(get_error)?;
+        // gRPC GetState cannot distinguish a missing key from a stored empty
+        // value — there is no HTTP-204 analogue — so the `key-not-found` case
+        // is never produced here; an absent key surfaces as empty data/etag.
+        Ok(GetStateResponse {
             data: response.data,
             etag: opt_string(response.etag),
-        }))
+        })
     }
 
     fn get_bulk(

@@ -6,7 +6,9 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use wstd::http::Method;
 
-use crate::exports::workflow::{Guest, InstanceError, StartError, WorkflowError, WorkflowInstance};
+use crate::exports::workflow::{
+    GetError, Guest, InstanceError, StartError, WorkflowError, WorkflowInstance,
+};
 use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::Component;
 
@@ -41,6 +43,15 @@ fn instance_error(f: DaprFailure) -> InstanceError {
         return InstanceError::InvalidState(f.message);
     }
     InstanceError::Workflow(workflow_error(f))
+}
+
+/// Map a recoverable failure of `get`. A 404 means the instance does not
+/// exist; everything else maps through the workflow setup/config error.
+fn get_error(f: DaprFailure) -> GetError {
+    if f.status == 404 {
+        return GetError::NotFound(f.message);
+    }
+    GetError::Workflow(workflow_error(f))
 }
 
 impl Guest for Component {
@@ -78,21 +89,16 @@ impl Guest for Component {
         Ok(parsed.instance_id)
     }
 
-    fn get(
-        workflow_component: String,
-        instance_id: String,
-    ) -> Result<Option<WorkflowInstance>, WorkflowError> {
+    fn get(workflow_component: String, instance_id: String) -> Result<WorkflowInstance, GetError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/workflows/{}/{}",
             seg(&workflow_component),
             seg(&instance_id)
         );
-        let response = match sidecar.expect_success(Method::GET, &path, &[], Vec::new()) {
-            Ok(r) => r,
-            Err(f) if f.status == 404 => return Ok(None),
-            Err(f) => return Err(workflow_error(f)),
-        };
+        let response = sidecar
+            .expect_success(Method::GET, &path, &[], Vec::new())
+            .map_err(get_error)?;
 
         #[derive(Deserialize)]
         struct InstanceJson {
@@ -109,7 +115,7 @@ impl Guest for Component {
         }
         let parsed: InstanceJson = serde_json::from_slice(&response.body)
             .unwrap_or_else(|e| panic!("unexpected workflow response: {e}"));
-        Ok(Some(WorkflowInstance {
+        Ok(WorkflowInstance {
             instance_id: parsed.instance_id,
             created_at: parsed.created_at,
             last_updated_at: parsed.last_updated_at,
@@ -125,7 +131,7 @@ impl Guest for Component {
                     (key, text)
                 })
                 .collect(),
-        }))
+        })
     }
 
     fn terminate(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {

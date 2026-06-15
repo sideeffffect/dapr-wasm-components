@@ -14,8 +14,8 @@ use serde_json::json;
 
 use crate::anyjson::unpack_json;
 use crate::exports::actors::{
-    ActorStateOperation, ActorStateOperationType, ActorsError, Guest, InvokeActorError, Reminder,
-    Timer,
+    ActorStateOperation, ActorStateOperationType, ActorsError, GetReminderError, GetStateError,
+    Guest, InvokeActorError, Reminder, Timer,
 };
 use crate::proto::runtime as pb;
 use crate::sidecar::{DaprFailure, Sidecar};
@@ -27,6 +27,19 @@ fn actors_error(f: DaprFailure) -> ActorsError {
 
 fn invoke_actor_error(f: DaprFailure) -> InvokeActorError {
     InvokeActorError::Actors(actors_error(f))
+}
+
+/// Map a recoverable failure of `get-state` through the actors error. The
+/// gRPC API cannot signal absence distinctly (no HTTP-204 analogue), so the
+/// `key-not-found` case is never produced here.
+fn get_state_error(f: DaprFailure) -> GetStateError {
+    GetStateError::Actors(actors_error(f))
+}
+
+/// Map a recoverable failure of `get-reminder` through the actors error.
+/// (The `reminder-not-found` case is produced from the 404 branch.)
+fn get_reminder_error(f: DaprFailure) -> GetReminderError {
+    GetReminderError::Actors(actors_error(f))
 }
 
 fn operation_pb(op: &ActorStateOperation) -> pb::TransactionalActorStateOperation {
@@ -91,7 +104,7 @@ impl Guest for Component {
         actor_type: String,
         actor_id: String,
         key: String,
-    ) -> Result<Option<Vec<u8>>, ActorsError> {
+    ) -> Result<Vec<u8>, GetStateError> {
         let sidecar = Sidecar::from_env();
         let response = sidecar
             .unary(
@@ -102,14 +115,12 @@ impl Guest for Component {
                 },
                 |mut client, request| async move { client.get_actor_state(request).await },
             )
-            .map_err(actors_error)?;
+            .map_err(get_state_error)?;
         // gRPC GetActorState cannot distinguish a missing key from an empty
-        // stored value (the HTTP API signals "not found" via 204): treat
-        // empty data as absent.
-        if response.data.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(response.data))
+        // stored value (the HTTP API signals "not found" via 204), so the
+        // `key-not-found` case is never produced here; an absent key surfaces
+        // as empty data.
+        Ok(response.data)
     }
 
     fn execute_state_transaction(
@@ -163,7 +174,7 @@ impl Guest for Component {
         actor_type: String,
         actor_id: String,
         name: String,
-    ) -> Result<Option<String>, ActorsError> {
+    ) -> Result<String, GetReminderError> {
         let sidecar = Sidecar::from_env();
         let response = match sidecar.unary(
             pb::GetActorReminderRequest {
@@ -174,9 +185,9 @@ impl Guest for Component {
             |mut client, request| async move { client.get_actor_reminder(request).await },
         ) {
             Ok(response) => response,
-            // A missing reminder is absence, not an error.
-            Err(f) if f.status == 404 => return Ok(None),
-            Err(f) => return Err(actors_error(f)),
+            // A missing reminder maps to the not-found error case.
+            Err(f) if f.status == 404 => return Err(GetReminderError::ReminderNotFound),
+            Err(f) => return Err(get_reminder_error(f)),
         };
         // Shape the proto response like the HTTP API's reminder document.
         let mut object = json!({});
@@ -201,7 +212,7 @@ impl Guest for Component {
             let text = unpack_json(data);
             object["data"] = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text));
         }
-        Ok(Some(object.to_string()))
+        Ok(object.to_string())
     }
 
     fn unregister_reminder(

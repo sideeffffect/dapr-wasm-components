@@ -180,9 +180,10 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
     )
     .map_err(|e| format!("save failed: {e:?}"))?;
 
-    let read = state::get(STATE_STORE, key, None, &[])
-        .map_err(|e| format!("get failed: {e:?}"))?
-        .ok_or("get returned none after save")?;
+    let read = state::get(STATE_STORE, key, None, &[]).map_err(|e| match e {
+        state::GetError::KeyNotFound => "get returned not-found after save".to_string(),
+        other => format!("get failed: {other:?}"),
+    })?;
     if read.data != value {
         return Err(format!(
             "value did not roundtrip: wrote {value:?}, read {:?}",
@@ -202,11 +203,10 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
 
     state::delete(STATE_STORE, key, None, None, &[])
         .map_err(|e| format!("delete failed: {e:?}"))?;
-    if state::get(STATE_STORE, key, None, &[])
-        .map_err(|e| format!("get after delete failed: {e:?}"))?
-        .is_some()
-    {
-        return Err("key still present after delete".to_string());
+    match state::get(STATE_STORE, key, None, &[]) {
+        Err(state::GetError::KeyNotFound) => {}
+        Ok(_) => return Err("key still present after delete".to_string()),
+        Err(other) => return Err(format!("get after delete failed: {other:?}")),
     }
 
     let metadata = runtime::get_metadata().map_err(|e| format!("get-metadata failed: {e:?}"))?;
@@ -310,16 +310,15 @@ fn process_order(order: &[u8]) -> Result<(), String> {
 /// read value + etag, write back first-write, retry on conflict.
 fn increment_counter() -> Result<(), String> {
     for _ in 0..16 {
-        let current = state::get(STATE_STORE, COUNTER_KEY, None, &[])
-            .map_err(|e| format!("reading counter failed: {e:?}"))?;
-        let (count, etag) = match &current {
-            Some(response) => (
+        let (count, etag) = match state::get(STATE_STORE, COUNTER_KEY, None, &[]) {
+            Ok(response) => (
                 String::from_utf8_lossy(&response.data)
                     .parse::<u64>()
                     .unwrap_or(0),
-                response.etag.clone(),
+                response.etag,
             ),
-            None => (0, None),
+            Err(state::GetError::KeyNotFound) => (0, None),
+            Err(other) => return Err(format!("reading counter failed: {other:?}")),
         };
 
         let result = state::save(
@@ -346,13 +345,11 @@ fn increment_counter() -> Result<(), String> {
 }
 
 fn read_counter() -> Result<u64, String> {
-    let current = state::get(STATE_STORE, COUNTER_KEY, None, &[])
-        .map_err(|e| format!("reading counter failed: {e:?}"))?;
-    Ok(current
-        .map(|response| {
-            String::from_utf8_lossy(&response.data)
-                .parse::<u64>()
-                .unwrap_or(0)
-        })
-        .unwrap_or(0))
+    match state::get(STATE_STORE, COUNTER_KEY, None, &[]) {
+        Ok(response) => Ok(String::from_utf8_lossy(&response.data)
+            .parse::<u64>()
+            .unwrap_or(0)),
+        Err(state::GetError::KeyNotFound) => Ok(0),
+        Err(other) => Err(format!("reading counter failed: {other:?}")),
+    }
 }

@@ -3,11 +3,12 @@
 //! Divergence: a missing secret surfaces as whatever status daprd returns
 //! (typically `internal`, ERR_SECRET_GET) — the gRPC API has no analogue
 //! of the HTTP 204 that lets the wasi-http provider report the absence as
-//! `none`. So `get-secret` here only ever returns `some`/error, never `none`.
+//! `secret-not-found`. So `get-secret` here only ever returns the secret or
+//! a setup/config error, never `secret-not-found`.
 
 use std::collections::HashMap;
 
-use crate::exports::secrets::{Guest, Secret, SecretsError};
+use crate::exports::secrets::{GetSecretError, Guest, Secret, SecretsError};
 use crate::proto::runtime as pb;
 use crate::sidecar::{metadata_map, DaprFailure, Sidecar};
 use crate::types::Metadata;
@@ -19,6 +20,13 @@ fn secrets_error(f: DaprFailure) -> SecretsError {
     } else {
         SecretsError::StoreNotFound(f.message)
     }
+}
+
+/// Map a recoverable failure of `get-secret` through the secrets setup/config
+/// error. The gRPC API cannot signal absence distinctly, so the
+/// `secret-not-found` case is never produced here.
+fn get_secret_error(f: DaprFailure) -> GetSecretError {
+    GetSecretError::Secrets(secrets_error(f))
 }
 
 /// Proto maps have no order — sort the secret entries for determinism
@@ -34,7 +42,7 @@ impl Guest for Component {
         store_name: String,
         key: String,
         metadata: Metadata,
-    ) -> Result<Option<Secret>, SecretsError> {
+    ) -> Result<Secret, GetSecretError> {
         let sidecar = Sidecar::from_env();
         let response = sidecar
             .unary(
@@ -45,8 +53,8 @@ impl Guest for Component {
                 },
                 |mut client, request| async move { client.get_secret(request).await },
             )
-            .map_err(secrets_error)?;
-        Ok(Some(secret_pairs(response.data)))
+            .map_err(get_secret_error)?;
+        Ok(secret_pairs(response.data))
     }
 
     fn get_bulk_secret(

@@ -4,8 +4,8 @@ use serde_json::json;
 use wstd::http::Method;
 
 use crate::exports::actors::{
-    ActorStateOperation, ActorStateOperationType, ActorsError, Guest, InvokeActorError, Reminder,
-    Timer,
+    ActorStateOperation, ActorStateOperationType, ActorsError, GetReminderError, GetStateError,
+    Guest, InvokeActorError, Reminder, Timer,
 };
 use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::state::value_to_json;
@@ -20,6 +20,18 @@ fn actors_error(f: DaprFailure) -> ActorsError {
 /// payload is carried as bytes; the failure message captures the HTTP body.
 fn invoke_actor_error(f: DaprFailure) -> InvokeActorError {
     InvokeActorError::ActorError(f.message.into_bytes())
+}
+
+/// Map a recoverable failure of `get-state` through the actors error.
+/// (The `key-not-found` case is produced from the 204 branch.)
+fn get_state_error(f: DaprFailure) -> GetStateError {
+    GetStateError::Actors(actors_error(f))
+}
+
+/// Map a recoverable failure of `get-reminder` through the actors error.
+/// (The `reminder-not-found` case is produced from the 404 branch.)
+fn get_reminder_error(f: DaprFailure) -> GetReminderError {
+    GetReminderError::Actors(actors_error(f))
 }
 
 fn schedule_json(
@@ -78,7 +90,7 @@ impl Guest for Component {
         actor_type: String,
         actor_id: String,
         key: String,
-    ) -> Result<Option<Vec<u8>>, ActorsError> {
+    ) -> Result<Vec<u8>, GetStateError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/state/{}",
@@ -88,12 +100,12 @@ impl Guest for Component {
         );
         let response = sidecar
             .expect_success(Method::GET, &path, &[], Vec::new())
-            .map_err(actors_error)?;
+            .map_err(get_state_error)?;
         // 204 = key not found.
         if response.status == 204 {
-            return Ok(None);
+            return Err(GetStateError::KeyNotFound);
         }
-        Ok(Some(response.body))
+        Ok(response.body)
     }
 
     fn execute_state_transaction(
@@ -160,7 +172,7 @@ impl Guest for Component {
         actor_type: String,
         actor_id: String,
         name: String,
-    ) -> Result<Option<String>, ActorsError> {
+    ) -> Result<String, GetReminderError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/actors/{}/{}/reminders/{}",
@@ -170,10 +182,10 @@ impl Guest for Component {
         );
         let response = match sidecar.expect_success(Method::GET, &path, &[], Vec::new()) {
             Ok(r) => r,
-            Err(f) if f.status == 404 => return Ok(None),
-            Err(f) => return Err(actors_error(f)),
+            Err(f) if f.status == 404 => return Err(GetReminderError::ReminderNotFound),
+            Err(f) => return Err(get_reminder_error(f)),
         };
-        Ok(Some(String::from_utf8_lossy(&response.body).into_owned()))
+        Ok(String::from_utf8_lossy(&response.body).into_owned())
     }
 
     fn unregister_reminder(

@@ -50,12 +50,15 @@ There is **no shared, all-encompassing `error` type**. Each operation returns
 `result<…, E>` only for the failures it can actually produce, sorted by *who
 acts on them*:
 
-- **Expected outcomes** are in the *success* type: a missing value is `none`
-  (e.g. `state.get` → `option`), not an error.
+- **The success type is the 100%-happy path only.** An expected failure is
+  still an error, never an `option` in the success slot: `state.get` →
+  `result<get-state-response, get-error>` with a `key-not-found` case (not
+  `result<option<…>, …>`).
 - **Recoverable failures** are per-interface/per-function `variant`s — setup/config
-  like `store-not-found`/`permission-denied`, plus the few operation-specific
-  rejections (e.g. `state.save` → `write-error` with `etag-mismatch`). Function
-  errors embed the building-block error as a fallback case.
+  like `store-not-found`/`permission-denied`, plus operation-specific
+  rejections (`state.save` → `write-error` with `etag-mismatch`; `lock.try-lock`
+  → `try-lock-error` with `not-acquired`). Function errors embed the
+  building-block error as a fallback case.
 - **Unrecoverable failures** (sidecar unreachable/not ready, an internal sidecar
   error, a timeout, an I/O fault) are **not in any type** — the provider **traps**
   (the component-model equivalent of a Rust `panic!`). Use Dapr resiliency

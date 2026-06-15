@@ -65,14 +65,8 @@ impl MockSidecar {
             )
             .route("/v1.0/publish/{pubsub}/{topic}", post(publish))
             .route("/v1.0/secrets/{store}/{key}", get(get_secret))
-            .route(
-                "/v1.0-alpha1/lock/{store}",
-                post(|| async { Json(json!({"success": true})) }),
-            )
-            .route(
-                "/v1.0-alpha1/unlock/{store}",
-                post(|| async { Json(json!({"status": 0})) }),
-            )
+            .route("/v1.0-alpha1/lock/{store}", post(try_lock))
+            .route("/v1.0-alpha1/unlock/{store}", post(unlock))
             .route(
                 "/v1.0/invoke/{app}/method/{*path}",
                 post(invoke_echo).get(invoke_echo),
@@ -183,6 +177,25 @@ async fn publish(
         body: body.to_vec(),
     });
     StatusCode::NO_CONTENT
+}
+
+/// Acquire a lock. Keyed off `resourceId`: `contended` reports the lock as
+/// already held (`success: false`); anything else acquires it.
+async fn try_lock(Json(request): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let acquired = request["resourceId"].as_str() != Some("contended");
+    Json(json!({ "success": acquired }))
+}
+
+/// Release a lock. Keyed off `resourceId` so tests can drive each unlock
+/// status: `missing` -> LOCK_DOES_NOT_EXIST (1), `others` ->
+/// LOCK_BELONGS_TO_OTHERS (2); anything else -> SUCCESS (0).
+async fn unlock(Json(request): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let status = match request["resourceId"].as_str() {
+        Some("missing") => 1,
+        Some("others") => 2,
+        _ => 0,
+    };
+    Json(json!({ "status": status }))
 }
 
 async fn get_secret(Path((_store, key)): Path<(String, String)>) -> Response {

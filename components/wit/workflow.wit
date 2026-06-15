@@ -30,6 +30,13 @@ interface workflow {
     workflow(workflow-error),
   }
 
+  /// Failure of `get`.
+  variant get-error {
+    /// No workflow instance with that `instance-id`.
+    not-found(string),
+    workflow(workflow-error),
+  }
+
   record workflow-instance {
     instance-id: string,
     created-at: string,
@@ -49,9 +56,9 @@ interface workflow {
     input: list<u8>,
   ) -> result<string, start-error>;
 
-  /// Get information about a workflow instance. Returns `none` when no
-  /// instance with that id exists.
-  get: func(workflow-component: string, instance-id: string) -> result<option<workflow-instance>, workflow-error>;
+  /// Get information about a workflow instance. Fails with `not-found` when
+  /// no instance with that id exists.
+  get: func(workflow-component: string, instance-id: string) -> result<workflow-instance, get-error>;
 
   /// Terminate a running workflow instance.
   terminate: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;

@@ -1,6 +1,6 @@
 //! Distributed lock (alpha) over gRPC — `TryLockAlpha1`, `UnlockAlpha1`.
 
-use crate::exports::lock::{Guest, LockError, UnlockStatus};
+use crate::exports::lock::{Guest, LockError, TryLockError, UnlockError};
 use crate::proto::runtime as pb;
 use crate::proto::runtime::unlock_response;
 use crate::sidecar::{DaprFailure, Sidecar};
@@ -14,13 +14,26 @@ fn lock_error(f: DaprFailure) -> LockError {
     }
 }
 
+/// Map a recoverable setup/config failure of `try-lock`. (The `not-acquired`
+/// case is produced from the `success == false` branch.)
+fn try_lock_error(f: DaprFailure) -> TryLockError {
+    TryLockError::Lock(lock_error(f))
+}
+
+/// Map a recoverable setup/config failure of `unlock`. (The
+/// `lock-does-not-exist`/`lock-belongs-to-others` cases come from the unlock
+/// status code.)
+fn unlock_error(f: DaprFailure) -> UnlockError {
+    UnlockError::Lock(lock_error(f))
+}
+
 impl Guest for Component {
     fn try_lock(
         store_name: String,
         resource_id: String,
         lock_owner: String,
         expiry_in_seconds: u32,
-    ) -> Result<bool, LockError> {
+    ) -> Result<(), TryLockError> {
         let sidecar = Sidecar::from_env();
         // The proto field is int32; a value that does not fit is a
         // programming error from the caller, not a recoverable failure.
@@ -36,15 +49,19 @@ impl Guest for Component {
                 },
                 |mut client, request| async move { client.try_lock_alpha1(request).await },
             )
-            .map_err(lock_error)?;
-        Ok(response.success)
+            .map_err(try_lock_error)?;
+        if response.success {
+            Ok(())
+        } else {
+            Err(TryLockError::NotAcquired)
+        }
     }
 
     fn unlock(
         store_name: String,
         resource_id: String,
         lock_owner: String,
-    ) -> Result<UnlockStatus, LockError> {
+    ) -> Result<(), UnlockError> {
         let sidecar = Sidecar::from_env();
         let response = sidecar
             .unary(
@@ -55,14 +72,16 @@ impl Guest for Component {
                 },
                 |mut client, request| async move { client.unlock_alpha1(request).await },
             )
-            .map_err(lock_error)?;
-        Ok(match unlock_response::Status::try_from(response.status) {
-            Ok(unlock_response::Status::Success) => UnlockStatus::Success,
-            Ok(unlock_response::Status::LockDoesNotExist) => UnlockStatus::LockDoesNotExist,
-            Ok(unlock_response::Status::LockBelongsToOthers) => UnlockStatus::LockBelongsToOthers,
-            // The WIT enum has no internal-error case: an unknown/internal
-            // status is an unrecoverable sidecar fault, so trap.
+            .map_err(unlock_error)?;
+        match unlock_response::Status::try_from(response.status) {
+            Ok(unlock_response::Status::Success) => Ok(()),
+            Ok(unlock_response::Status::LockDoesNotExist) => Err(UnlockError::LockDoesNotExist),
+            Ok(unlock_response::Status::LockBelongsToOthers) => {
+                Err(UnlockError::LockBelongsToOthers)
+            }
+            // INTERNAL_ERROR / any unknown status is an unrecoverable sidecar
+            // fault, so trap.
             _ => panic!("unexpected unlock status: {}", response.status),
-        })
+        }
     }
 }

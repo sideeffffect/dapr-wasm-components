@@ -5,9 +5,9 @@ use serde_json::json;
 use wstd::http::Method;
 
 use crate::exports::state::{
-    BulkStateItem, Concurrency, Consistency, GetStateResponse, Guest, QueryError, QueryResponse,
-    QueryStateItem, StateError, StateItem, StateOptions, TransactionError, TransactionOperation,
-    TransactionRequest, WriteError,
+    BulkStateItem, Concurrency, Consistency, GetError, GetStateResponse, Guest, QueryError,
+    QueryResponse, QueryStateItem, StateError, StateItem, StateOptions, TransactionError,
+    TransactionOperation, TransactionRequest, WriteError,
 };
 use crate::sidecar::{push_metadata_query, seg, with_query, DaprFailure, Sidecar};
 use crate::types::Metadata;
@@ -20,6 +20,13 @@ fn state_error(failure: DaprFailure) -> StateError {
     } else {
         StateError::StoreNotFound(failure.message)
     }
+}
+
+/// Map a recoverable failure of a `get` to the common state setup/config
+/// error wrapped in `get-error`. (The `key-not-found` case is produced from
+/// the 204 branch in `get`, not from a `DaprFailure`.)
+fn get_error(failure: DaprFailure) -> GetError {
+    GetError::State(state_error(failure))
 }
 
 /// Map a recoverable failure of a conditional write.
@@ -190,7 +197,7 @@ impl Guest for Component {
         key: String,
         consistency: Option<Consistency>,
         metadata: Metadata,
-    ) -> Result<Option<GetStateResponse>, StateError> {
+    ) -> Result<GetStateResponse, GetError> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         if let Some(consistency) = consistency.and_then(consistency_str) {
@@ -204,19 +211,20 @@ impl Guest for Component {
 
         let response = sidecar
             .expect_success(Method::GET, &path, &[], Vec::new())
-            .map_err(state_error)?;
+            .map_err(get_error)?;
+        // 204 = no value stored under the key.
         if response.status == 204 {
-            return Ok(None);
+            return Err(GetError::KeyNotFound);
         }
         let etag = response
             .headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("etag"))
             .map(|(_, value)| value.trim_matches('"').to_string());
-        Ok(Some(GetStateResponse {
+        Ok(GetStateResponse {
             data: response.body,
             etag,
-        }))
+        })
     }
 
     fn get_bulk(

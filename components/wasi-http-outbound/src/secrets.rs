@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use wstd::http::Method;
 
-use crate::exports::secrets::{Guest, Secret, SecretsError};
+use crate::exports::secrets::{GetSecretError, Guest, Secret, SecretsError};
 use crate::sidecar::{push_metadata_query, seg, with_query, DaprFailure, Sidecar};
 use crate::types::Metadata;
 use crate::Component;
@@ -18,12 +18,18 @@ fn secrets_error(f: DaprFailure) -> SecretsError {
     }
 }
 
+/// Map a recoverable failure of `get-secret` through the secrets setup/config
+/// error. (The `secret-not-found` case is produced from the 204 branch.)
+fn get_secret_error(f: DaprFailure) -> GetSecretError {
+    GetSecretError::Secrets(secrets_error(f))
+}
+
 impl Guest for Component {
     fn get_secret(
         store_name: String,
         key: String,
         metadata: Metadata,
-    ) -> Result<Option<Secret>, SecretsError> {
+    ) -> Result<Secret, GetSecretError> {
         let sidecar = Sidecar::from_env();
         let mut query = Vec::new();
         push_metadata_query(&mut query, &metadata);
@@ -34,14 +40,14 @@ impl Guest for Component {
 
         let response = sidecar
             .expect_success(Method::GET, &path, &[], Vec::new())
-            .map_err(secrets_error)?;
+            .map_err(get_secret_error)?;
         // 204 = secret not found.
         if response.status == 204 {
-            return Ok(None);
+            return Err(GetSecretError::SecretNotFound);
         }
         let secret: BTreeMap<String, String> = serde_json::from_slice(&response.body)
             .unwrap_or_else(|e| panic!("unexpected secret response: {e}"));
-        Ok(Some(secret.into_iter().collect()))
+        Ok(secret.into_iter().collect())
     }
 
     fn get_bulk_secret(

@@ -5,7 +5,7 @@ use serde_json::json;
 use wstd::http::Method;
 
 use crate::exports::jobs::{
-    Guest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError, ScheduleError,
+    GetJobError, Guest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError, ScheduleError,
 };
 use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::Component;
@@ -13,6 +13,12 @@ use crate::Component;
 /// Map a recoverable failure to the jobs error (only permission-denied).
 fn jobs_error(f: DaprFailure) -> JobsError {
     JobsError::PermissionDenied(f.message)
+}
+
+/// Map a recoverable failure of `get` through the jobs error.
+/// (The `job-not-found` case is produced from the 404 branch.)
+fn get_job_error(f: DaprFailure) -> GetJobError {
+    GetJobError::Jobs(jobs_error(f))
 }
 
 /// Map a recoverable failure of a schedule.
@@ -77,13 +83,13 @@ impl Guest for Component {
         Ok(())
     }
 
-    fn get(name: String) -> Result<Option<Job>, JobsError> {
+    fn get(name: String) -> Result<Job, GetJobError> {
         let sidecar = Sidecar::from_env();
         let path = format!("/v1.0/jobs/{}", seg(&name));
         let response = match sidecar.expect_success(Method::GET, &path, &[], Vec::new()) {
             Ok(r) => r,
-            Err(f) if f.status == 404 => return Ok(None),
-            Err(f) => return Err(jobs_error(f)),
+            Err(f) if f.status == 404 => return Err(GetJobError::JobNotFound),
+            Err(f) => return Err(get_job_error(f)),
         };
 
         #[derive(Deserialize)]
@@ -118,7 +124,7 @@ impl Guest for Component {
 
         let parsed: JobJson = serde_json::from_slice(&response.body)
             .unwrap_or_else(|e| panic!("unexpected job response: {e}"));
-        Ok(Some(Job {
+        Ok(Job {
             schedule: parsed.schedule,
             repeats: parsed.repeats,
             due_time: parsed.due_time,
@@ -135,7 +141,7 @@ impl Guest for Component {
                     JobFailurePolicy::Drop
                 }
             }),
-        }))
+        })
     }
 
     fn delete(name: String) -> Result<(), JobsError> {

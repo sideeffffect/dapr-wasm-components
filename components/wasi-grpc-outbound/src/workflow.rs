@@ -7,7 +7,9 @@
 
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::exports::workflow::{Guest, InstanceError, StartError, WorkflowError, WorkflowInstance};
+use crate::exports::workflow::{
+    GetError, Guest, InstanceError, StartError, WorkflowError, WorkflowInstance,
+};
 use crate::proto::runtime as pb;
 use crate::sidecar::{metadata_pairs, DaprFailure, Sidecar};
 use crate::Component;
@@ -40,6 +42,15 @@ fn instance_error(f: DaprFailure) -> InstanceError {
         return InstanceError::InvalidState(f.message);
     }
     InstanceError::Workflow(workflow_error(f))
+}
+
+/// Map a recoverable failure of `get`. A 404 means the instance does not
+/// exist; everything else maps through the workflow setup/config error.
+fn get_error(f: DaprFailure) -> GetError {
+    if f.status == 404 {
+        return GetError::NotFound(f.message);
+    }
+    GetError::Workflow(workflow_error(f))
 }
 
 /// Render a proto timestamp as RFC 3339. The WIT fields are plain strings
@@ -82,30 +93,24 @@ impl Guest for Component {
         Ok(response.instance_id)
     }
 
-    fn get(
-        workflow_component: String,
-        instance_id: String,
-    ) -> Result<Option<WorkflowInstance>, WorkflowError> {
+    fn get(workflow_component: String, instance_id: String) -> Result<WorkflowInstance, GetError> {
         let sidecar = Sidecar::from_env();
-        let response = match sidecar.unary(
-            pb::GetWorkflowRequest {
-                instance_id,
-                workflow_component,
-            },
-            |mut client, request| async move { client.get_workflow_beta1(request).await },
-        ) {
-            Ok(response) => response,
-            // A missing instance is absence, not an error.
-            Err(f) if f.status == 404 => return Ok(None),
-            Err(f) => return Err(workflow_error(f)),
-        };
-        Ok(Some(WorkflowInstance {
+        let response = sidecar
+            .unary(
+                pb::GetWorkflowRequest {
+                    instance_id,
+                    workflow_component,
+                },
+                |mut client, request| async move { client.get_workflow_beta1(request).await },
+            )
+            .map_err(get_error)?;
+        Ok(WorkflowInstance {
             instance_id: response.instance_id,
             created_at: rfc3339(response.created_at),
             last_updated_at: rfc3339(response.last_updated_at),
             runtime_status: response.runtime_status,
             properties: metadata_pairs(response.properties),
-        }))
+        })
     }
 
     fn terminate(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {

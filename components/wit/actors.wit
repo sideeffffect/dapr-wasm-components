@@ -20,6 +20,20 @@ interface actors {
     actors(actors-error),
   }
 
+  /// Failure of `get-state`.
+  variant get-state-error {
+    /// No actor state is stored under `key`.
+    key-not-found,
+    actors(actors-error),
+  }
+
+  /// Failure of `get-reminder`.
+  variant get-reminder-error {
+    /// No reminder with that name exists on the actor.
+    reminder-not-found,
+    actors(actors-error),
+  }
+
   enum actor-state-operation-type {
     upsert,
     delete,
@@ -60,8 +74,9 @@ interface actors {
     content-type: option<string>,
   ) -> result<list<u8>, invoke-actor-error>;
 
-  /// Get the actor state stored under `key`. Returns `none` when absent.
-  get-state: func(actor-type: string, actor-id: string, key: string) -> result<option<list<u8>>, actors-error>;
+  /// Get the actor state stored under `key`. Fails with `key-not-found`
+  /// when absent.
+  get-state: func(actor-type: string, actor-id: string, key: string) -> result<list<u8>, get-state-error>;
 
   /// Execute upserts and deletes of actor state atomically.
   execute-state-transaction: func(
@@ -73,9 +88,9 @@ interface actors {
   /// Create (or overwrite) a persistent reminder.
   register-reminder: func(actor-type: string, actor-id: string, name: string, reminder: reminder) -> result<_, actors-error>;
 
-  /// Get a reminder's definition as JSON. Returns `none` when no such
-  /// reminder exists.
-  get-reminder: func(actor-type: string, actor-id: string, name: string) -> result<option<json>, actors-error>;
+  /// Get a reminder's definition as JSON. Fails with `reminder-not-found`
+  /// when no such reminder exists.
+  get-reminder: func(actor-type: string, actor-id: string, name: string) -> result<json, get-reminder-error>;
 
   /// Delete a reminder.
   unregister-reminder: func(actor-type: string, actor-id: string, name: string) -> result<_, actors-error>;

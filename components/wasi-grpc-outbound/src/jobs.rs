@@ -6,7 +6,7 @@
 
 use crate::anyjson::{pack_json, unpack_json};
 use crate::exports::jobs::{
-    Guest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError, ScheduleError,
+    GetJobError, Guest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError, ScheduleError,
 };
 use crate::proto::common as pbc;
 use crate::proto::runtime as pb;
@@ -15,6 +15,12 @@ use crate::Component;
 
 fn jobs_error(f: DaprFailure) -> JobsError {
     JobsError::PermissionDenied(f.message)
+}
+
+/// Map a recoverable failure of `get` through the jobs error.
+/// (The `job-not-found` case is produced from the 404 branch.)
+fn get_job_error(f: DaprFailure) -> GetJobError {
+    GetJobError::Jobs(jobs_error(f))
 }
 
 fn schedule_error(f: DaprFailure) -> ScheduleError {
@@ -130,21 +136,21 @@ impl Guest for Component {
         Ok(())
     }
 
-    fn get(name: String) -> Result<Option<Job>, JobsError> {
+    fn get(name: String) -> Result<Job, GetJobError> {
         let sidecar = Sidecar::from_env();
         let response = match sidecar.unary(
             pb::GetJobRequest { name },
             |mut client, request| async move { client.get_job(request).await },
         ) {
             Ok(response) => response,
-            // A missing job is absence, not an error.
-            Err(f) if f.status == 404 => return Ok(None),
-            Err(f) => return Err(jobs_error(f)),
+            // A missing job maps to the not-found error case.
+            Err(f) if f.status == 404 => return Err(GetJobError::JobNotFound),
+            Err(f) => return Err(get_job_error(f)),
         };
-        // A successful GetJob with no job means the job is absent.
+        // A successful GetJob with no job also means the job is absent.
         match response.job {
-            Some(job) => Ok(Some(job_wit(job))),
-            None => Ok(None),
+            Some(job) => Ok(job_wit(job)),
+            None => Err(GetJobError::JobNotFound),
         }
     }
 

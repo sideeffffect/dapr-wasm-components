@@ -7,14 +7,16 @@ package dapr-wasm-components:interfaces@0.5.0;
 /// There is deliberately no shared, all-encompassing `error` type. Failures
 /// are sorted by *who acts on them*:
 ///
-///  - **Expected outcomes** the caller branches on as normal control flow are
-///    modelled in the *success* type — a missing value is `none` (not an
-///    error), a rejected conditional write is a dedicated outcome, etc.
+///  - **The success type holds only the 100%-happy-path result.** Anything
+///    that is not the happy path — including *expected* failures like a key
+///    not being found — is an `error`, never smuggled into the success type
+///    as an `option`. `get` returns `result<value, get-error>` with a
+///    `key-not-found` case, not `result<option<value>, …>`.
 ///  - **Recoverable failures** (setup/config such as "no such store" or
-///    "permission denied", and the few operation-specific rejections like an
-///    etag conflict) are modelled as per-interface and per-function `variant`
-///    error types, so each function advertises only the failures it can
-///    actually produce.
+///    "permission denied", and operation-specific rejections like an etag
+///    conflict, a missing key, or a lock that is already held) are modelled
+///    as per-interface and per-function `variant` error types, so each
+///    function advertises only the failures it can actually produce.
 ///  - **Unrecoverable failures** (the sidecar is unreachable or not ready, an
 ///    internal sidecar/component error, a timeout, an I/O fault) are *not*
 ///    represented in any type. A provider signals them by **trapping** — the

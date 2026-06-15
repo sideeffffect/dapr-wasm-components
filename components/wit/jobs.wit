@@ -20,6 +20,13 @@ interface jobs {
     jobs(jobs-error),
   }
 
+  /// Failure of `get`.
+  variant get-job-error {
+    /// No job with that name exists.
+    job-not-found,
+    jobs(jobs-error),
+  }
+
   /// What the scheduler does when a job trigger fails to be delivered.
   variant job-failure-policy {
     /// Drop the trigger.
@@ -53,8 +60,9 @@ interface jobs {
   /// same name instead of failing with `already-exists`.
   schedule: func(name: string, job: job, overwrite: bool) -> result<_, schedule-error>;
 
-  /// Get the named job's definition. Returns `none` when no such job exists.
-  get: func(name: string) -> result<option<job>, jobs-error>;
+  /// Get the named job's definition. Fails with `job-not-found` when no
+  /// such job exists.
+  get: func(name: string) -> result<job, get-job-error>;
 
   /// Delete the named job (idempotent — deleting an absent job succeeds).
   delete: func(name: string) -> result<_, jobs-error>;

@@ -31,6 +31,13 @@ interface state {
     state(state-error),
   }
 
+  /// Failure of `get`.
+  variant get-error {
+    /// No value is stored under `key`.
+    key-not-found,
+    state(state-error),
+  }
+
   /// Failure of `query`.
   variant query-error {
     /// The store does not support the query API.
@@ -117,13 +124,14 @@ interface state {
     token: option<string>,
   }
 
-  /// Get the value of `key`. Returns `none` when the key does not exist.
+  /// Get the value of `key`. Fails with `key-not-found` when the key does
+  /// not exist.
   get: func(
     store-name: string,
     key: string,
     consistency: option<consistency>,
     metadata: metadata,
-  ) -> result<option<get-state-response>, state-error>;
+  ) -> result<get-state-response, get-error>;
 
   /// Get several keys in one request.
   get-bulk: func(

@@ -48,9 +48,10 @@ fn run() -> Result<(), String> {
     .map_err(|e| format!("state save failed: {e:?}"))?;
     println!("saved {key}");
 
-    let got = state::get(STATE_STORE, key, None, &[])
-        .map_err(|e| format!("state get failed: {e:?}"))?
-        .ok_or_else(|| format!("state key {key} unexpectedly missing"))?;
+    let got = state::get(STATE_STORE, key, None, &[]).map_err(|e| match e {
+        state::GetError::KeyNotFound => format!("state key {key} unexpectedly missing"),
+        other => format!("state get failed: {other:?}"),
+    })?;
     if got.data != value {
         return Err(format!(
             "state roundtrip mismatch: wrote {}, read {}",
@@ -64,14 +65,16 @@ fn run() -> Result<(), String> {
         .map_err(|e| format!("state delete failed: {e:?}"))?;
     println!("deleted {key}");
 
-    let acquired = lock::try_lock(LOCK_STORE, "kv-demo-resource", "kv-demo-owner", 60)
-        .map_err(|e| format!("lock failed: {e:?}"))?;
-    if acquired {
-        let status = lock::unlock(LOCK_STORE, "kv-demo-resource", "kv-demo-owner")
-            .map_err(|e| format!("unlock failed: {e:?}"))?;
-        println!("lock roundtrip done (unlock status: {status:?})");
-    } else {
-        println!("lock not acquired (held by someone else?)");
+    match lock::try_lock(LOCK_STORE, "kv-demo-resource", "kv-demo-owner", 60) {
+        Ok(()) => {
+            lock::unlock(LOCK_STORE, "kv-demo-resource", "kv-demo-owner")
+                .map_err(|e| format!("unlock failed: {e:?}"))?;
+            println!("lock roundtrip done");
+        }
+        Err(lock::TryLockError::NotAcquired) => {
+            println!("lock not acquired (held by someone else?)");
+        }
+        Err(other) => return Err(format!("lock failed: {other:?}")),
     }
 
     pubsub::publish(

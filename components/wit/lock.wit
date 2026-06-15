@@ -9,23 +9,33 @@ interface lock {
     permission-denied(string),
   }
 
-  /// The outcome of `unlock`. (An internal sidecar error traps rather than
-  /// being reported here.)
-  enum unlock-status {
-    success,
-    lock-does-not-exist,
-    lock-belongs-to-others,
+  /// Failure of `try-lock`. Acquiring the lock is the only happy path; the
+  /// lock already being held is an expected error.
+  variant try-lock-error {
+    /// The lock is currently held by someone else — not acquired.
+    not-acquired,
+    lock(lock-error),
   }
 
-  /// Try to acquire a lock on `resource-id`. Returns whether the lock
-  /// was obtained. The lock auto-expires after `expiry-in-seconds`.
+  /// Failure of `unlock`. Releasing the lock is the only happy path.
+  variant unlock-error {
+    /// There is no lock on `resource-id` to release.
+    lock-does-not-exist,
+    /// The lock is held by a different owner, so it was not released.
+    lock-belongs-to-others,
+    lock(lock-error),
+  }
+
+  /// Acquire a lock on `resource-id`. Succeeds when the lock is obtained;
+  /// fails with `not-acquired` when it is already held. The lock auto-expires
+  /// after `expiry-in-seconds`.
   try-lock: func(
     store-name: string,
     resource-id: string,
     lock-owner: string,
     expiry-in-seconds: u32,
-  ) -> result<bool, lock-error>;
+  ) -> result<_, try-lock-error>;
 
   /// Release a lock previously acquired by `lock-owner`.
-  unlock: func(store-name: string, resource-id: string, lock-owner: string) -> result<unlock-status, lock-error>;
+  unlock: func(store-name: string, resource-id: string, lock-owner: string) -> result<_, unlock-error>;
 }

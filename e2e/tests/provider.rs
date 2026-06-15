@@ -6,8 +6,13 @@ use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interface
 };
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::invocation::HttpVerb;
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::jobs::Job;
-use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::lock::UnlockStatus;
-use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::state::StateItem;
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::lock::{
+    TryLockError, UnlockError,
+};
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::secrets::GetSecretError;
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::state::{
+    GetError, StateItem,
+};
 use dapr_wasm_components_e2e::load_provider;
 use dapr_wasm_components_e2e::mock::MockSidecar;
 
@@ -39,7 +44,6 @@ async fn state_roundtrip() {
         .call_get(&mut store, "statestore", "k1", None, &Vec::new())
         .await
         .unwrap()
-        .unwrap()
         .expect("key should exist");
     assert_eq!(got.data, value);
     assert_eq!(got.etag.as_deref(), Some("42"));
@@ -47,9 +51,11 @@ async fn state_roundtrip() {
     let missing = state
         .call_get(&mut store, "statestore", "nope", None, &Vec::new())
         .await
-        .unwrap()
         .unwrap();
-    assert!(missing.is_none(), "missing key should be none");
+    assert!(
+        matches!(missing, Err(GetError::KeyNotFound)),
+        "missing key should be key-not-found, got {missing:?}"
+    );
 
     let bulk = state
         .call_get_bulk(
@@ -114,7 +120,6 @@ async fn secrets() {
         .call_get_secret(&mut store, "vault", "db", &Vec::new())
         .await
         .unwrap()
-        .unwrap()
         .expect("secret should exist");
     assert_eq!(
         secret,
@@ -124,9 +129,11 @@ async fn secrets() {
     let missing = secrets
         .call_get_secret(&mut store, "vault", "missing", &Vec::new())
         .await
-        .unwrap()
         .unwrap();
-    assert!(missing.is_none(), "missing secret should be none");
+    assert!(
+        matches!(missing, Err(GetSecretError::SecretNotFound)),
+        "missing secret should be secret-not-found, got {missing:?}"
+    );
 }
 
 #[tokio::test]
@@ -207,19 +214,48 @@ async fn lock_and_unlock() {
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     let lock = provider.dapr_wasm_components_interfaces_lock();
 
-    let acquired = lock
-        .call_try_lock(&mut store, "lockstore", "resource", "owner", 60)
+    // Acquired -> Ok(()).
+    lock.call_try_lock(&mut store, "lockstore", "resource", "owner", 60)
         .await
         .unwrap()
-        .unwrap();
-    assert!(acquired);
+        .expect("lock should be acquired");
 
-    let status = lock
-        .call_unlock(&mut store, "lockstore", "resource", "owner")
+    // Already held -> Err(not-acquired). The mock keys "contended" to a
+    // `success: false` response.
+    let contended = lock
+        .call_try_lock(&mut store, "lockstore", "contended", "owner", 60)
+        .await
+        .unwrap();
+    assert!(
+        matches!(contended, Err(TryLockError::NotAcquired)),
+        "contended lock should be not-acquired, got {contended:?}"
+    );
+
+    // Unlock success -> Ok(()).
+    lock.call_unlock(&mut store, "lockstore", "resource", "owner")
         .await
         .unwrap()
+        .expect("unlock should succeed");
+
+    // Unlock of a non-existent lock -> Err(lock-does-not-exist).
+    let missing = lock
+        .call_unlock(&mut store, "lockstore", "missing", "owner")
+        .await
         .unwrap();
-    assert_eq!(status, UnlockStatus::Success);
+    assert!(
+        matches!(missing, Err(UnlockError::LockDoesNotExist)),
+        "unlocking a missing lock should be lock-does-not-exist, got {missing:?}"
+    );
+
+    // Unlock of a lock owned by someone else -> Err(lock-belongs-to-others).
+    let others = lock
+        .call_unlock(&mut store, "lockstore", "others", "owner")
+        .await
+        .unwrap();
+    assert!(
+        matches!(others, Err(UnlockError::LockBelongsToOthers)),
+        "unlocking another owner's lock should be lock-belongs-to-others, got {others:?}"
+    );
 }
 
 #[tokio::test]
@@ -290,7 +326,6 @@ async fn jobs_roundtrip() {
     let job = jobs
         .call_get(&mut store, "nightly")
         .await
-        .unwrap()
         .unwrap()
         .expect("scheduled job should exist");
     assert_eq!(job.schedule.as_deref(), Some("@every 1m"));
