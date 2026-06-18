@@ -204,7 +204,10 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
     state::delete(STATE_STORE, key, None, None, &[])
         .map_err(|e| format!("delete failed: {e:?}"))?;
     match state::get(STATE_STORE, key, None, &[]) {
+        // HTTP surfaces a deleted key as not-found; the gRPC API has no 204
+        // analogue, so absence shows up as an empty (Ok) value instead.
         Err(state::GetError::KeyNotFound) => {}
+        Ok(read) if read.data.is_empty() => {}
         Ok(_) => return Err("key still present after delete".to_string()),
         Err(other) => return Err(format!("get after delete failed: {other:?}")),
     }
