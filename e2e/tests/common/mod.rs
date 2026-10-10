@@ -398,8 +398,9 @@ pub struct Endpoints<'a> {
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
 /// runtime: state roundtrip + etag CAS + delete, service invocation (self and
-/// cross-app), and a cross-sidecar pub/sub publish→deliver→count loop. Panics
-/// (with context) on the first failed assertion.
+/// cross-app), a cross-sidecar pub/sub publish→deliver→count loop, and a cron
+/// input binding delivered to the consumer. Panics (with context) on the first
+/// failed assertion.
 pub fn run_mirrored_scenario(endpoints: Endpoints) {
     let Endpoints {
         publisher_base,

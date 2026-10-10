@@ -1,7 +1,8 @@
 //! E2E microservice — a single typed Dapr **reactor**, run as **two
 //! instances** (a *publisher* and a *consumer*) so one app exercises the whole
 //! Dapr round-trip: outbound state / pub/sub / service-invocation calls *and*
-//! the inbound app channel (pub/sub delivery, invocation handling). It never
+//! the inbound app channel (pub/sub delivery, input bindings, invocation
+//! handling). It never
 //! touches HTTP — it implements [`DaprApp`] and is composed behind a provider.
 //!
 //! The **same** binary backs both the wasi-http E2E (composed with the
@@ -16,7 +17,8 @@
 //! - `PEER_APP_ID` — the *other* instance's app id, the target of
 //!   `invoke-peer` (cross-app service invocation via the sidecar).
 //! - `SUBSCRIBE` — when set, the app subscribes to the `orders` topic (the
-//!   consumer role); when unset, it subscribes to nothing (the publisher role).
+//!   consumer role) and declares the `ticks` input binding; when unset, it
+//!   subscribes to nothing (the publisher role).
 //!
 //! The test harness drives the control methods by HTTP-GETting them on the
 //! served app channel (`/smoke`, `/publish?n=N`, `/invoke-self`, …); the

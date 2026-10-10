@@ -1,5 +1,10 @@
 # Wiki Log
 
+## [2026-10-10] ingest | daprd input-binding reply handling (v1.18 source + real-daprd E2E). daprd ignores the HTTP binding reply body entirely; over gRPC it honours only to/data/concurrency, never store_name/states. Field names emitted by wasi-http-inbound match the AppResponse JSON tags — no provider bug.
+- Raw: daprd-input-binding-reply-v1-18
+- Updated: Dapr HTTP API (trap: binding reply ignored)
+- Updated: dapr-wasm-components Inbound Design (new section "Binding reply: what daprd really does"; refreshed the stale wasi-grpc inbound limitation)
+
 ## [2026-10-10] update | dependency bump: wit-bindgen 0.62, wasmtime 49, wac-graph 0.12, ureq 3, CI wasmtime 49.0.2 / Spin v4.2.2 / wkg 0.16.1 / wasm-tools 1.261.0, daprd 1.18.7. tonic/prost 0.13 + spin-executor 4 are held by wasi-grpc 0.1.0.
 - Updated: Wasmtime Host Embedding (wasi-http 49 import move)
 - Updated: wasm-pkg-tools (wkg) (`wkg wit build` deprecated)

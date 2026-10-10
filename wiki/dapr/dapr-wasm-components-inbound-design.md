@@ -40,7 +40,7 @@ The adapter shields the app from the wire in both directions. The app is pure ty
 | **Service invocation** | **HTTP-faithful**: pass through verb / method-path / headers / query / body; the app returns status + headers + body. Symmetric with the outbound `invocation` interface; a non-2xx app response is a normal response, not an `error`. |
 | **Pub/sub event** | **Typed `cloud-event` record** (id, source, type, spec-version, subject, time, topic, pubsub-name, data-content-type, data, extensions). The adapter parses the CloudEvent envelope; the app only deserializes its domain payload from `data`. |
 | **Health** | **Always typed**: the app exports a `health` interface; the adapter delegates every `/healthz` probe to it. No auto-answer. |
-| **Binding reply** | **Full Dapr input-binding response**: optional response `data` + `to` (output bindings to forward to) + state-store operations + concurrency. Lossless against the Dapr input-binding contract. |
+| **Binding reply** | **Full Dapr input-binding response**: optional response `data` + `to` (output bindings to forward to) + state-store operations + concurrency. Lossless against the *documented* Dapr input-binding contract — but daprd only partly honours it (see [below](#binding-reply-what-daprd-really-does)). |
 | **Providers** | **Both** `wasi-http` and `wasi-grpc` in scope. The typed handler WIT is **shared**; only the transport differs (wasi-http parses the HTTP app channel; wasi-grpc serves Dapr's `AppCallback` gRPC service). |
 
 ## Architecture: roles flip per direction
@@ -330,8 +330,18 @@ Mirror every WIT change across: **both** providers, the e2e mock + tests, the de
 - **No bulk subscribe**, no CEL **routing rules** / multiple routes per topic — one route per (pubsub, topic); the app does content routing internally.
 - **Configuration inbound** depends on adding outbound config subscribe (above); shipped together or config inbound is a no-op until then.
 - **Actor** reentrancy/turn-based concurrency relies on the single-threaded wasm instance; reentrancy config is surfaced but enforced by daprd. gRPC actor hosting may be constrained.
-- **Binding-response** exact JSON field names (`state`/`to`/`concurrency`/`data`) to be pinned against the HTTP API reference during implementation.
-- wasi-grpc **incoming/server** transport support is unconfirmed (see risk above).
+- **Binding reply** side effects are mostly not applied by daprd — see the next section.
+- wasi-grpc **incoming/server** transport: `wasi-grpc-inbound` serves `AppCallback` over Spin inbound h2c and is verified with `grpcurl`, but has no automated daprd `--app-protocol grpc` E2E yet (see [ROADMAP](../../ROADMAP.md)).
+
+## Binding reply: what daprd really does
+
+Checked 2026-10-10 against daprd 1.18 source and a real daprd 1.18.7 (raw: [daprd-input-binding-reply-v1-18](../../raw/dapr/daprd-input-binding-reply-v1-18.md)).
+
+- `wasi-http-inbound` emits the reply with the documented field names `storeName`, `state` (`[{key, value}]`, value per the JSON value convention), `to`, `data`, `concurrency` (`sequential`/`parallel`, only with `to`). These match the `bindings.AppResponse` JSON tags in components-contrib. A composed in-process test pins the shape (`e2e/tests/composed.rs` `inbound_binding_event_reply_shape`).
+- **daprd ignores the whole HTTP reply body.** `sendBindingEventToApp` reads it but never unmarshals it, so `storeName`/`state`/`to` have no effect over the HTTP app channel. This was not always so: daprd 1.0 parsed it; 1.5 no longer does.
+- **Over gRPC** (`wasi-grpc-inbound` → `BindingEventResponse`), daprd copies only `to`, `data` and `concurrency`. `store_name`/`states` are ignored there too. So only "forward `data` to output bindings" works, and only on the gRPC app channel. That path has no automated E2E yet (both shipping suites use the HTTP inbound provider).
+- The real-Dapr E2E (`run_mirrored_scenario` step 7–8, both suites) drives a `bindings.cron` `ticks` binding (`@every 1s`): it asserts delivery reaches `on-binding-event`, and **pins** that a `storeName`/`state` reply is *not* persisted. If daprd starts to honour the reply, that check fails on purpose.
+- We keep the WIT record as is: it mirrors the documented contract and the gRPC message, and it costs nothing when daprd ignores it. Apps that need the side effects should do them with the outbound `state` / `bindings` interfaces inside `on-binding-event`.
 
 ## See Also
 
