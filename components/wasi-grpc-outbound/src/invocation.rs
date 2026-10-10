@@ -9,8 +9,8 @@
 //! Divergence from the wasi-http provider: daprd does not convey the app's
 //! exact status code over gRPC. Success is reported as status 200, and a
 //! non-2xx app response surfaces as a gRPC error from daprd — returned
-//! here as `error`, not as a normal `http-response` like the WIT comment
-//! promises for the HTTP transport.
+//! here as an `invoke-error` (or a trap, per `classify`), not as a normal
+//! `http-response` like the WIT comment promises for the HTTP transport.
 
 use tonic::metadata::{AsciiMetadataKey, AsciiMetadataValue, KeyAndValueRef};
 

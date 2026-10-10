@@ -5,7 +5,7 @@
 
 ## Overview
 
-The sidecar serves a REST API on `http://localhost:3500` (default). This is what dapr-wasm-components-wasi-http implements against. The raw file holds the full endpoint-by-endpoint reference with exact field names; this article captures the version map and the traps.
+The sidecar serves a REST API on `http://localhost:3500` (default). This is what the `wasi-http-outbound` provider (`components/wasi-http-outbound/`) implements against; the `wasi-http-inbound` provider serves the reverse direction (the sidecar's HTTP app channel). The raw file holds the full endpoint-by-endpoint reference with exact field names; this article captures the version map and the traps.
 
 ## Version prefix map (v1.18)
 
@@ -47,3 +47,4 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md)
 - [gRPC to Dapr from Wasm](dapr-grpc-from-wasm.md) (the gRPC counterpart to this REST API)
 - [Dapr Rust SDK](dapr-rust-sdk.md)
+- [Inbound Design](dapr-wasm-components-inbound-design.md) (the HTTP app channel, sidecar → app)

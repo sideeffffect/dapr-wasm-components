@@ -25,15 +25,16 @@ func-type ::= 'async'? 'func' param-list result-list
 
 Functions are sync by default. The optional `async` prefix (WASI 0.3 / Preview 3 concurrency model) marks the callee as potentially blocking, switching to the async ABI and async source-language bindings. `future<T>` and `stream<T>` types exist for asynchronous values/sequences.
 
-**Important nuance**: a *sync* WIT function only constrains the guest-visible ABI. A host embedding (e.g. wasmtime with `Config::async_support(true)` and `bindgen!` async host traits) may implement a sync-WIT import with an async Rust function; the guest simply blocks until the host future resolves. This is the standard way to keep guest interfaces sync while the host uses tokio-based clients.
+**Important nuance**: a *sync* WIT function only constrains the guest-visible ABI. A host embedding (e.g. wasmtime with `Config::async_support(true)` and `bindgen!` async host traits) may implement a sync-WIT import with an async Rust function; the guest simply blocks until the host future resolves. This is the standard way to keep guest interfaces sync while the host uses tokio-based clients. (dapr-wasm-components took a different route: its providers are guests themselves and block inside the guest with `wstd`'s `block_on` or `spin_executor::run`.)
 
 ## Filesystem conventions
 
 - A project keeps its WIT in a `wit/` directory; dependencies go to `wit/deps/<package>/`.
-- `wkg wit fetch`/`wkg wit build` resolve and vendor dependencies (see [wasm-pkg-tools](../wasm-tooling/wasm-pkg-tools-wkg.md)).
+- `wkg wit fetch` resolves and vendors dependencies; `wkg build` (formerly `wkg wit build`, deprecated in wkg 0.16) packages the directory (see [wasm-pkg-tools](../wasm-tooling/wasm-pkg-tools-wkg.md)).
 
 ## See Also
 
 - [Component Model Overview](component-model-overview.md)
 - [wasm-pkg-tools (wkg)](../wasm-tooling/wasm-pkg-tools-wkg.md)
 - [Wasmtime Host Embedding](../wasm-tooling/wasmtime-host-embedding.md)
+- [dapr-wasm-components Architecture](../dapr/dapr-wasm-components-architecture.md) (the project's WIT package and worlds)
