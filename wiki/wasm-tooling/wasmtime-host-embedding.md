@@ -49,6 +49,8 @@ Flags: `async`, `store`, `tracing`, `verbose_tracing`, `trappable`, `ignore_wit`
 
 WASI 0.3.0 final released 2026-06-11 (native async ABI, `stream`/`future`); wasmtime 45.0.1 still tracks an RC snapshot; cross-component async has ~3.5x call overhead pre-1.0. **WASI 0.2.x remains the production target**; sync WIT + async host covers the Dapr use case fully.
 
+**Update 2026-10-10:** WASI 0.3.1 was released on 2026-08-11. Wasmtime 46 turned 0.3.0 and `component-model-async` on by default, and `serve` links P3 by default. Wasmtime 49 enables the `p3` feature in `wasmtime-wasi-http` by default. Spin 4.1+ supports P3. The local Rust 1.94 toolchain has no `wasm32-wasip3` target. Outbound HTTP/2 in wasmtime is still absent: HTTP/1 only.
+
 ## See Also
 
 - [WIT Format](../wasm-component-model/wit-format.md)

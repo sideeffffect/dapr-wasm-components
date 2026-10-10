@@ -88,6 +88,17 @@ for the inbound spec.
   handler via the new `serve_inbound` harness helper (`e2e/src/lib.rs`) — which
   also unlocks in-process testing of the other inbound flows.
 
+## External blockers — last checked 2026-10-10
+
+These are the upstream changes that would unblock items above. None of them has landed yet. Details: [wiki/dapr/dapr-grpc-from-wasm.md](wiki/dapr/dapr-grpc-from-wasm.md#upstream-status-re-check-2026-10-10) and [wiki/dapr/dapr-http-api.md](wiki/dapr/dapr-http-api.md#dapr-119-delta-v1190-rc2-checked-2026-10-10).
+
+- **gRPC outside Spin / multi-authority h2c.** Wasmtime (up to 50-rc) still has HTTP/1-only outbound `wasi-http`. Spin 4.2 still uses the single-authority `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`. `wasi-grpc` is still 0.1.0 (tonic 0.13). The only path we control is guest-side `h2` over `wasi:sockets`.
+- **Actor hosting over gRPC.** Dapr 1.19 `AppCallback` still has no actor methods.
+- **Streaming crypto.** Dapr crypto is still alpha and one-shot over HTTP. Streaming would also need WIT `stream`. WASI 0.3.1 is out and on by default in wasmtime ≥ 46 and Spin ≥ 4.1, but our WIT convention stays sync.
+- **Workflow.** The `/v1.0` HTTP API is still deprecated but served in 1.19.
+
+Additive Dapr 1.19 surface we could adopt (1.19 is still an RC): actor timer reads (`ListActorTimers` / `GetActorTimer`), conversation `max_tokens`, optional job `data`, and workflow `appID` targeting.
+
 ## Standing design constraints (not TODOs)
 
 - **Actor *hosting* is HTTP app-channel only.** Dapr's gRPC `AppCallback` service

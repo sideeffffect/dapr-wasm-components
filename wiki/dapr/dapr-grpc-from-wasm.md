@@ -117,6 +117,17 @@ cover the same **unary** surface as wasi-http; streaming waits for WASI Preview 
 Effort: codec/stubs are mechanical; the `h2`-over-`wasi:sockets` + tokio-IO adapter + sync bridge
 is roughly the size of the original wasi-http impl, de-risked by `wasi-hyperium`/`wasi-grpc`.
 
+## Upstream status re-check (2026-10-10)
+
+Nothing that blocks the gRPC transport has moved since June 2026:
+
+- **Spin 4.2.2:** outbound h2c is still gated by `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`. It holds one `host:port`, string-compared against the request authority (`crates/factor-outbound-http/src/wasi.rs`), and the code labels it "for development purposes". There is no `spin.toml` or per-component knob, and no open issue or PR for one. Outbound **HTTP/2 over TLS** works via ALPN `h2`. Inbound still auto-detects h1/h2. Spin 4.1 moved to WASI 0.3.0 (P3 middleware, service chaining), and WASI 0.2 components still run unchanged.
+- **Wasmtime 46–50:** the `wasi-http` default sender is still `http1::Builder` only, with no h2c, no ALPN h2 and no flag. `wasmtime serve` inbound is HTTP/1 only. P3 has been on by default since 46, and `wasmtime-wasi-http` enables the `p3` feature by default since 49.
+- **`wasi-grpc` 0.1.0 / `wasi-hyperium` 0.3.0:** unchanged on crates.io since Aug 2025. Both are still pinned to `tonic ^0.13.1` and `spin-executor ^4` (latest is 5.2.0). The repo gained an unpublished `wasi-grpc-server` crate (2025-10).
+- **wasmCloud / jco / WasmEdge:** found no evidence of outbound h2c.
+
+Consequence: the Spin-only, single-authority limitation of `wasi-grpc-outbound` stands. The portable fix is still the guest-side `h2` over `wasi:sockets` path above. No upstream change will remove it.
+
 ## See Also
 
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md)

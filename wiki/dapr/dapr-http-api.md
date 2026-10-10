@@ -17,6 +17,17 @@ The sidecar serves a REST API on `http://localhost:3500` (default). This is what
 
 Bulk publish and jobs were alpha pre-1.16 — older sidecars need the `-alpha1` prefixes. The workflow HTTP API is `/v1.0` but **deprecated** in favor of SDKs.
 
+## Dapr 1.19 delta (v1.19.0-rc.2, checked 2026-10-10)
+
+The changes are additive only. The `AppCallback` proto is byte-identical to 1.18; it has no actor methods and no new RPCs.
+
+- **Actors:** new `GET /v1.0/actors/{type}/{id}/timers` and `.../timers/{name}`, with matching gRPC `ListActorTimers` and `GetActorTimer` (`actors.proto`).
+- **Workflow:** an optional `?appID=` query parameter targets a workflow in another app. When the workflow FAILED, `properties` carry `dapr.workflow.failure.{error_type,error_message,stack_trace}`. The HTTP API is still deprecated but still served.
+- **Jobs:** `data` is optional, and `schedule` accepts a `CRON_TZ=`/`TZ=` prefix.
+- **Conversation:** still `/v1.0-alpha2`, with a new optional `max_tokens` field.
+- **Unchanged:** crypto (still alpha, one-shot over HTTP), bulk subscribe, routing rules, the input-binding response shape, and all alpha/beta statuses.
+- **1.18.x patches** fixed bugs only: 1.18.6 strips a spoofed `Dapr-Caller-App-Id`, and 1.18.7 fixes concurrent requests on the HTTP app channel.
+
 ## Traps and asymmetries
 
 - **204 means "not found"** on state get, secrets get, and actor state get — not an error. But 204 is also the *success* code for writes.
