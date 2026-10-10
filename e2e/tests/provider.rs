@@ -134,6 +134,31 @@ async fn secrets() {
         matches!(missing, Err(GetSecretError::SecretNotFound)),
         "missing secret should be secret-not-found, got {missing:?}"
     );
+
+    // Real daprd: a store's "not found" arrives as a 500 ERR_SECRET_GET.
+    let missing = secrets
+        .call_get_secret(&mut store, "vault", "missing-in-store", &Vec::new())
+        .await
+        .unwrap();
+    assert!(
+        matches!(missing, Err(GetSecretError::SecretNotFound)),
+        "store-reported missing secret should be secret-not-found, got {missing:?}"
+    );
+}
+
+#[tokio::test]
+async fn secret_store_failure_traps() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    // Any other ERR_SECRET_GET is a store backend failure: unrecoverable.
+    let call = provider
+        .dapr_wasm_components_interfaces_secrets()
+        .call_get_secret(&mut store, "vault", "store-down", &Vec::new())
+        .await;
+    assert!(
+        call.is_err(),
+        "store backend failure should trap, got {call:?}"
+    );
 }
 
 #[tokio::test]

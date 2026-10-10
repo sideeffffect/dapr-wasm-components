@@ -30,7 +30,7 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 
 ## Traps and asymmetries
 
-- **204 means "not found"** on state get, secrets get, and actor state get — not an error. But 204 is also the *success* code for writes.
+- **204 means "not found"** on state get, secrets get, and actor state get — not an error. But 204 is also the *success* code for writes. Caveat for secrets: daprd only returns 204 when the store returns *no data*; most stores (e.g. `local.file`) report a missing secret as an error, which daprd turns into `500 ERR_SECRET_GET` (`failed getting secret with key <key> from secret store <store>: <store error>`).
 - Bulk state get items carry the value under **`value`**; state *query* results use **`data`**.
 - Delete etag goes in the **`If-Match` header**, not the body/query.
 - Bulk publish entry id is **`entryId`**; partial failure = HTTP 500 + `failedEntries` array.

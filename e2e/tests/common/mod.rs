@@ -282,6 +282,29 @@ spec:
     value: "input"
 "#;
 
+/// Write a `secretstores.local.file` store named `secretstore` and its
+/// `secrets.json` (one secret, `db` = `s3cret`) under the bind mount.
+pub fn write_secret_store(dir: &Path) {
+    write_resource(
+        dir,
+        "secretstore.yaml",
+        &format!(
+            r#"apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: secretstore
+spec:
+  type: secretstores.local.file
+  version: v1
+  metadata:
+  - name: secretsFile
+    value: "{DAPRD_MOUNT}/secrets.json"
+"#
+        ),
+    );
+    std::fs::write(dir.join("secrets.json"), r#"{"db":"s3cret"}"#).unwrap();
+}
+
 /// Write `<dir>/resources/<name>` (creating the `resources/` subdir as
 /// needed) — daprd loads every component definition under `--resources-path`.
 pub fn write_resource(dir: &Path, name: &str, yaml: &str) {
@@ -335,12 +358,14 @@ pub fn start_redis() -> RedisBroker {
 pub const CONFIG_FILE: &str = "config.yaml";
 
 /// Write the resources + config that the two-sidecar scenario needs, shared by
-/// both real-Dapr suites: an in-memory statestore (per sidecar), a Redis
+/// both real-Dapr suites: an in-memory statestore (per sidecar), a
+/// `local.file` secret store, a Redis
 /// pub/sub broker (so events cross sidecars), and a sqlite name-resolution
 /// `Configuration` (deterministic cross-sidecar invocation, unlike mDNS) whose
 /// db both sidecars share via the bind mount.
 pub fn write_cross_sidecar_resources(dir: &Path, redis_host: &str) {
     write_resource(dir, "statestore.yaml", STATESTORE_IN_MEMORY);
+    write_secret_store(dir);
     write_resource(
         dir,
         "pubsub.yaml",
@@ -397,8 +422,8 @@ pub struct Endpoints<'a> {
 }
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
-/// runtime: state roundtrip + etag CAS + delete, service invocation (self and
-/// cross-app), a cross-sidecar pub/sub publish→deliver→count loop, and a cron
+/// runtime: state roundtrip + etag CAS + delete, secrets, service invocation
+/// (self and cross-app), a cross-sidecar pub/sub publish→deliver→count loop, and a cron
 /// input binding delivered to the consumer. Panics (with context) on the first
 /// failed assertion.
 pub fn run_mirrored_scenario(endpoints: Endpoints) {
@@ -419,15 +444,20 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         assert_eq!(smoke["ok"], true, "binary smoke failed: {smoke}");
     }
 
-    // 3. Service invocation out and back into the same instance.
+    // 3. Secrets (`local.file`): an existing secret, and a missing one as the
+    //    typed `secret-not-found`.
+    let secrets = get_json(&format!("{publisher_base}/secrets"));
+    assert_eq!(secrets["ok"], true, "secrets failed: {secrets}");
+
+    // 4. Service invocation out and back into the same instance.
     let invoked = get_json(&format!("{publisher_base}/invoke-self"));
     assert_eq!(invoked["ok"], true, "invoke-self failed: {invoked}");
 
-    // 4. Publish three orders.
+    // 5. Publish three orders.
     let published = get_json(&format!("{publisher_base}/publish?n=3"));
     assert_eq!(published["published"], 3, "publish failed: {published}");
 
-    // 5. Cross-sidecar pub/sub delivery: the consumer's counter reaches 3.
+    // 6. Cross-sidecar pub/sub delivery: the consumer's counter reaches 3.
     //    Generous deadline — a transient app↔sidecar connection blip makes the
     //    app return RETRY, and daprd redelivers with backoff; give it room.
     let deadline = Instant::now() + Duration::from_secs(90);
@@ -443,12 +473,12 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         std::thread::sleep(Duration::from_millis(500));
     }
 
-    // 6. Cross-app service invocation: publisher → consumer's /summary (needs
+    // 7. Cross-app service invocation: publisher → consumer's /summary (needs
     //    the sidecars to resolve each other's app ids).
     let peer = get_json(&format!("{publisher_base}/invoke-peer"));
     assert_eq!(peer["processed"], 3, "cross-app invocation failed: {peer}");
 
-    // 7. Input binding: the cron `ticks` binding (every 1s) reaches the
+    // 8. Input binding: the cron `ticks` binding (every 1s) reaches the
     //    consumer's `on-binding-event` through the inbound provider; the app
     //    counts each delivery itself (outbound state API).
     let deadline = Instant::now() + Duration::from_secs(60);
@@ -464,7 +494,7 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         std::thread::sleep(Duration::from_millis(500));
     };
 
-    // 8. Each reply also asked the sidecar to persist `binding-response` via
+    // 9. Each reply also asked the sidecar to persist `binding-response` via
     //    `storeName` + `state`. daprd (checked up to 1.18) ignores the body of
     //    an HTTP app-channel binding reply — `sendBindingEventToApp` never
     //    parses it — so nothing is persisted, even after 3+ replies. This pins
