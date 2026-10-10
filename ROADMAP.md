@@ -1,7 +1,7 @@
 # Roadmap / follow-ups
 
 Tracked follow-up work for `dapr-wasm-components`, current as of package
-`dapr-wasm-components:interfaces@0.5.0`. Grouped by area; each item notes *why*
+`dapr-wasm-components:interfaces@0.6.0`. Grouped by area; each item notes *why*
 it's open and roughly *what* it needs. See
 [wiki/dapr/dapr-wasm-components-architecture.md](wiki/dapr/dapr-wasm-components-architecture.md)
 for the design rationale and [wiki/dapr/dapr-wasm-components-inbound-design.md](wiki/dapr/dapr-wasm-components-inbound-design.md)
@@ -21,9 +21,8 @@ for the inbound spec.
   ask the sidecar to persist state / forward to output bindings; the JSON shape
   the `wasi-http-inbound` provider emits follows the bindings API reference but is
   not yet integration-tested against a real input-binding component.
-- **Pub/sub routing rules and bulk subscribe.** `pubsub-callback` models one route
-  per topic (dispatch on `pubsub-name` + `topic`). Dapr's CEL routing rules
-  (`TopicRoutes`) and bulk subscribe (`OnBulkTopicEvent`) are not exposed.
+- **Pub/sub bulk subscribe.** Dapr's bulk subscribe (`OnBulkTopicEvent`) is not
+  exposed; each event is delivered with its own `on-topic-event` call.
 
 ## gRPC provider
 
@@ -48,6 +47,17 @@ for the inbound spec.
   publishing it (crates.io or a stable git tag) would make app authoring smoother.
 
 ## Recently shipped
+
+- **Interfaces 0.6.0 — pub/sub CEL routing rules (breaking record change).**
+  `topic-subscription` gained `routes: option<topic-routes>` (`rules: list<topic-rule
+  {match, path}>`, `default: option<string>`), faithful to the HTTP API's
+  `routes: {rules, default}` and gRPC `TopicRoutes`. daprd evaluates the CEL
+  rules and the matched path arrives in `topic-event.path`. `wasi-http-inbound`
+  advertises rule paths under its reserved pub/sub prefix and recovers the path
+  from the delivery URL; `wasi-grpc-inbound` emits `TopicRoutes` verbatim. The
+  `dapr-app` SDK adds `TopicSubscription::new(..).with_rule(..).with_default_route(..)`.
+  Verified by composed in-process tests and by both real-daprd E2Es (a priority
+  order routed by a CEL rule on `event.data`).
 
 - **Interfaces 0.5.0 — error-model redesign (breaking).** Dropped the single
   shared 7-case `error` variant that every operation returned. Failures are now

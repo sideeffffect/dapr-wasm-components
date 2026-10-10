@@ -18,7 +18,7 @@
 //! | `GET /dapr/subscribe`                     | `pubsub-callback.list-topic-subscriptions` |
 //! | `GET /dapr/config`                        | `actors-callback.config`              |
 //! | `OPTIONS /<input-binding>`                | (binding verification, 200)           |
-//! | `POST <pubsub route>`                     | `pubsub-callback.on-topic-event`      |
+//! | `POST <pubsub route>[/<rule path>]`       | `pubsub-callback.on-topic-event`      |
 //! | `POST /<input-binding>`                   | `bindings-callback.on-binding-event`  |
 //! | `POST /job/<name>`                        | `jobs-callback.on-job-event`          |
 //! | `POST /configuration/<store>/<key>`       | `configuration-callback.on-configuration-event` |
@@ -62,6 +62,10 @@ fn value_to_json(value: &[u8]) -> Value {
 /// The app-channel path Dapr posts every pub/sub delivery to. It is returned
 /// as the `route` of every programmatic subscription; the topic and pub/sub
 /// name travel inside the CloudEvent, so a single shared route suffices.
+/// Routing-rule paths are advertised *under* this prefix
+/// (`<PUBSUB_ROUTE>/<rule path>`), so they never collide with the app's
+/// service-invocation paths, and the router recovers the matched rule path
+/// from the request URL without a call back into the app.
 const PUBSUB_ROUTE: &str = "/__dapr_wasm_components/pubsub";
 
 #[wstd::http_server]
@@ -126,8 +130,15 @@ fn route(
     }
 
     // Pub/sub delivery.
-    if method == Method::POST && path == PUBSUB_ROUTE {
-        return deliver_topic_event(body);
+    if method == Method::POST {
+        if let Some(rest) = path.strip_prefix(PUBSUB_ROUTE) {
+            if rest.is_empty() {
+                return deliver_topic_event(body, None);
+            }
+            if rest.starts_with('/') {
+                return deliver_topic_event(body, Some(decode(rest)));
+            }
+        }
     }
 
     // Job trigger.
@@ -185,8 +196,11 @@ fn subscribe_response() -> Value {
             let mut entry = json!({
                 "pubsubname": sub.pubsub_name,
                 "topic": sub.topic,
-                "route": PUBSUB_ROUTE,
             });
+            match &sub.routes {
+                None => entry["route"] = json!(PUBSUB_ROUTE),
+                Some(routes) => entry["routes"] = routes_json(routes),
+            }
             if let Some(dlq) = &sub.dead_letter_topic {
                 entry["deadLetterTopic"] = json!(dlq);
             }
@@ -199,9 +213,38 @@ fn subscribe_response() -> Value {
     Value::Array(entries)
 }
 
-fn deliver_topic_event(body: Vec<u8>) -> Response<Body> {
+/// Render `topic-routes` as the HTTP API's `routes: {rules, default}`, with
+/// every path mapped under [`PUBSUB_ROUTE`] (see [`routed_path`]).
+fn routes_json(routes: &pubsub_callback::TopicRoutes) -> Value {
+    let rules: Vec<Value> = routes
+        .rules
+        .iter()
+        .map(|rule| json!({ "match": rule.match_, "path": routed_path(&rule.path) }))
+        .collect();
+    let mut value = json!({ "rules": rules });
+    if let Some(default) = &routes.default {
+        value["default"] = json!(routed_path(default));
+    }
+    value
+}
+
+/// The app-channel URL path for a declared rule path: [`PUBSUB_ROUTE`] plus
+/// the rule path, normalized to exactly one leading `/`.
+fn routed_path(path: &str) -> String {
+    format!("{PUBSUB_ROUTE}/{}", path.trim_start_matches('/'))
+}
+
+/// Deliver one CloudEvent. `rule_path` is the matched routing-rule path,
+/// recovered from the request URL; when set it overrides any `path` in the
+/// envelope.
+fn deliver_topic_event(body: Vec<u8>, rule_path: Option<String>) -> Response<Body> {
     let event = match parse_cloud_event(&body) {
-        Ok(event) => event,
+        Ok(mut event) => {
+            if rule_path.is_some() {
+                event.path = rule_path;
+            }
+            event
+        }
         // A malformed envelope is unexpected; ask Dapr to drop it.
         Err(error) => {
             eprintln!("dropping unparseable CloudEvent: {error}");

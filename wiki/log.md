@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-10-10] update | pub/sub CEL routing rules: `topic-subscription.routes` (`topic-routes {rules: list<topic-rule {match, path}>, default}`), breaking, package `0.5.0` → `0.6.0`. wasi-http-inbound advertises rule paths under its reserved pub/sub prefix and recovers `path` from the delivery URL; wasi-grpc-inbound emits `TopicRoutes`. SDK builder `TopicSubscription::new(..).with_rule(..).with_default_route(..)`. Verified by composed tests + both real-daprd E2Es.
+- Updated: dapr-wasm-components Inbound Design (new §Pub/sub routing rules; v1 limitations)
+- Updated: dapr-wasm-components Architecture (package version)
+
 ## [2026-10-10] update | dependency bump: wit-bindgen 0.62, wasmtime 49, wac-graph 0.12, ureq 3, CI wasmtime 49.0.2 / Spin v4.2.2 / wkg 0.16.1 / wasm-tools 1.261.0, daprd 1.18.7. tonic/prost 0.13 + spin-executor 4 are held by wasi-grpc 0.1.0.
 - Updated: Wasmtime Host Embedding (wasi-http 49 import move)
 - Updated: wasm-pkg-tools (wkg) (`wkg wit build` deprecated)

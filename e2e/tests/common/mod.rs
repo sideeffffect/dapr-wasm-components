@@ -409,23 +409,45 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
     assert_eq!(published["published"], 3, "publish failed: {published}");
 
     // 5. Cross-sidecar pub/sub delivery: the consumer's counter reaches 3.
-    //    Generous deadline — a transient app↔sidecar connection blip makes the
-    //    app return RETRY, and daprd redelivers with backoff; give it room.
+    wait_for_processed(consumer_base, 3);
+
+    // 6. CEL routing rules: plain orders took the subscription's default
+    //    route; a `"priority": true` order is routed by daprd to the rule path
+    //    and the app sees that path in `topic-event.path`.
+    assert_eq!(
+        get_json(&format!("{consumer_base}/route?order=1"))["route"],
+        "/orders",
+        "plain order did not take the default route"
+    );
+    let published = get_json(&format!("{publisher_base}/publish-priority"));
+    assert_eq!(published["published"], 100, "publish failed: {published}");
+    wait_for_processed(consumer_base, 4);
+    assert_eq!(
+        get_json(&format!("{consumer_base}/route?order=100"))["route"],
+        "/orders/priority",
+        "priority order was not routed by the CEL rule"
+    );
+
+    // 7. Cross-app service invocation: publisher → consumer's /summary (needs
+    //    the sidecars to resolve each other's app ids).
+    let peer = get_json(&format!("{publisher_base}/invoke-peer"));
+    assert_eq!(peer["processed"], 4, "cross-app invocation failed: {peer}");
+}
+
+/// Poll the consumer until its processed-order counter reaches `expected`.
+/// Generous deadline — a transient app↔sidecar connection blip makes the app
+/// return RETRY, and daprd redelivers with backoff; give it room.
+fn wait_for_processed(consumer_base: &str, expected: u64) {
     let deadline = Instant::now() + Duration::from_secs(90);
     loop {
         let count = get_json(&format!("{consumer_base}/count"));
-        if count["processed"] == 3 {
+        if count["processed"] == expected {
             break;
         }
         assert!(
             Instant::now() < deadline,
-            "orders were not all processed in time: {count}"
+            "orders were not all processed in time (want {expected}): {count}"
         );
         std::thread::sleep(Duration::from_millis(500));
     }
-
-    // 6. Cross-app service invocation: publisher → consumer's /summary (needs
-    //    the sidecars to resolve each other's app ids).
-    let peer = get_json(&format!("{publisher_base}/invoke-peer"));
-    assert_eq!(peer["processed"], 3, "cross-app invocation failed: {peer}");
 }
