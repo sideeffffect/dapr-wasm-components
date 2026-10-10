@@ -102,6 +102,114 @@ async fn inbound_configuration_update_is_delivered() {
     assert_eq!(stored, &serde_json::json!("enabled"));
 }
 
+/// The wasi-http inbound provider's reserved pub/sub route prefix.
+const PUBSUB_PREFIX: &str = "/__dapr_wasm_components/pubsub";
+
+fn full_http_composition() -> Vec<u8> {
+    let app = std::fs::read(microservice_path()).expect("microservice component not built");
+    let outbound = std::fs::read(http_outbound_path()).expect("http-outbound not built");
+    let inbound = std::fs::read(http_inbound_path()).expect("http-inbound not built");
+    compose::plug_full(app, outbound, inbound).expect("full composition failed")
+}
+
+/// The microservice's consumer role (`SUBSCRIBE`) declares CEL routing rules;
+/// the composed inbound server must advertise them on `GET /dapr/subscribe`
+/// in the Dapr HTTP API shape (`routes: {rules: [{match, path}], default}`),
+/// with every path mapped under the provider's reserved pub/sub prefix.
+#[tokio::test]
+async fn inbound_subscribe_advertises_routing_rules() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let composed = full_http_composition();
+
+    let (status, body) = serve_inbound_with_env(
+        &composed,
+        &sidecar.endpoint,
+        &[("SUBSCRIBE", "1")],
+        "GET",
+        "/dapr/subscribe",
+        "application/json",
+        Vec::new(),
+    )
+    .await
+    .expect("inbound handler errored");
+    assert_eq!(status, 200);
+
+    let subscriptions: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        subscriptions,
+        serde_json::json!([{
+            "pubsubname": "pubsub",
+            "topic": "orders",
+            "routes": {
+                "rules": [{
+                    "match": "has(event.data.priority) && event.data.priority == true",
+                    "path": format!("{PUBSUB_PREFIX}/orders/priority"),
+                }],
+                "default": format!("{PUBSUB_PREFIX}/orders"),
+            },
+        }]),
+        "unexpected /dapr/subscribe: {subscriptions}"
+    );
+}
+
+/// A sidecar POST to a routing-rule path must reach `on-topic-event` with
+/// `path` set to the declared rule path (the microservice persists it as
+/// `route-<orderId>`); the bare shared route still delivers with no `path`.
+#[tokio::test]
+async fn inbound_routed_event_is_delivered_with_path() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let composed = full_http_composition();
+
+    for (url_path, order_id, expected_route) in [
+        (
+            format!("{PUBSUB_PREFIX}/orders/priority"),
+            100,
+            serde_json::json!("/orders/priority"),
+        ),
+        (
+            format!("{PUBSUB_PREFIX}/orders"),
+            1,
+            serde_json::json!("/orders"),
+        ),
+        (PUBSUB_PREFIX.to_string(), 2, serde_json::Value::Null),
+    ] {
+        let event = serde_json::json!({
+            "id": format!("evt-{order_id}"),
+            "source": "publisher",
+            "type": "com.dapr.event.sent",
+            "specversion": "1.0",
+            "datacontenttype": "application/json",
+            "topic": "orders",
+            "pubsubname": "pubsub",
+            "data": { "orderId": order_id, "priority": order_id == 100 },
+        })
+        .to_string()
+        .into_bytes();
+
+        let (status, body) = serve_inbound_with_env(
+            &composed,
+            &sidecar.endpoint,
+            &[("SUBSCRIBE", "1")],
+            "POST",
+            &url_path,
+            "application/cloudevents+json",
+            event,
+        )
+        .await
+        .expect("inbound handler errored");
+        assert_eq!(status, 200, "delivery to {url_path} failed");
+        let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(response["status"], "SUCCESS", "delivery to {url_path}");
+
+        let recorded = sidecar.recorded.lock().unwrap();
+        let route = recorded
+            .state
+            .get(&("statestore".to_string(), format!("route-{order_id}")))
+            .unwrap_or_else(|| panic!("order {order_id} was not processed"));
+        assert_eq!(route, &expected_route, "wrong path for {url_path}");
+    }
+}
+
 /// Inbound input-binding delivery: a sidecar `POST /<binding>` must reach the
 /// app's `on-binding-event`, and the reply must be serialized with the field
 /// names of Dapr's `bindings.AppResponse` JSON tags (`storeName`, `state`,
@@ -111,11 +219,7 @@ async fn inbound_configuration_update_is_delivered() {
 #[tokio::test]
 async fn inbound_binding_event_reply_shape() {
     let sidecar = MockSidecar::start().await.unwrap();
-
-    let app = std::fs::read(microservice_path()).expect("microservice component not built");
-    let outbound = std::fs::read(http_outbound_path()).expect("http-outbound not built");
-    let inbound = std::fs::read(http_inbound_path()).expect("http-inbound not built");
-    let composed = compose::plug_full(app, outbound, inbound).expect("full composition failed");
+    let composed = full_http_composition();
 
     let (status, body) = serve_inbound_with_env(
         &composed,

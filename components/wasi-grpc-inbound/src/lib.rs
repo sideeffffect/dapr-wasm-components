@@ -120,7 +120,17 @@ fn list_topic_subscriptions() -> Response<Body> {
             pubsub_name: sub.pubsub_name,
             topic: sub.topic,
             metadata: sub.metadata.into_iter().collect(),
-            routes: None,
+            routes: sub.routes.map(|routes| pb::TopicRoutes {
+                rules: routes
+                    .rules
+                    .into_iter()
+                    .map(|rule| pb::TopicRule {
+                        r#match: rule.match_,
+                        path: rule.path,
+                    })
+                    .collect(),
+                default: routes.default.unwrap_or_default(),
+            }),
             dead_letter_topic: sub.dead_letter_topic.unwrap_or_default(),
             bulk_subscribe: None,
         })

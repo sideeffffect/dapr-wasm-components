@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-10-10] update | pub/sub CEL routing rules: `topic-subscription.routes` (`topic-routes {rules: list<topic-rule {match, path}>, default}`), breaking, package `0.5.0` → `0.6.0`. wasi-http-inbound advertises rule paths under its reserved pub/sub prefix and recovers `path` from the delivery URL; wasi-grpc-inbound emits `TopicRoutes`. SDK builder `TopicSubscription::new(..).with_rule(..).with_default_route(..)`. Verified by composed tests + both real-daprd E2Es.
+- Updated: dapr-wasm-components Inbound Design (new §Pub/sub routing rules; v1 limitations)
+- Updated: dapr-wasm-components Architecture (package version)
+
 ## [2026-10-10] update | dapr-wasm-components Architecture (missing secret = `secret-not-found` on both providers: real daprd sends ERR_SECRET_GET for a store's "not found" — HTTP 500 / gRPC Internal — not a 204; providers now sniff "not found" in the appended store error, other ERR_SECRET_GET traps; real-Dapr scenario checks it with `secretstores.local.file`)
 - Updated: Dapr HTTP API (204-vs-500 caveat for secrets get)
 

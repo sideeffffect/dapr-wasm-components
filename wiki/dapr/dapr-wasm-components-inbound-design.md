@@ -303,7 +303,7 @@ flowchart TD
   router -->|"GET /dapr/subscribe"| subs["pubsub-handler.subscriptions() → JSON"]
   router -->|"GET /dapr/config"| acfg["actors-handler.config() → JSON"]
   router -->|"OPTIONS /&lt;name&gt;"| obind["200 if name ∈ input-bindings()"]
-  router -->|"POST &lt;subscription route&gt;"| pe["parse CloudEvent → pubsub-handler.on-event()"]
+  router -->|"POST &lt;pubsub route&gt;[/&lt;rule path&gt;]"| pe["parse CloudEvent (+ path from URL) → pubsub-handler.on-event()"]
   router -->|"POST /&lt;binding&gt;"| be["bindings-handler.on-binding()"]
   router -->|"POST /job/&lt;name&gt;"| je["jobs-handler.on-job()"]
   router -->|"PUT /actors/&lt;t&gt;/&lt;id&gt;/method/&lt;m&gt;"| ai["actors-handler.invoke()"]
@@ -316,6 +316,17 @@ flowchart TD
 *As built, pub/sub deliveries use one fixed internal route (`/__dapr_wasm_components/pubsub`) that the provider writes into every `/dapr/subscribe` entry, and `POST /configuration/…` delivers config-update pushes.*
 
 Routing precedence matters: the reserved Dapr paths (`/dapr/*`, `/healthz`, `/actors/*`, `/job/*`, declared binding names) are matched first; everything else falls through to service invocation. The set of binding names from `input-bindings()` is needed to disambiguate a binding POST from a service-invocation POST.
+
+## Pub/sub routing rules (CEL, `@0.6.0`)
+
+> Added 2026-10-10. Sources: [How-To: Route messages](https://docs.dapr.io/developing-applications/building-blocks/pubsub/howto-route-messages/), [Pub/sub API reference](https://docs.dapr.io/reference/api/pubsub_api/), vendored `TopicRoutes`/`TopicRule` protos.
+
+`topic-subscription` has `routes: option<topic-routes>`. `topic-routes` = `rules: list<topic-rule>` + `default: option<string>`; `topic-rule` = `match` (CEL expression) + `path`. The names follow the HTTP API's `routes: {rules: [{match, path}], default}` and gRPC `TopicRoutes{rules, default}`. daprd evaluates the rules in order (first match wins). If no rule matches and there is no default, daprd drops the event. The app sees the selected path in `topic-event.path`. `routes: none` keeps the old behaviour (one route per topic, no `path`).
+
+- **wasi-http inbound.** Rule paths are advertised **under the reserved pub/sub prefix**: `<PUBSUB_ROUTE>/<rule path>` (leading `/` normalized to one). The router matches `POST <PUBSUB_ROUTE>[/<rest>]` and sets `path` = `/<rest>` (percent-decoded) from the URL. Reasons: no collision with the app's service-invocation paths, and no call back into the app per delivery to find out which paths are subscriptions. The URL path takes precedence over any `path` attribute in the CloudEvent body (the HTTP API does not document one).
+- **wasi-grpc inbound.** `ListTopicSubscriptions` emits `TopicRoutes` verbatim (empty `default` = none). daprd fills `TopicEventRequest.path`, which already maps to `topic-event.path`.
+- **SDK.** `TopicSubscription::new(pubsub, topic).with_rule(cel, path).with_default_route(path)` (plus `with_metadata`, `with_dead_letter_topic`). Apps that use the builder keep compiling when optional fields are added.
+- **Verified** by composed in-process tests (`e2e/tests/composed.rs`: `/dapr/subscribe` shape; POST to a rule path, to the default path, and to the bare route) and by both real-daprd E2Es: the microservice consumer routes `has(event.data.priority) && event.data.priority == true` to `/orders/priority`, default `/orders`, and the scenario asserts the recorded path per order.
 
 ## wasi-grpc inbound
 
@@ -351,7 +362,7 @@ Mirror every WIT change across: **both** providers, the e2e mock + tests, the de
 
 ## v1 limitations (documented, deferred)
 
-- **No bulk subscribe**, no CEL **routing rules** / multiple routes per topic — one route per (pubsub, topic); the app does content routing internally.
+- **No bulk subscribe.** (CEL **routing rules** shipped in `@0.6.0` — see [Pub/sub routing rules](#pubsub-routing-rules-cel-060).)
 - **Configuration inbound** depends on adding outbound config subscribe (above); shipped together or config inbound is a no-op until then. *(Shipped together; HTTP inbound only — `wasi-grpc-inbound` has no config-update route.)*
 - **Actor** reentrancy/turn-based concurrency relies on the single-threaded wasm instance; reentrancy config is surfaced but enforced by daprd. gRPC actor hosting may be constrained.
 - **Binding reply** side effects are mostly not applied by daprd — see the next section.

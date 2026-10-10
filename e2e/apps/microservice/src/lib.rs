@@ -19,6 +19,10 @@
 //! - `SUBSCRIBE` — when set, the app subscribes to the `orders` topic (the
 //!   consumer role) and declares the `ticks` input binding; when unset, it
 //!   subscribes to nothing (the publisher role).
+//!   The subscription uses CEL routing rules: orders with `"priority": true`
+//!   go to [`PRIORITY_ROUTE`], all others to the default [`ORDERS_ROUTE`].
+//!   The consumer records the delivered `path` per order (`route-<orderId>`),
+//!   readable via `/route?order=N`.
 //!
 //! The test harness drives the control methods by HTTP-GETting them on the
 //! served app channel (`/smoke`, `/publish?n=N`, `/invoke-self`, …); the
@@ -39,6 +43,14 @@ const STATE_STORE: &str = "statestore";
 const PUBSUB: &str = "pubsub";
 const TOPIC: &str = "orders";
 const COUNTER_KEY: &str = "processed-count";
+/// Default route of the `orders` subscription.
+pub const ORDERS_ROUTE: &str = "/orders";
+/// Route selected by the CEL rule for priority orders.
+pub const PRIORITY_ROUTE: &str = "/orders/priority";
+/// CEL rule selecting [`PRIORITY_ROUTE`].
+const PRIORITY_RULE: &str = "has(event.data.priority) && event.data.priority == true";
+/// The `orderId` that `publish-priority` uses.
+const PRIORITY_ORDER_ID: u64 = 100;
 /// The cron input binding the consumer handles (`bindings.cron`, `@every 1s`).
 const TICKS_BINDING: &str = "ticks";
 /// Counter the consumer bumps itself (outbound state API) on every tick.
@@ -66,12 +78,9 @@ struct Microservice;
 impl DaprApp for Microservice {
     fn list_topic_subscriptions() -> Vec<TopicSubscription> {
         if subscribes() {
-            vec![TopicSubscription {
-                pubsub_name: PUBSUB.to_string(),
-                topic: TOPIC.to_string(),
-                metadata: Vec::new(),
-                dead_letter_topic: None,
-            }]
+            vec![TopicSubscription::new(PUBSUB, TOPIC)
+                .with_rule(PRIORITY_RULE, PRIORITY_ROUTE)
+                .with_default_route(ORDERS_ROUTE)]
         } else {
             Vec::new()
         }
@@ -79,7 +88,7 @@ impl DaprApp for Microservice {
 
     fn on_topic_event(event: TopicEvent) -> TopicEventResponse {
         // `event.data` is the domain payload; the envelope is already parsed.
-        match process_order(&event.data) {
+        match process_order(&event.data, event.path.as_deref()) {
             Ok(()) => TopicEventResponse::Success,
             Err(error) => {
                 eprintln!("order processing failed: {error}");
@@ -147,6 +156,8 @@ impl DaprApp for Microservice {
             "publish" => {
                 publish_orders(query_n(request.query.as_deref())).map(|n| json!({ "published": n }))
             }
+            "publish-priority" => publish_priority_order().map(|id| json!({ "published": id })),
+            "route" => read_route(query_param(request.query.as_deref(), "order").unwrap_or(0)),
             "smoke" => smoke(StateValue::Json),
             "smoke-binary" => smoke(StateValue::Binary),
             "invoke-self" => invoke_self(),
@@ -174,12 +185,45 @@ fn json_response(status: u16, value: &serde_json::Value) -> HttpResponse {
 
 /// Extract `n` from a `n=N` query string (default 1).
 fn query_n(query: Option<&str>) -> u64 {
+    query_param(query, "n").unwrap_or(1)
+}
+
+/// Extract a numeric `name=N` parameter from a query string.
+fn query_param(query: Option<&str>, name: &str) -> Option<u64> {
     query
         .unwrap_or("")
         .split('&')
-        .find_map(|pair| pair.strip_prefix("n="))
+        .find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))
         .and_then(|n| n.parse().ok())
-        .unwrap_or(1)
+}
+
+/// Publish one order the CEL rule routes to [`PRIORITY_ROUTE`].
+fn publish_priority_order() -> Result<u64, String> {
+    dapr_app::dapr::pubsub::publish(
+        PUBSUB,
+        TOPIC,
+        json!({ "orderId": PRIORITY_ORDER_ID, "priority": true })
+            .to_string()
+            .as_bytes(),
+        Some("application/json"),
+        &[],
+    )
+    .map_err(|e| format!("publishing priority order failed: {e:?}"))?;
+    Ok(PRIORITY_ORDER_ID)
+}
+
+/// The route an order was delivered on (`null` if not delivered yet).
+fn read_route(order_id: u64) -> Result<serde_json::Value, String> {
+    match state::get(STATE_STORE, &format!("route-{order_id}"), None, &[]) {
+        Ok(response) if response.data.is_empty() => Ok(json!({ "route": null })),
+        Ok(response) => {
+            let route: serde_json::Value = serde_json::from_slice(&response.data)
+                .map_err(|e| format!("stored route is not JSON: {e}"))?;
+            Ok(json!({ "route": route }))
+        }
+        Err(state::GetError::KeyNotFound) => Ok(json!({ "route": null })),
+        Err(other) => Err(format!("reading route failed: {other:?}")),
+    }
 }
 
 fn publish_orders(n: u64) -> Result<u64, String> {
@@ -349,7 +393,7 @@ fn invoke_peer() -> Result<serde_json::Value, String> {
     Ok(json!({ "processed": summary["processed"].as_u64().unwrap_or(0) }))
 }
 
-fn process_order(order: &[u8]) -> Result<(), String> {
+fn process_order(order: &[u8], path: Option<&str>) -> Result<(), String> {
     let order: serde_json::Value =
         serde_json::from_slice(order).map_err(|e| format!("invalid order payload: {e}"))?;
     let order_id = order["orderId"]
@@ -358,13 +402,23 @@ fn process_order(order: &[u8]) -> Result<(), String> {
 
     state::save(
         STATE_STORE,
-        &[state::StateItem {
-            key: format!("order-{order_id}"),
-            value: order.to_string().into_bytes(),
-            etag: None,
-            metadata: Vec::new(),
-            options: None,
-        }],
+        &[
+            state::StateItem {
+                key: format!("order-{order_id}"),
+                value: order.to_string().into_bytes(),
+                etag: None,
+                metadata: Vec::new(),
+                options: None,
+            },
+            // The route the sidecar's CEL routing picked for this order.
+            state::StateItem {
+                key: format!("route-{order_id}"),
+                value: json!(path).to_string().into_bytes(),
+                etag: None,
+                metadata: Vec::new(),
+                options: None,
+            },
+        ],
         &[],
     )
     .map_err(|e| format!("saving order failed: {e:?}"))?;
