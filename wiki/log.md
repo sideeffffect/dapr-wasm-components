@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-10-10] ingest | wider wasm gRPC landscape: Spin active (4.2.2, CNCF, Akamai) but fermyon/wasi-grpc stale; wasmCloud v2 routes `application/grpc` wasi:http egress over h2/h2c automatically (wstd + tonic 0.14 codegen example); tokio 1.51 wasip2 networking; tonic channel still blocked (grpc-rust#2910); wasi-http HTTP/2 PR closed.
+- Updated: gRPC to Dapr from Wasm (wider landscape section)
+
 ## [2026-10-10] update | dependency bump: wit-bindgen 0.62, wasmtime 49, wac-graph 0.12, ureq 3, CI wasmtime 49.0.2 / Spin v4.2.2 / wkg 0.16.1 / wasm-tools 1.261.0, daprd 1.18.7. tonic/prost 0.13 + spin-executor 4 are held by wasi-grpc 0.1.0.
 - Updated: Wasmtime Host Embedding (wasi-http 49 import move)
 - Updated: wasm-pkg-tools (wkg) (`wkg wit build` deprecated)
