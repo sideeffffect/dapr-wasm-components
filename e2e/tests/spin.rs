@@ -118,7 +118,7 @@ fn serve(
 }
 
 #[test]
-#[ignore = "requires Docker and the spin CLI >= 3.4 (see module docs)"]
+#[ignore = "needs Docker + spin CLI >= 3.4; runs in the spin-e2e CI job (see module docs)"]
 fn microservices_through_real_dapr_grpc_on_spin() {
     let spin = binary("SPIN_BIN", "spin");
     let redis = start_redis();

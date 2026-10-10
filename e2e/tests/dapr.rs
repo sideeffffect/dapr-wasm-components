@@ -72,7 +72,7 @@ fn serve(
 }
 
 #[test]
-#[ignore = "requires Docker and the wasmtime CLI (see module docs)"]
+#[ignore = "needs Docker + wasmtime CLI; runs in the dapr-e2e CI job (see module docs)"]
 fn microservices_through_real_dapr() {
     let wasmtime = binary("WASMTIME_BIN", "wasmtime");
     let redis = start_redis();
