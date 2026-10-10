@@ -16,7 +16,13 @@
 //! impl DaprApp for App {
 //!     fn list_topic_subscriptions() -> Vec<callback::pubsub_callback::TopicSubscription> {
 //!         vec![
+//!             // One route for the whole topic.
 //!             callback::pubsub_callback::TopicSubscription::new("pubsub", "orders"),
+//!             // CEL routing rules: the sidecar picks the route, the app
+//!             // sees it in `event.path`.
+//!             callback::pubsub_callback::TopicSubscription::new("pubsub", "inventory")
+//!                 .with_rule(r#"event.type == "widget""#, "/widgets")
+//!                 .with_default_route("/products"),
 //!             // Opt in to bulk delivery: batches of up to 10 events, at most
 //!             // 100 ms apart. The default `on_bulk_topic_event` still calls
 //!             // `on_topic_event` once per entry.
@@ -27,7 +33,7 @@
 //!     fn on_topic_event(
 //!         event: callback::pubsub_callback::TopicEvent,
 //!     ) -> callback::pubsub_callback::TopicEventResponse {
-//!         // ... handle the typed event, call dapr::state::save(...), etc.
+//!         // ... dispatch on event.topic / event.path, call dapr::state::save(...), etc.
 //!         callback::pubsub_callback::TopicEventResponse::Success
 //!     }
 //! }
@@ -180,15 +186,21 @@ pub trait DaprApp {
     }
 }
 
+/// Builder-style constructors for subscriptions, so apps don't spell out every
+/// record field (and keep compiling as optional fields are added).
+/// Builder-style constructors for subscriptions, so apps don't spell out every
+/// record field (and keep compiling as optional fields are added).
 impl pc::TopicSubscription {
-    /// A plain subscription to `topic` on `pubsub_name`: no metadata, no
-    /// dead-letter topic, one event per delivery.
+    /// Subscribe to `topic` on `pubsub_name`: no metadata, no dead-letter
+    /// topic, no routing rules (one route for the whole topic), one event per
+    /// delivery (no bulk).
     pub fn new(pubsub_name: impl Into<String>, topic: impl Into<String>) -> Self {
         Self {
             pubsub_name: pubsub_name.into(),
             topic: topic.into(),
             metadata: Vec::new(),
             dead_letter_topic: None,
+            routes: None,
             bulk_subscribe: None,
         }
     }
@@ -208,10 +220,42 @@ impl pc::TopicSubscription {
         self
     }
 
-    /// Send events that fail permanently to `topic` (Dapr `deadLetterTopic`).
+    /// Add one subscription metadata entry (e.g. `rawPayload`).
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.push((key.into(), value.into()));
+        self
+    }
+
+    /// Send events that fail delivery to `topic`.
     pub fn with_dead_letter_topic(mut self, topic: impl Into<String>) -> Self {
         self.dead_letter_topic = Some(topic.into());
         self
+    }
+
+    /// Append a CEL routing rule: events for which `cel` is true are
+    /// delivered with `path` in [`pc::TopicEvent::path`]. Rules are evaluated
+    /// in the order they are added; the first match wins. Without a
+    /// [`with_default_route`](Self::with_default_route), the sidecar drops
+    /// events that no rule matches.
+    pub fn with_rule(mut self, cel: impl Into<String>, path: impl Into<String>) -> Self {
+        self.routes_mut().rules.push(pc::TopicRule {
+            match_: cel.into(),
+            path: path.into(),
+        });
+        self
+    }
+
+    /// The path for events that no rule matches.
+    pub fn with_default_route(mut self, path: impl Into<String>) -> Self {
+        self.routes_mut().default = Some(path.into());
+        self
+    }
+
+    fn routes_mut(&mut self) -> &mut pc::TopicRoutes {
+        self.routes.get_or_insert_with(|| pc::TopicRoutes {
+            rules: Vec::new(),
+            default: None,
+        })
     }
 }
 

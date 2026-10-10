@@ -17,13 +17,6 @@ for the inbound spec.
   field on the test `DaprdConfig`, and a scenario variant that drives the app
   *through* daprd's invoke API (since the app no longer speaks HTTP directly when
   the app channel is gRPC).
-- **Input-binding response field names.** `bindings-callback.on-binding-event` can
-  ask the sidecar to persist state / forward to output bindings; the JSON shape
-  the `wasi-http-inbound` provider emits follows the bindings API reference but is
-  not yet integration-tested against a real input-binding component.
-- **Pub/sub routing rules.** `pubsub-callback` models one route per topic
-  (dispatch on `pubsub-name` + `topic`). Dapr's CEL routing rules
-  (`TopicRoutes`) are not exposed.
 
 ## gRPC provider
 
@@ -65,15 +58,37 @@ for the inbound spec.
   suites; the gRPC `OnBulkTopicEvent` server path is compile-checked, like the
   rest of `wasi-grpc-inbound`).
 
+- **Interfaces 0.6.0 — pub/sub CEL routing rules (breaking record change).**
+  `topic-subscription` gained `routes: option<topic-routes>` (`rules: list<topic-rule
+  {match, path}>`, `default: option<string>`), faithful to the HTTP API's
+  `routes: {rules, default}` and gRPC `TopicRoutes`. daprd evaluates the CEL
+  rules and the matched path arrives in `topic-event.path`. `wasi-http-inbound`
+  advertises rule paths under its reserved pub/sub prefix and recovers the path
+  from the delivery URL; `wasi-grpc-inbound` emits `TopicRoutes` verbatim. The
+  `dapr-app` SDK adds `TopicSubscription::new(..).with_rule(..).with_default_route(..)`.
+  Verified by composed in-process tests and by both real-daprd E2Es (a priority
+  order routed by a CEL rule on `event.data`).
+
+- **Input-binding E2E + reply check.** Both real-Dapr suites now drive a
+  `bindings.cron` input binding (`ticks`, `@every 1s`) into the consumer's
+  `on-binding-event`. The reply field names (`storeName`, `state`, `to`,
+  `data`, `concurrency`) were checked against the docs and the daprd /
+  components-contrib source: they are correct, so no provider fix was needed.
+  But **daprd 1.18 ignores the HTTP binding reply body**, and over gRPC it applies
+  only `to` + `data` + `concurrency` (never `store_name`/`states`). The E2E
+  pins this (a `storeName`/`state` reply is not persisted); a composed
+  in-process test pins the reply shape. Details:
+  [Inbound Design](wiki/dapr/dapr-wasm-components-inbound-design.md#binding-reply-what-daprd-really-does).
 - **Interfaces 0.5.0 — error-model redesign (breaking).** Dropped the single
   shared 7-case `error` variant that every operation returned. Failures are now
-  sorted by who acts on them: expected outcomes are `option` in the success type
-  (missing value = `none`), recoverable failures are per-interface + per-function
+  sorted by who acts on them: the success type is the happy path only (a missing
+  value is an error case such as `state.get` → `get-error::key-not-found`, never an
+  `option`), recoverable failures are per-interface + per-function
   `variant`s (e.g. `state.save` → `write-error { etag-mismatch, state }`), and
   unrecoverable/infra failures (sidecar down, 5xx, timeouts, I/O) are no longer
   typed at all — the provider traps. Inbound callbacks use `types.app-error`.
-  Modelled on wasi-keyvalue. Mirrored across both providers, both inbound
-  providers, the `dapr-app` SDK, and the e2e mock/tests.
+  Modelled on wasi-keyvalue. Mirrored across all four providers (outbound +
+  inbound, HTTP + gRPC), the `dapr-app` SDK, and the e2e mock/tests.
 - **Interfaces 0.4.0.** The WIT package was tightened across 0.3.0 → 0.4.0 to
   follow the Dapr HTTP API faithfully, the provider worlds were renamed
   `dapr-outbound`/`dapr-inbound` → `outbound`/`inbound`, and the published OCI
@@ -93,8 +108,9 @@ for the inbound spec.
   `TopicEventRequest.extensions` (a `google.protobuf.Struct`) into
   `topic-event.extensions`, stringifying each value the same way the HTTP
   provider does (string verbatim, otherwise JSON text) — implemented JSON-dep-free
-  to keep the published component lean. Compile-checked (the gRPC provider's
-  standing posture); exercised opportunistically by the spin E2E.
+  to keep the published component lean. Compile-checked only (the gRPC provider's
+  standing posture): the spin E2E composes the wasi-http **inbound** provider, so
+  it does not exercise this path (see the gRPC app-channel E2E item above).
 - **Configuration-update delivery (inbound).** The `wasi-http-inbound` router now
   recognises the sidecar's config-update push (`POST /configuration/<store>/<key>`
   carrying Dapr's `UpdateEvent` — `items` is a map keyed by configuration key) and

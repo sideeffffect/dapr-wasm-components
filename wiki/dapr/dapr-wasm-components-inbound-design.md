@@ -1,8 +1,18 @@
 # dapr-wasm-components — Inbound Design (Dapr → app, typed)
 
-> Status: **partially implemented** (2026-06-13). Authored from a design interview with Ondra, then built. Supersedes the prior "inbound goes through a plain `wasi:http/incoming-handler` on the app" decision in [Architecture](dapr-wasm-components-architecture.md) (§Key decisions, "Outbound only").
+> Sources: design interview with Ondra (2026-06-13); this repository (components/wit/, components/wasi-*-inbound/, app-sdk/, e2e/); status refreshed against the code 2026-10-10
 >
-> **As-built so far:** the WIT (seven `*-callback` interfaces + outbound `configuration.subscribe`/`unsubscribe`, package `@0.2.0`); the worlds **`app`**, **`outbound`** and **`inbound`** (not the `dapr-app`/`dapr-host` working names below); the **wasi-http** inbound provider (`wasi-http-inbound`) + config subscribe; the **`dapr-app`** app-side SDK (`app-sdk/`, the "trivial defaults via Rust helper" decision realized as a `DaprApp` trait with default methods + blanket Guest impls + a cross-crate `export_app!`); and all four demo apps migrated to it. **Remaining:** the wasi-grpc `AppCallback` server transport; the native e2e harness + test-flow rework; README/CI updates. Callback function names follow Dapr's `AppCallback` proto (`on-invoke`, `list-topic-subscriptions`/`on-topic-event`, `list-input-bindings`/`on-binding-event`, `on-job-event`, `health-check`).
+> Status: **implemented** (built 2026-06-13; package now `@0.5.0`). Authored from a design interview with Ondra, then built. Supersedes the prior "inbound goes through a plain `wasi:http/incoming-handler` on the app" decision in [Architecture](dapr-wasm-components-architecture.md) (§Key decisions, "Outbound only"). The sections below keep the **original proposal**; where the build differs, the as-built list here wins.
+>
+> **As-built (2026-10-10):**
+> - **WIT**: seven `*-callback` interfaces (`invocation-`, `pubsub-`, `bindings-`, `jobs-`, `actors-`, `configuration-`, `health-callback`) + outbound `configuration.subscribe`/`unsubscribe` (introduced in `@0.2.0`; package now `@0.5.0`). Worlds **`app`**, **`outbound`**, **`inbound`** (not the `dapr-app`/`dapr-host` working names below). Callback names follow Dapr's `AppCallback` proto (`on-invoke`, `list-topic-subscriptions`/`on-topic-event`, `list-input-bindings`/`on-binding-event`, `on-job-event`, `on-configuration-event`, `health-check`; actors `config`/`on-invoke`/`on-timer`/`on-reminder`/`deactivate`). Callbacks fail gracefully with `types.app-error { message }` (the shared `error` in the proposal below was removed in `0.5.0`) or by trapping.
+> - **wasi-http inbound** (`components/wasi-http-inbound/`): routes `/healthz`, `/dapr/subscribe`, `/dapr/config`, `OPTIONS /<binding>`, a fixed internal pub/sub route (`/__dapr_wasm_components/pubsub`, not a per-subscription route), `/job/<name>`, `/configuration/…` update pushes, `/actors/…`, and falls back to service invocation.
+> - **wasi-grpc inbound** (`components/wasi-grpc-inbound/`): built by hand-rolling gRPC framing + the `grpc-status` trailer over `wasi:http/incoming-handler` (the `wasi-grpc` crate is client-only; no tonic server). Serves `AppCallback` `OnInvoke`, `ListTopicSubscriptions`, `OnTopicEvent`, `ListInputBindings`, `OnBindingEvent`, `OnJobEvent`, and `AppCallbackHealthCheck.HealthCheck`; other methods return `UNIMPLEMENTED`. No actor hosting (not in `AppCallback`) and no configuration-update route. Verified over Spin inbound h2c with `grpcurl`; **no automated daprd `--app-protocol grpc` E2E yet**.
+> - **`dapr-app` SDK** (`app-sdk/dapr-app/`): the "trivial defaults via Rust helper" decision, realized as a `DaprApp` trait with default methods + blanket Guest impls + a cross-crate `export_app!`. The demo apps (`e2e/apps/kv-demo`, `e2e/apps/microservice`) use it.
+> - **e2e**: the mock suite drives a composed `outbound → app → inbound` server (`serve_inbound`, `compose::plug_full`); both real-Dapr suites use `wasi-http-inbound` (`dapr.rs` with `wasi-http-outbound`, `spin.rs` with `wasi-grpc-outbound`).
+> - **Docs/CI/DX**: README two-directions section and interface tables done; CI publishes all four providers; `compose.wac` + `compose.sh` compose the three parts.
+>
+> **Remaining:** a daprd `--app-protocol grpc` E2E for `wasi-grpc-inbound`; bulk subscribe / routing rules (see limitations).
 >
 > Naming note: the working names `dapr-app`/`dapr-host` used below were superseded during implementation. The application world is **`app`** (closest to Dapr's own vocabulary — `app-id`/`app-port`/`AppCallback`), and the single provider was split into two direction-named worlds, **`outbound`** and **`inbound`**, so the composition graph `outbound → app → inbound` stays acyclic. (`host` was dropped because it collided with the wasm-host meaning; the provider worlds carry no `dapr-` prefix since it's redundant inside the `dapr-wasm-components:interfaces` package — see the [Architecture](dapr-wasm-components-architecture.md) world-naming note.) The outbound-only `dapr-client`/`dapr-server` worlds were removed (the SDK's defaults make a separate outbound-only world unnecessary).
 
@@ -27,6 +37,8 @@ flowchart LR
   provider -- "inbound: typed WIT call" --> app
 ```
 
+*As built, the single "adapter" box is two components per transport (`*-outbound` exporting the building blocks, `*-inbound` serving the app channel), so the graph is `outbound → app → inbound` with no cycle.*
+
 The adapter shields the app from the wire in both directions. The app is pure typed domain logic: it *imports* the building-block interfaces (to call Dapr) and *exports* the **handler** interfaces (to be called by Dapr).
 
 ## Decisions (from the interview)
@@ -34,13 +46,13 @@ The adapter shields the app from the wire in both directions. The app is pure ty
 | Topic | Decision |
 |-------|----------|
 | **Scope** | **All six inbound flows**, no exception: service invocation, pub/sub, input bindings, jobs, actors, configuration updates — plus app health checks. The app must never see HTTP/gRPC. |
-| **Discovery** | App exports **typed discovery functions** (e.g. `subscriptions()`, `input-bindings()`, actor `config()`); the adapter renders the Dapr discovery responses (`/dapr/subscribe`, `OPTIONS <binding>`, `/dapr/config`) from them. Inspired by [dapr4s `DaprApp`](https://github.com/sideeffffect/dapr4s/blob/master/src/DaprApp.scala) (route registry), adapted: WIT can't register closures, so the app returns metadata and the adapter dispatches by name/topic into a single handler per block. |
+| **Discovery** | App exports **typed discovery functions** (e.g. `subscriptions()`, `input-bindings()`, actor `config()`); the adapter renders the Dapr discovery responses (`/dapr/subscribe`, `OPTIONS <binding>`, `/dapr/config`) from them. Inspired by [dapr4s `DaprApp`](https://github.com/sideeffffect/dapr4s/blob/master/src/shared/DaprApp.scala) (route registry), adapted: WIT can't register closures, so the app returns metadata and the adapter dispatches by name/topic into a single handler per block. |
 | **Handler shape** | **One interface per building block** (`invocation-handler`, `pubsub-handler`, `bindings-handler`, `jobs-handler`, `actors-handler`, `configuration-handler`, plus `health`). Each interface owns both its discovery function(s) and its delivery function(s). |
 | **Optionality** | **One app world** (`dapr-app`) that *exports every* handler interface. The component model makes world exports mandatory, so an app implements all handlers even if it only does pub/sub — we ship a **Rust helper crate with trivial defaults** so unused handlers are one-liners (e.g. empty subscription list, `drop`-everything, healthy). Accepted tradeoff: simplest composition (no per-app stub-fill step, no world matrix) in exchange for mandatory-but-trivial exports. |
 | **Service invocation** | **HTTP-faithful**: pass through verb / method-path / headers / query / body; the app returns status + headers + body. Symmetric with the outbound `invocation` interface; a non-2xx app response is a normal response, not an `error`. |
 | **Pub/sub event** | **Typed `cloud-event` record** (id, source, type, spec-version, subject, time, topic, pubsub-name, data-content-type, data, extensions). The adapter parses the CloudEvent envelope; the app only deserializes its domain payload from `data`. |
 | **Health** | **Always typed**: the app exports a `health` interface; the adapter delegates every `/healthz` probe to it. No auto-answer. |
-| **Binding reply** | **Full Dapr input-binding response**: optional response `data` + `to` (output bindings to forward to) + state-store operations + concurrency. Lossless against the Dapr input-binding contract. |
+| **Binding reply** | **Full Dapr input-binding response**: optional response `data` + `to` (output bindings to forward to) + state-store operations + concurrency. Lossless against the *documented* Dapr input-binding contract — but daprd only partly honours it (see [below](#binding-reply-what-daprd-really-does)). |
 | **Providers** | **Both** `wasi-http` and `wasi-grpc` in scope. The typed handler WIT is **shared**; only the transport differs (wasi-http parses the HTTP app channel; wasi-grpc serves Dapr's `AppCallback` gRPC service). |
 
 ## Architecture: roles flip per direction
@@ -66,9 +78,13 @@ flowchart LR
 - **Outbound** (existing): app *imports* building blocks, adapter *exports* them. Adapter is the component-model server.
 - **Inbound** (new): adapter *imports* handler interfaces, app *exports* them. App is the component-model server.
 
+*Superseded:* a mutual plug is an illegal instantiation cycle (`wac plug` output fails validation), which is why the provider was split into `outbound` and `inbound` worlds. The original text follows.
+
 Composition is a **mutual `wac plug`**: each side satisfies the other's imports. The composed component's only remaining imports are runtime-provided (`wasi:http/outgoing-handler` for the adapter→sidecar path, `wasi:cli/environment`, etc.), and it *exports* `wasi:http/incoming-handler` (HTTP provider) — run under `wasmtime serve` or a Spin http trigger; point daprd's app channel (`--app-port`, `--app-protocol http`) at it.
 
 ## WIT proposal
+
+*Proposal as written. As built, the interfaces are named `*-callback` (not `*-handler`/`health`), function names follow the `AppCallback` proto, and errors use `types.app-error` — see the as-built list at the top and `components/wit/*-callback.wit`.*
 
 New package version bump in `components/wit/types.wit`. New interface files; the worlds expand. Concrete shapes (field names for the wire mappings to be **verified against [Dapr HTTP API](dapr-http-api.md)** and the vendored protos during implementation):
 
@@ -228,6 +244,8 @@ interface health {
 
 ### Worlds
 
+*Superseded:* the shipped worlds are `app` (imports the building blocks, exports the seven callbacks), `outbound` (exports the building blocks) and `inbound` (imports the callbacks; the provider component itself also exports `wasi:http/incoming-handler`). `dapr-client`/`dapr-server` were removed. The proposal follows.
+
 Keep the existing outbound-only worlds for pure clients; add the duplex pair.
 
 ```wit
@@ -285,7 +303,7 @@ flowchart TD
   router -->|"GET /dapr/subscribe"| subs["pubsub-handler.subscriptions() → JSON"]
   router -->|"GET /dapr/config"| acfg["actors-handler.config() → JSON"]
   router -->|"OPTIONS /&lt;name&gt;"| obind["200 if name ∈ input-bindings()"]
-  router -->|"POST &lt;subscription route&gt;"| pe["parse CloudEvent → pubsub-handler.on-event()"]
+  router -->|"POST &lt;pubsub route&gt;[/&lt;rule path&gt;]"| pe["parse CloudEvent (+ path from URL) → pubsub-handler.on-event()"]
   router -->|"POST /&lt;binding&gt;"| be["bindings-handler.on-binding()"]
   router -->|"POST /job/&lt;name&gt;"| je["jobs-handler.on-job()"]
   router -->|"PUT /actors/&lt;t&gt;/&lt;id&gt;/method/&lt;m&gt;"| ai["actors-handler.invoke()"]
@@ -295,7 +313,20 @@ flowchart TD
   router -->|"&lt;verb&gt; /&lt;method-path&gt; (fallback)"| inv["invocation-handler.handle()"]
 ```
 
+*As built, pub/sub deliveries use one fixed internal route (`/__dapr_wasm_components/pubsub`) that the provider writes into every `/dapr/subscribe` entry, and `POST /configuration/…` delivers config-update pushes.*
+
 Routing precedence matters: the reserved Dapr paths (`/dapr/*`, `/healthz`, `/actors/*`, `/job/*`, declared binding names) are matched first; everything else falls through to service invocation. The set of binding names from `input-bindings()` is needed to disambiguate a binding POST from a service-invocation POST.
+
+## Pub/sub routing rules (CEL, `@0.6.0`)
+
+> Added 2026-10-10. Sources: [How-To: Route messages](https://docs.dapr.io/developing-applications/building-blocks/pubsub/howto-route-messages/), [Pub/sub API reference](https://docs.dapr.io/reference/api/pubsub_api/), vendored `TopicRoutes`/`TopicRule` protos.
+
+`topic-subscription` has `routes: option<topic-routes>`. `topic-routes` = `rules: list<topic-rule>` + `default: option<string>`; `topic-rule` = `match` (CEL expression) + `path`. The names follow the HTTP API's `routes: {rules: [{match, path}], default}` and gRPC `TopicRoutes{rules, default}`. daprd evaluates the rules in order (first match wins). If no rule matches and there is no default, daprd drops the event. The app sees the selected path in `topic-event.path`. `routes: none` keeps the old behaviour (one route per topic, no `path`).
+
+- **wasi-http inbound.** Rule paths are advertised **under the reserved pub/sub prefix**: `<PUBSUB_ROUTE>/<rule path>` (leading `/` normalized to one). The router matches `POST <PUBSUB_ROUTE>[/<rest>]` and sets `path` = `/<rest>` (percent-decoded) from the URL. Reasons: no collision with the app's service-invocation paths, and no call back into the app per delivery to find out which paths are subscriptions. The URL path takes precedence over any `path` attribute in the CloudEvent body (the HTTP API does not document one).
+- **wasi-grpc inbound.** `ListTopicSubscriptions` emits `TopicRoutes` verbatim (empty `default` = none). daprd fills `TopicEventRequest.path`, which already maps to `topic-event.path`.
+- **SDK.** `TopicSubscription::new(pubsub, topic).with_rule(cel, path).with_default_route(path)` (plus `with_metadata`, `with_dead_letter_topic`). Apps that use the builder keep compiling when optional fields are added.
+- **Verified** by composed in-process tests (`e2e/tests/composed.rs`: `/dapr/subscribe` shape; POST to a rule path, to the default path, and to the bare route) and by both real-daprd E2Es: the microservice consumer routes `has(event.data.priority) && event.data.priority == true` to `/orders/priority`, default `/orders`, and the scenario asserts the recorded path per order.
 
 ## wasi-grpc inbound
 
@@ -312,9 +343,13 @@ Same typed handler imports; the transport is Dapr's **`AppCallback`** gRPC servi
 | `AppCallbackAlpha.OnJobEventAlpha1` | `jobs-handler.on-job()` |
 | `OnBulkTopicEvent` (+ deprecated `AppCallbackAlpha.OnBulkTopicEventAlpha1`) | `pubsub-callback.on-bulk-topic-event` (since `0.6.0`) |
 
-**Risk to verify:** serving gRPC from wasm = exporting `wasi:http/incoming-handler` and decoding HTTP/2 + gRPC framing into tonic **server** codegen. The outbound provider proved the tonic **client** path over `wasi-grpc`/`wasi-hyperium`; the **server** direction (incoming) needs confirmation that `wasi-hyperium` supports it. If not, fallback is hand-rolled gRPC framing over `wasi:http/incoming-handler`, or land wasi-grpc inbound after wasi-http (the typed boundary is identical, so it's purely a new transport). Actor hosting over gRPC is historically constrained in `AppCallback`; document whatever daprd 1.18 actually supports.
+*As built:* jobs arrive on `AppCallback.OnJobEvent` (not `AppCallbackAlpha.OnJobEventAlpha1`); actor invoke is not served over gRPC.
+
+**Risk to verify** (*resolved 2026-06-13: the fallback was taken — hand-rolled gRPC framing + `grpc-status` trailer over `wasi:http/incoming-handler`, via `wstd`; no tonic server, no `wasi-hyperium` incoming adapter*)**:** serving gRPC from wasm = exporting `wasi:http/incoming-handler` and decoding HTTP/2 + gRPC framing into tonic **server** codegen. The outbound provider proved the tonic **client** path over `wasi-grpc`/`wasi-hyperium`; the **server** direction (incoming) needs confirmation that `wasi-hyperium` supports it. If not, fallback is hand-rolled gRPC framing over `wasi:http/incoming-handler`, or land wasi-grpc inbound after wasi-http (the typed boundary is identical, so it's purely a new transport). Actor hosting over gRPC is historically constrained in `AppCallback`; document whatever daprd 1.18 actually supports.
 
 ## Build plan (incremental, checks after each step)
+
+*Status 2026-10-10:* steps 1–4 and 6 done (helper crate shipped as `dapr-app` in `app-sdk/dapr-app/`; worlds as noted above). Step 5 done for HTTP inbound (mock `serve_inbound` + both real-Dapr suites); the real-Dapr gRPC suite still uses `wasi-http-inbound`, so wasi-grpc inbound has no daprd E2E.
 
 1. **WIT first.** Add the seven handler interfaces + `dapr-app`/`dapr-host` worlds; add outbound `configuration` subscribe/unsubscribe. Bump package version. `wasm-tools component wit components/wit/` green.
 2. **wasi-http inbound.** Implement `wasi:http/incoming-handler` + router + per-flow translation, calling the imported handlers. Reuse the existing JSON/error conventions.
@@ -327,11 +362,21 @@ Mirror every WIT change across: **both** providers, the e2e mock + tests, the de
 
 ## v1 limitations (documented, deferred)
 
-- ~~**No bulk subscribe**~~ — shipped in `0.6.0` (see *Bulk subscribe* below). Still no CEL **routing rules** / multiple routes per topic — one route per (pubsub, topic); the app does content routing internally.
-- **Configuration inbound** depends on adding outbound config subscribe (above); shipped together or config inbound is a no-op until then.
+- ~~**No bulk subscribe**~~ — shipped in `0.6.0` (see *Bulk subscribe* below). CEL **routing rules** also shipped in `@0.6.0` — see [Pub/sub routing rules](#pubsub-routing-rules-cel-060); the two combine.
+- **Configuration inbound** depends on adding outbound config subscribe (above); shipped together or config inbound is a no-op until then. *(Shipped together; HTTP inbound only — `wasi-grpc-inbound` has no config-update route.)*
 - **Actor** reentrancy/turn-based concurrency relies on the single-threaded wasm instance; reentrancy config is surfaced but enforced by daprd. gRPC actor hosting may be constrained.
-- **Binding-response** exact JSON field names (`state`/`to`/`concurrency`/`data`) to be pinned against the HTTP API reference during implementation.
-- wasi-grpc **incoming/server** transport support is unconfirmed (see risk above).
+- **Binding reply** side effects are mostly not applied by daprd — see the next section.
+- wasi-grpc **incoming/server** transport: `wasi-grpc-inbound` serves `AppCallback` over Spin inbound h2c and is verified with `grpcurl`, but has no automated daprd `--app-protocol grpc` E2E yet (see [ROADMAP](../../ROADMAP.md)).
+
+## Binding reply: what daprd really does
+
+Checked 2026-10-10 against daprd 1.18 source and a real daprd 1.18.7 (raw: [daprd-input-binding-reply-v1-18](../../raw/dapr/daprd-input-binding-reply-v1-18.md)).
+
+- `wasi-http-inbound` emits the reply with the documented field names `storeName`, `state` (`[{key, value}]`, value per the JSON value convention), `to`, `data`, `concurrency` (`sequential`/`parallel`, only with `to`). These match the `bindings.AppResponse` JSON tags in components-contrib. A composed in-process test pins the shape (`e2e/tests/composed.rs` `inbound_binding_event_reply_shape`).
+- **daprd ignores the whole HTTP reply body.** `sendBindingEventToApp` reads it but never unmarshals it, so `storeName`/`state`/`to` have no effect over the HTTP app channel. This was not always so: daprd 1.0 parsed it; 1.5 no longer does.
+- **Over gRPC** (`wasi-grpc-inbound` → `BindingEventResponse`), daprd copies only `to`, `data` and `concurrency`. `store_name`/`states` are ignored there too. So only "forward `data` to output bindings" works, and only on the gRPC app channel. That path has no automated E2E yet (both shipping suites use the HTTP inbound provider).
+- The real-Dapr E2E (`run_mirrored_scenario` step 7–8, both suites) drives a `bindings.cron` `ticks` binding (`@every 1s`): it asserts delivery reaches `on-binding-event`, and **pins** that a `storeName`/`state` reply is *not* persisted. If daprd starts to honour the reply, that check fails on purpose.
+- We keep the WIT record as is: it mirrors the documented contract and the gRPC message, and it costs nothing when daprd ignores it. Apps that need the side effects should do them with the outbound `state` / `bindings` interfaces inside `on-binding-event`.
 
 ## Bulk subscribe (as built, `0.6.0`, 2026-10-10)
 

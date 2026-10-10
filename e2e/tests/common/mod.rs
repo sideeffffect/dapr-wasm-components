@@ -265,6 +265,46 @@ spec:
   version: v1
 "#;
 
+/// A `bindings.cron` input binding named `ticks` that fires every second — a
+/// deterministic input-binding trigger with no external dependency. Only the
+/// app instance that declares `ticks` (the consumer) receives the events.
+pub const BINDING_CRON_TICKS: &str = r#"apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: ticks
+spec:
+  type: bindings.cron
+  version: v1
+  metadata:
+  - name: schedule
+    value: "@every 1s"
+  - name: direction
+    value: "input"
+"#;
+
+/// Write a `secretstores.local.file` store named `secretstore` and its
+/// `secrets.json` (one secret, `db` = `s3cret`) under the bind mount.
+pub fn write_secret_store(dir: &Path) {
+    write_resource(
+        dir,
+        "secretstore.yaml",
+        &format!(
+            r#"apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: secretstore
+spec:
+  type: secretstores.local.file
+  version: v1
+  metadata:
+  - name: secretsFile
+    value: "{DAPRD_MOUNT}/secrets.json"
+"#
+        ),
+    );
+    std::fs::write(dir.join("secrets.json"), r#"{"db":"s3cret"}"#).unwrap();
+}
+
 /// Write `<dir>/resources/<name>` (creating the `resources/` subdir as
 /// needed) — daprd loads every component definition under `--resources-path`.
 pub fn write_resource(dir: &Path, name: &str, yaml: &str) {
@@ -318,12 +358,14 @@ pub fn start_redis() -> RedisBroker {
 pub const CONFIG_FILE: &str = "config.yaml";
 
 /// Write the resources + config that the two-sidecar scenario needs, shared by
-/// both real-Dapr suites: an in-memory statestore (per sidecar), a Redis
+/// both real-Dapr suites: an in-memory statestore (per sidecar), a
+/// `local.file` secret store, a Redis
 /// pub/sub broker (so events cross sidecars), and a sqlite name-resolution
 /// `Configuration` (deterministic cross-sidecar invocation, unlike mDNS) whose
 /// db both sidecars share via the bind mount.
 pub fn write_cross_sidecar_resources(dir: &Path, redis_host: &str) {
     write_resource(dir, "statestore.yaml", STATESTORE_IN_MEMORY);
+    write_secret_store(dir);
     write_resource(
         dir,
         "pubsub.yaml",
@@ -343,6 +385,7 @@ spec:
 "#
         ),
     );
+    write_resource(dir, "ticks.yaml", BINDING_CRON_TICKS);
     std::fs::write(
         dir.join(CONFIG_FILE),
         format!(
@@ -379,10 +422,11 @@ pub struct Endpoints<'a> {
 }
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
-/// runtime: state roundtrip + etag CAS + delete, service invocation (self and
-/// cross-app), and cross-sidecar pub/sub publish→deliver→count loops (single
-/// and bulk subscribe). Panics
-/// (with context) on the first failed assertion.
+/// runtime: state roundtrip + etag CAS + delete, secrets, service invocation
+/// (self and cross-app), cross-sidecar pub/sub publish→deliver→count loops
+/// (single with CEL routing rules, and bulk subscribe with a default route),
+/// and a cron input binding delivered to the consumer. Panics (with context)
+/// on the first failed assertion.
 pub fn run_mirrored_scenario(endpoints: Endpoints) {
     let Endpoints {
         publisher_base,
@@ -401,33 +445,43 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         assert_eq!(smoke["ok"], true, "binary smoke failed: {smoke}");
     }
 
-    // 3. Service invocation out and back into the same instance.
+    // 3. Secrets (`local.file`): an existing secret, and a missing one as the
+    //    typed `secret-not-found`.
+    let secrets = get_json(&format!("{publisher_base}/secrets"));
+    assert_eq!(secrets["ok"], true, "secrets failed: {secrets}");
+
+    // 4. Service invocation out and back into the same instance.
     let invoked = get_json(&format!("{publisher_base}/invoke-self"));
     assert_eq!(invoked["ok"], true, "invoke-self failed: {invoked}");
 
-    // 4. Publish three orders.
+    // 5. Publish three orders.
     let published = get_json(&format!("{publisher_base}/publish?n=3"));
     assert_eq!(published["published"], 3, "publish failed: {published}");
 
-    // 5. Cross-sidecar pub/sub delivery: the consumer's counter reaches 3.
-    //    Generous deadline — a transient app↔sidecar connection blip makes the
-    //    app return RETRY, and daprd redelivers with backoff; give it room.
-    let deadline = Instant::now() + Duration::from_secs(90);
-    loop {
-        let count = get_json(&format!("{consumer_base}/count"));
-        if count["processed"] == 3 {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "orders were not all processed in time: {count}"
-        );
-        std::thread::sleep(Duration::from_millis(500));
-    }
+    // 6. Cross-sidecar pub/sub delivery: the consumer's counter reaches 3.
+    wait_for_processed(consumer_base, 3);
 
-    // 5b. Bulk subscribe: the consumer subscribes to `orders-bulk` with
-    //     `bulkSubscribe` enabled, so daprd delivers the three orders in
-    //     batches to `on-bulk-topic-event` (the app counts each batch).
+    // 7. CEL routing rules: plain orders took the subscription's default
+    //    route; a `"priority": true` order is routed by daprd to the rule path
+    //    and the app sees that path in `topic-event.path`.
+    assert_eq!(
+        get_json(&format!("{consumer_base}/route?order=1"))["route"],
+        "/orders",
+        "plain order did not take the default route"
+    );
+    let published = get_json(&format!("{publisher_base}/publish-priority"));
+    assert_eq!(published["published"], 100, "publish failed: {published}");
+    wait_for_processed(consumer_base, 4);
+    assert_eq!(
+        get_json(&format!("{consumer_base}/route?order=100"))["route"],
+        "/orders/priority",
+        "priority order was not routed by the CEL rule"
+    );
+
+    // 8. Bulk subscribe: the consumer subscribes to `orders-bulk` with
+    //    `bulkSubscribe` enabled and a default route, so daprd delivers the
+    //    three orders in batches to `on-bulk-topic-event` (the app counts
+    //    each batch) on that route, which the app sees in `path`.
     let published = get_json(&format!("{publisher_base}/publish-bulk?n=3"));
     assert_eq!(
         published["published"], 3,
@@ -450,9 +504,60 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         );
         std::thread::sleep(Duration::from_millis(500));
     }
+    assert_eq!(
+        get_json(&format!("{consumer_base}/bulk-route?order=1"))["route"],
+        "/orders-bulk",
+        "bulk order was not delivered on the subscription's default route"
+    );
 
-    // 6. Cross-app service invocation: publisher → consumer's /summary (needs
+    // 9. Cross-app service invocation: publisher → consumer's /summary (needs
     //    the sidecars to resolve each other's app ids).
     let peer = get_json(&format!("{publisher_base}/invoke-peer"));
-    assert_eq!(peer["processed"], 3, "cross-app invocation failed: {peer}");
+    assert_eq!(peer["processed"], 4, "cross-app invocation failed: {peer}");
+
+    // 10. Input binding: the cron `ticks` binding (every 1s) reaches the
+    //    consumer's `on-binding-event` through the inbound provider; the app
+    //    counts each delivery itself (outbound state API).
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        let status = get_json(&format!("{consumer_base}/binding"));
+        if status["ticks"].as_u64().unwrap_or(0) >= 3 {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "input binding events were not delivered in time: {status}"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    };
+
+    // 11. Each reply also asked the sidecar to persist `binding-response` via
+    //    `storeName` + `state`. daprd (checked up to 1.18) ignores the body of
+    //    an HTTP app-channel binding reply — `sendBindingEventToApp` never
+    //    parses it — so nothing is persisted, even after 3+ replies. This pins
+    //    that upstream behaviour: if it starts failing, daprd now honours the
+    //    reply — flip this to a positive check and update the docs.
+    assert!(
+        status["responseState"].is_null(),
+        "daprd now applies the input-binding reply over the HTTP app channel \
+         (update the docs and this check): {status}"
+    );
+}
+
+/// Poll the consumer until its processed-order counter reaches `expected`.
+/// Generous deadline — a transient app↔sidecar connection blip makes the app
+/// return RETRY, and daprd redelivers with backoff; give it room.
+fn wait_for_processed(consumer_base: &str, expected: u64) {
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        let count = get_json(&format!("{consumer_base}/count"));
+        if count["processed"] == expected {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "orders were not all processed in time (want {expected}): {count}"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
 }

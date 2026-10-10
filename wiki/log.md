@@ -4,6 +4,24 @@
 - Updated: dapr-wasm-components Inbound Design (new *Bulk subscribe* section; AppCallback mapping; limitations)
 - Updated: dapr-wasm-components Architecture (E2E scenario bulk step)
 
+## [2026-10-10] update | pub/sub CEL routing rules: `topic-subscription.routes` (`topic-routes {rules: list<topic-rule {match, path}>, default}`), breaking, package `0.5.0` → `0.6.0`. wasi-http-inbound advertises rule paths under its reserved pub/sub prefix and recovers `path` from the delivery URL; wasi-grpc-inbound emits `TopicRoutes`. SDK builder `TopicSubscription::new(..).with_rule(..).with_default_route(..)`. Verified by composed tests + both real-daprd E2Es.
+- Updated: dapr-wasm-components Inbound Design (new §Pub/sub routing rules; v1 limitations)
+- Updated: dapr-wasm-components Architecture (package version)
+
+## [2026-10-10] update | dapr-wasm-components Architecture (missing secret = `secret-not-found` on both providers: real daprd sends ERR_SECRET_GET for a store's "not found" — HTTP 500 / gRPC Internal — not a 204; providers now sniff "not found" in the appended store error, other ERR_SECRET_GET traps; real-Dapr scenario checks it with `secretstores.local.file`)
+- Updated: Dapr HTTP API (204-vs-500 caveat for secrets get)
+
+## [2026-10-10] ingest | daprd input-binding reply handling (v1.18 source + real-daprd E2E). daprd ignores the HTTP binding reply body entirely; over gRPC it honours only to/data/concurrency, never store_name/states. Field names emitted by wasi-http-inbound match the AppResponse JSON tags — no provider bug.
+- Raw: daprd-input-binding-reply-v1-18
+- Updated: Dapr HTTP API (trap: binding reply ignored)
+- Updated: dapr-wasm-components Inbound Design (new section "Binding reply: what daprd really does"; refreshed the stale wasi-grpc inbound limitation)
+
+## [2026-10-10] lint | 30+ issues found, all but 1 auto-fixed
+- Links: README self-anchor (`#two-directions-…--both-typed`), dead Dapr gRPC API doc link, moved dapr4s `DaprApp.scala` link.
+- Drift vs code: Architecture + Inbound Design (split providers, `@0.5.0`, five OCI packages, four workspaces, inbound status now implemented, gRPC error mapping per 0.5.0 `classify`); old provider names/paths and v1 host framing in the other eight articles; See Also cross-refs expanded.
+- Outside wiki: README, ROADMAP, AGENTS.md, proto/README.md (wasi-grpc-inbound exists, spin E2E uses wasi-http-inbound, 0.5.0 "no option in success" wording).
+- Reported, not fixed: wasi-grpc-outbound `get-secret` — a missing secret returns gRPC `Internal`, which `classify` treats as a trap, contrary to the `secrets.rs` comment.
+
 ## [2026-10-10] ingest | wider wasm gRPC landscape: Spin active (4.2.2, CNCF, Akamai) but fermyon/wasi-grpc stale; wasmCloud v2 routes `application/grpc` wasi:http egress over h2/h2c automatically (wstd + tonic 0.14 codegen example); tokio 1.51 wasip2 networking; tonic channel still blocked (grpc-rust#2910); wasi-http HTTP/2 PR closed.
 - Updated: gRPC to Dapr from Wasm (wider landscape section)
 

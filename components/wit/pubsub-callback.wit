@@ -24,14 +24,37 @@ interface pubsub-callback {
     max-await-duration-ms: option<s32>,
   }
 
-  /// One topic this application subscribes to. Routing rules (CEL) are not
-  /// modelled in this version — one route per topic, with in-app dispatch on
-  /// (`pubsub-name`, `topic`).
+  /// One routing rule: when the CEL expression `match` evaluates to true for
+  /// an event, the sidecar delivers it to `path`. Rules are evaluated in
+  /// order; the first match wins. Mirrors `TopicRule` / the HTTP API's
+  /// `routes.rules[]` entry `{match, path}`.
+  /// https://docs.dapr.io/developing-applications/building-blocks/pubsub/howto-route-messages/
+  record topic-rule {
+    /// CEL expression over the CloudEvent, e.g. `event.type == "widget"`.
+    match: string,
+    /// The route this rule selects. Delivered back as `topic-event.path`.
+    /// Use a leading `/` (the wasi-http provider normalizes to one).
+    path: string,
+  }
+
+  /// Content-based routing for one subscription. Mirrors `TopicRoutes` /
+  /// the HTTP API's `routes: {rules, default}`.
+  record topic-routes {
+    rules: list<topic-rule>,
+    /// The path for events that no rule matches. `none` = the sidecar drops
+    /// unmatched events (Dapr's behaviour without a default route).
+    default: option<string>,
+  }
+
+  /// One topic this application subscribes to.
   record topic-subscription {
     pubsub-name: string,
     topic: string,
     metadata: metadata,
     dead-letter-topic: option<string>,
+    /// CEL routing rules. `none` = one route for the whole topic: events
+    /// arrive without a `path`; dispatch in-app on (`pubsub-name`, `topic`).
+    routes: option<topic-routes>,
     /// Opt in to bulk delivery. `none` = one event per call.
     bulk-subscribe: option<bulk-subscribe-config>,
   }
@@ -47,7 +70,9 @@ interface pubsub-callback {
     data: list<u8>,
     topic: string,
     pubsub-name: string,
-    /// The matched subscription path, when the sidecar supplies one.
+    /// The matched route: the `path` of the routing rule (or the routes'
+    /// `default`) that selected this event. Set for subscriptions that
+    /// declare `routes`.
     path: option<string>,
     /// CloudEvent extension attributes.
     extensions: metadata,
@@ -102,7 +127,8 @@ interface pubsub-callback {
   /// Declares the topics this app subscribes to. Called at startup.
   list-topic-subscriptions: func() -> list<topic-subscription>;
 
-  /// Handle one delivered event. Dispatch on (`pubsub-name`, `topic`).
+  /// Handle one delivered event. Dispatch on (`pubsub-name`, `topic`) and,
+  /// for routed subscriptions, on `path`.
   on-topic-event: func(event: topic-event) -> topic-event-response;
 
   /// Handle one batch of events for a bulk-subscribed topic. Return one

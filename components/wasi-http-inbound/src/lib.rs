@@ -18,7 +18,7 @@
 //! | `GET /dapr/subscribe`                     | `pubsub-callback.list-topic-subscriptions` |
 //! | `GET /dapr/config`                        | `actors-callback.config`              |
 //! | `OPTIONS /<input-binding>`                | (binding verification, 200)           |
-//! | `POST <pubsub route>`                     | `pubsub-callback.on-topic-event`      |
+//! | `POST <pubsub route>[/<rule path>]`       | `pubsub-callback.on-topic-event`      |
 //! | `POST <bulk pubsub route>`                | `pubsub-callback.on-bulk-topic-event` |
 //! | `POST /<input-binding>`                   | `bindings-callback.on-binding-event`  |
 //! | `POST /job/<name>`                        | `jobs-callback.on-job-event`          |
@@ -63,6 +63,10 @@ fn value_to_json(value: &[u8]) -> Value {
 /// The app-channel path Dapr posts every pub/sub delivery to. It is returned
 /// as the `route` of every programmatic subscription; the topic and pub/sub
 /// name travel inside the CloudEvent, so a single shared route suffices.
+/// Routing-rule paths are advertised *under* this prefix
+/// (`<PUBSUB_ROUTE>/<rule path>`), so they never collide with the app's
+/// service-invocation paths, and the router recovers the matched rule path
+/// from the request URL without a call back into the app.
 const PUBSUB_ROUTE: &str = "/__dapr_wasm_components/pubsub";
 
 /// The app-channel path for bulk-subscribed topics. Dapr posts a bulk
@@ -131,12 +135,25 @@ fn route(
         // Otherwise fall through to service invocation (OPTIONS is a valid verb).
     }
 
-    // Pub/sub delivery.
-    if method == Method::POST && path == PUBSUB_ROUTE {
-        return deliver_topic_event(body);
-    }
-    if method == Method::POST && path == PUBSUB_BULK_ROUTE {
-        return deliver_bulk_topic_event(body);
+    // Pub/sub delivery. The bulk prefix is checked first: it shares the
+    // single-event route's prefix.
+    if method == Method::POST {
+        if let Some(rest) = path.strip_prefix(PUBSUB_BULK_ROUTE) {
+            if rest.is_empty() {
+                return deliver_bulk_topic_event(body, None);
+            }
+            if rest.starts_with('/') {
+                return deliver_bulk_topic_event(body, Some(decode(rest)));
+            }
+        }
+        if let Some(rest) = path.strip_prefix(PUBSUB_ROUTE) {
+            if rest.is_empty() {
+                return deliver_topic_event(body, None);
+            }
+            if rest.starts_with('/') {
+                return deliver_topic_event(body, Some(decode(rest)));
+            }
+        }
     }
 
     // Job trigger.
@@ -192,7 +209,9 @@ fn subscribe_response() -> Value {
         .iter()
         .map(|sub| {
             let bulk = sub.bulk_subscribe.as_ref();
-            let route = if bulk.is_some_and(|config| config.enabled) {
+            // Bulk-subscribed topics get their own base route (bulk envelopes,
+            // not single CloudEvents); routing-rule paths go under the base.
+            let base = if bulk.is_some_and(|config| config.enabled) {
                 PUBSUB_BULK_ROUTE
             } else {
                 PUBSUB_ROUTE
@@ -200,8 +219,11 @@ fn subscribe_response() -> Value {
             let mut entry = json!({
                 "pubsubname": sub.pubsub_name,
                 "topic": sub.topic,
-                "route": route,
             });
+            match &sub.routes {
+                None => entry["route"] = json!(base),
+                Some(routes) => entry["routes"] = routes_json(base, routes),
+            }
             if let Some(config) = bulk {
                 let mut bulk_json = json!({ "enabled": config.enabled });
                 if let Some(count) = config.max_messages_count {
@@ -224,9 +246,39 @@ fn subscribe_response() -> Value {
     Value::Array(entries)
 }
 
-fn deliver_topic_event(body: Vec<u8>) -> Response<Body> {
+/// Render `topic-routes` as the HTTP API's `routes: {rules, default}`, with
+/// every path mapped under `base` ([`PUBSUB_ROUTE`] or, for bulk-subscribed
+/// topics, [`PUBSUB_BULK_ROUTE`]; see [`routed_path`]).
+fn routes_json(base: &str, routes: &pubsub_callback::TopicRoutes) -> Value {
+    let rules: Vec<Value> = routes
+        .rules
+        .iter()
+        .map(|rule| json!({ "match": rule.match_, "path": routed_path(base, &rule.path) }))
+        .collect();
+    let mut value = json!({ "rules": rules });
+    if let Some(default) = &routes.default {
+        value["default"] = json!(routed_path(base, default));
+    }
+    value
+}
+
+/// The app-channel URL path for a declared rule path: `base` plus the rule
+/// path, normalized to exactly one leading `/`.
+fn routed_path(base: &str, path: &str) -> String {
+    format!("{base}/{}", path.trim_start_matches('/'))
+}
+
+/// Deliver one CloudEvent. `rule_path` is the matched routing-rule path,
+/// recovered from the request URL; when set it overrides any `path` in the
+/// envelope.
+fn deliver_topic_event(body: Vec<u8>, rule_path: Option<String>) -> Response<Body> {
     let event = match parse_cloud_event(&body) {
-        Ok(event) => event,
+        Ok(mut event) => {
+            if rule_path.is_some() {
+                event.path = rule_path;
+            }
+            event
+        }
         // A malformed envelope is unexpected; ask Dapr to drop it.
         Err(error) => {
             eprintln!("dropping unparseable CloudEvent: {error}");
@@ -250,9 +302,23 @@ fn status_name(status: pubsub_callback::TopicEventResponse) -> &'static str {
 /// `pkg/runtime/pubsub/bulksubscribe_events.go`: a CloudEvent entry carries the
 /// parsed CloudEvent object in `event`; a raw-payload entry carries its bytes
 /// as a base64 string.
-fn deliver_bulk_topic_event(body: Vec<u8>) -> Response<Body> {
+///
+/// `rule_path` is the matched routing-rule path, recovered from the request
+/// URL; when set it overrides the envelope's `path` and every CloudEvent
+/// entry's `path` (daprd batches messages per matched route).
+fn deliver_bulk_topic_event(body: Vec<u8>, rule_path: Option<String>) -> Response<Body> {
     let bulk = match parse_bulk_event(&body) {
-        Ok(bulk) => bulk,
+        Ok(mut bulk) => {
+            if rule_path.is_some() {
+                bulk.path = rule_path.clone();
+                for entry in &mut bulk.entries {
+                    if let pubsub_callback::BulkEvent::CloudEvent(event) = &mut entry.event {
+                        event.path = rule_path.clone();
+                    }
+                }
+            }
+            bulk
+        }
         // An unparseable envelope can't be answered per entry. A 404 makes
         // Dapr log an error and drop the whole batch (same as the single path).
         Err(error) => {
@@ -450,7 +516,10 @@ fn deliver_binding(name: String, headers: &[(String, String)], body: Vec<u8>) ->
 fn binding_response(response: &bindings_callback::BindingEventResponse) -> Response<Body> {
     // The Dapr input-binding response JSON instructs the sidecar to persist
     // state and/or forward `data` to output bindings. Field names follow the
-    // bindings API reference; values use the provider's JSON convention.
+    // bindings API reference (= components-contrib `bindings.AppResponse` JSON
+    // tags); values use the provider's JSON convention. Note: daprd (checked up
+    // to 1.18) never parses this body on the HTTP app channel, so it has no
+    // effect there today — see the inbound design wiki page.
     let mut object = serde_json::Map::new();
     if let Some(store) = &response.store_name {
         object.insert("storeName".to_string(), json!(store));

@@ -147,8 +147,8 @@ pub async fn serve_inbound(
     .await
 }
 
-/// [`serve_inbound`] with extra guest env vars (e.g. the microservice's
-/// `SUBSCRIBE` role switch) next to `DAPR_HTTP_ENDPOINT`.
+/// [`serve_inbound`] with extra guest environment variables (e.g. the
+/// microservice's `SUBSCRIBE`), on top of `DAPR_HTTP_ENDPOINT`.
 pub async fn serve_inbound_with_env(
     component_bytes: &[u8],
     sidecar_endpoint: &str,

@@ -126,7 +126,17 @@ fn list_topic_subscriptions() -> Response<Body> {
             pubsub_name: sub.pubsub_name,
             topic: sub.topic,
             metadata: sub.metadata.into_iter().collect(),
-            routes: None,
+            routes: sub.routes.map(|routes| pb::TopicRoutes {
+                rules: routes
+                    .rules
+                    .into_iter()
+                    .map(|rule| pb::TopicRule {
+                        r#match: rule.match_,
+                        path: rule.path,
+                    })
+                    .collect(),
+                default: routes.default.unwrap_or_default(),
+            }),
             dead_letter_topic: sub.dead_letter_topic.unwrap_or_default(),
             bulk_subscribe: sub.bulk_subscribe.map(|config| pb::BulkSubscribeConfig {
                 enabled: config.enabled,
@@ -248,6 +258,8 @@ fn on_binding_event(payload: &[u8]) -> Response<Body> {
         data: event.data,
         metadata: event.metadata.into_iter().collect(),
     };
+    // daprd (checked up to 1.18) applies only `to` + `data` + `concurrency`
+    // from this reply; it ignores `store_name`/`states`. We still map them all.
     match bindings_callback::on_binding_event(&wit_event) {
         Ok(response) => grpc_ok(&pb::BindingEventResponse {
             store_name: response.store_name.unwrap_or_default(),
