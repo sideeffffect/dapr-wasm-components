@@ -17,8 +17,6 @@ for the inbound spec.
   field on the test `DaprdConfig`, and a scenario variant that drives the app
   *through* daprd's invoke API (since the app no longer speaks HTTP directly when
   the app channel is gRPC).
-- **Pub/sub bulk subscribe.** Dapr's bulk subscribe (`OnBulkTopicEvent`) is not
-  exposed; each event is delivered with its own `on-topic-event` call.
 
 ## gRPC provider
 
@@ -43,6 +41,22 @@ for the inbound spec.
   publishing it (crates.io or a stable git tag) would make app authoring smoother.
 
 ## Recently shipped
+
+- **Interfaces 0.6.0 — pub/sub bulk subscribe.** `topic-subscription` gained an
+  optional `bulk-subscribe: bulk-subscribe-config { enabled, max-messages-count,
+  max-await-duration-ms }`, and `pubsub-callback` a new
+  `on-bulk-topic-event(bulk-topic-event) -> list<bulk-topic-event-entry-response>`
+  (each entry is a parsed CloudEvent or a raw payload; per-entry statuses reuse
+  `topic-event-response`). `wasi-http-inbound` advertises `bulkSubscribe` on
+  `/dapr/subscribe` with a separate bulk route and answers `{ statuses }`;
+  `wasi-grpc-inbound` sets `TopicSubscription.bulk_subscribe` and serves
+  `OnBulkTopicEvent` (+ the deprecated `OnBulkTopicEventAlpha1` fallback). The
+  `dapr-app` SDK's default `on_bulk_topic_event` loops over `on_topic_event`
+  (`bulk_to_single`), so existing apps need no change; `TopicSubscription::new(..)
+  .with_bulk_subscribe(..)` opts in. Verified by composed in-process tests and by
+  a bulk-subscribed `orders-bulk` topic in the shared real-Dapr scenario (both
+  suites; the gRPC `OnBulkTopicEvent` server path is compile-checked, like the
+  rest of `wasi-grpc-inbound`).
 
 - **Interfaces 0.6.0 — pub/sub CEL routing rules (breaking record change).**
   `topic-subscription` gained `routes: option<topic-routes>` (`rules: list<topic-rule

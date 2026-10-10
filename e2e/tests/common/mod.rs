@@ -412,8 +412,8 @@ pub struct Endpoints<'a> {
     /// Instance with app id `publisher` (does not subscribe): publishes,
     /// invokes, and runs the state smoke checks.
     pub publisher_base: &'a str,
-    /// Instance with app id `consumer` (subscribes to `orders`): processes
-    /// deliveries into its counter.
+    /// Instance with app id `consumer` (subscribes to `orders`, and to
+    /// `orders-bulk` with bulk delivery): processes deliveries into counters.
     pub consumer_base: &'a str,
     /// Also assert a *binary* (non-JSON) byte-exact state roundtrip. Only the
     /// gRPC provider can do that (raw protobuf bytes), so only the wasi-grpc
@@ -423,9 +423,10 @@ pub struct Endpoints<'a> {
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
 /// runtime: state roundtrip + etag CAS + delete, secrets, service invocation
-/// (self and cross-app), a cross-sidecar pub/sub publish→deliver→count loop, and a cron
-/// input binding delivered to the consumer. Panics (with context) on the first
-/// failed assertion.
+/// (self and cross-app), cross-sidecar pub/sub publish→deliver→count loops
+/// (single with CEL routing rules, and bulk subscribe with a default route),
+/// and a cron input binding delivered to the consumer. Panics (with context)
+/// on the first failed assertion.
 pub fn run_mirrored_scenario(endpoints: Endpoints) {
     let Endpoints {
         publisher_base,
@@ -477,12 +478,44 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         "priority order was not routed by the CEL rule"
     );
 
-    // 8. Cross-app service invocation: publisher → consumer's /summary (needs
+    // 8. Bulk subscribe: the consumer subscribes to `orders-bulk` with
+    //    `bulkSubscribe` enabled and a default route, so daprd delivers the
+    //    three orders in batches to `on-bulk-topic-event` (the app counts
+    //    each batch) on that route, which the app sees in `path`.
+    let published = get_json(&format!("{publisher_base}/publish-bulk?n=3"));
+    assert_eq!(
+        published["published"], 3,
+        "bulk publish failed: {published}"
+    );
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        let count = get_json(&format!("{consumer_base}/count-bulk"));
+        if count["processed"] == 3 {
+            let batches = count["batches"].as_u64().unwrap_or(0);
+            assert!(
+                (1..=3).contains(&batches),
+                "bulk orders did not arrive through bulk delivery: {count}"
+            );
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "bulk orders were not all processed in time: {count}"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    assert_eq!(
+        get_json(&format!("{consumer_base}/bulk-route?order=1"))["route"],
+        "/orders-bulk",
+        "bulk order was not delivered on the subscription's default route"
+    );
+
+    // 9. Cross-app service invocation: publisher → consumer's /summary (needs
     //    the sidecars to resolve each other's app ids).
     let peer = get_json(&format!("{publisher_base}/invoke-peer"));
     assert_eq!(peer["processed"], 4, "cross-app invocation failed: {peer}");
 
-    // 9. Input binding: the cron `ticks` binding (every 1s) reaches the
+    // 10. Input binding: the cron `ticks` binding (every 1s) reaches the
     //    consumer's `on-binding-event` through the inbound provider; the app
     //    counts each delivery itself (outbound state API).
     let deadline = Instant::now() + Duration::from_secs(60);
@@ -498,7 +531,7 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         std::thread::sleep(Duration::from_millis(500));
     };
 
-    // 10. Each reply also asked the sidecar to persist `binding-response` via
+    // 11. Each reply also asked the sidecar to persist `binding-response` via
     //    `storeName` + `state`. daprd (checked up to 1.18) ignores the body of
     //    an HTTP app-channel binding reply — `sendBindingEventToApp` never
     //    parses it — so nothing is persisted, even after 3+ replies. This pins

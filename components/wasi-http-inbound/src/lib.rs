@@ -19,6 +19,7 @@
 //! | `GET /dapr/config`                        | `actors-callback.config`              |
 //! | `OPTIONS /<input-binding>`                | (binding verification, 200)           |
 //! | `POST <pubsub route>[/<rule path>]`       | `pubsub-callback.on-topic-event`      |
+//! | `POST <bulk pubsub route>`                | `pubsub-callback.on-bulk-topic-event` |
 //! | `POST /<input-binding>`                   | `bindings-callback.on-binding-event`  |
 //! | `POST /job/<name>`                        | `jobs-callback.on-job-event`          |
 //! | `POST /configuration/<store>/<key>`       | `configuration-callback.on-configuration-event` |
@@ -67,6 +68,11 @@ fn value_to_json(value: &[u8]) -> Value {
 /// service-invocation paths, and the router recovers the matched rule path
 /// from the request URL without a call back into the app.
 const PUBSUB_ROUTE: &str = "/__dapr_wasm_components/pubsub";
+
+/// The app-channel path for bulk-subscribed topics. Dapr posts a bulk
+/// envelope (`{ id, entries, metadata, topic, pubsubname, type }`) here, so it
+/// needs its own route, separate from single-event deliveries.
+const PUBSUB_BULK_ROUTE: &str = "/__dapr_wasm_components/pubsub-bulk";
 
 #[wstd::http_server]
 async fn main(mut request: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
@@ -129,8 +135,17 @@ fn route(
         // Otherwise fall through to service invocation (OPTIONS is a valid verb).
     }
 
-    // Pub/sub delivery.
+    // Pub/sub delivery. The bulk prefix is checked first: it shares the
+    // single-event route's prefix.
     if method == Method::POST {
+        if let Some(rest) = path.strip_prefix(PUBSUB_BULK_ROUTE) {
+            if rest.is_empty() {
+                return deliver_bulk_topic_event(body, None);
+            }
+            if rest.starts_with('/') {
+                return deliver_bulk_topic_event(body, Some(decode(rest)));
+            }
+        }
         if let Some(rest) = path.strip_prefix(PUBSUB_ROUTE) {
             if rest.is_empty() {
                 return deliver_topic_event(body, None);
@@ -193,13 +208,31 @@ fn subscribe_response() -> Value {
     let entries: Vec<Value> = subscriptions
         .iter()
         .map(|sub| {
+            let bulk = sub.bulk_subscribe.as_ref();
+            // Bulk-subscribed topics get their own base route (bulk envelopes,
+            // not single CloudEvents); routing-rule paths go under the base.
+            let base = if bulk.is_some_and(|config| config.enabled) {
+                PUBSUB_BULK_ROUTE
+            } else {
+                PUBSUB_ROUTE
+            };
             let mut entry = json!({
                 "pubsubname": sub.pubsub_name,
                 "topic": sub.topic,
             });
             match &sub.routes {
-                None => entry["route"] = json!(PUBSUB_ROUTE),
-                Some(routes) => entry["routes"] = routes_json(routes),
+                None => entry["route"] = json!(base),
+                Some(routes) => entry["routes"] = routes_json(base, routes),
+            }
+            if let Some(config) = bulk {
+                let mut bulk_json = json!({ "enabled": config.enabled });
+                if let Some(count) = config.max_messages_count {
+                    bulk_json["maxMessagesCount"] = json!(count);
+                }
+                if let Some(ms) = config.max_await_duration_ms {
+                    bulk_json["maxAwaitDurationMs"] = json!(ms);
+                }
+                entry["bulkSubscribe"] = bulk_json;
             }
             if let Some(dlq) = &sub.dead_letter_topic {
                 entry["deadLetterTopic"] = json!(dlq);
@@ -214,24 +247,25 @@ fn subscribe_response() -> Value {
 }
 
 /// Render `topic-routes` as the HTTP API's `routes: {rules, default}`, with
-/// every path mapped under [`PUBSUB_ROUTE`] (see [`routed_path`]).
-fn routes_json(routes: &pubsub_callback::TopicRoutes) -> Value {
+/// every path mapped under `base` ([`PUBSUB_ROUTE`] or, for bulk-subscribed
+/// topics, [`PUBSUB_BULK_ROUTE`]; see [`routed_path`]).
+fn routes_json(base: &str, routes: &pubsub_callback::TopicRoutes) -> Value {
     let rules: Vec<Value> = routes
         .rules
         .iter()
-        .map(|rule| json!({ "match": rule.match_, "path": routed_path(&rule.path) }))
+        .map(|rule| json!({ "match": rule.match_, "path": routed_path(base, &rule.path) }))
         .collect();
     let mut value = json!({ "rules": rules });
     if let Some(default) = &routes.default {
-        value["default"] = json!(routed_path(default));
+        value["default"] = json!(routed_path(base, default));
     }
     value
 }
 
-/// The app-channel URL path for a declared rule path: [`PUBSUB_ROUTE`] plus
-/// the rule path, normalized to exactly one leading `/`.
-fn routed_path(path: &str) -> String {
-    format!("{PUBSUB_ROUTE}/{}", path.trim_start_matches('/'))
+/// The app-channel URL path for a declared rule path: `base` plus the rule
+/// path, normalized to exactly one leading `/`.
+fn routed_path(base: &str, path: &str) -> String {
+    format!("{base}/{}", path.trim_start_matches('/'))
 }
 
 /// Deliver one CloudEvent. `rule_path` is the matched routing-rule path,
@@ -251,24 +285,149 @@ fn deliver_topic_event(body: Vec<u8>, rule_path: Option<String>) -> Response<Bod
             return json_response(StatusCode::OK, &json!({ "status": "DROP" }));
         }
     };
-    let status = match pubsub_callback::on_topic_event(&event) {
-        pubsub_callback::TopicEventResponse::Success => "SUCCESS",
-        pubsub_callback::TopicEventResponse::Retry => "RETRY",
-        pubsub_callback::TopicEventResponse::Drop => "DROP",
-    };
+    let status = status_name(pubsub_callback::on_topic_event(&event));
     json_response(StatusCode::OK, &json!({ "status": status }))
 }
 
+fn status_name(status: pubsub_callback::TopicEventResponse) -> &'static str {
+    match status {
+        pubsub_callback::TopicEventResponse::Success => "SUCCESS",
+        pubsub_callback::TopicEventResponse::Retry => "RETRY",
+        pubsub_callback::TopicEventResponse::Drop => "DROP",
+    }
+}
+
+/// Deliver a bulk envelope to `on-bulk-topic-event` and reply with Dapr's
+/// `{ "statuses": [{ entryId, status }] }`. Daprd builds the envelope in
+/// `pkg/runtime/pubsub/bulksubscribe_events.go`: a CloudEvent entry carries the
+/// parsed CloudEvent object in `event`; a raw-payload entry carries its bytes
+/// as a base64 string.
+///
+/// `rule_path` is the matched routing-rule path, recovered from the request
+/// URL; when set it overrides the envelope's `path` and every CloudEvent
+/// entry's `path` (daprd batches messages per matched route).
+fn deliver_bulk_topic_event(body: Vec<u8>, rule_path: Option<String>) -> Response<Body> {
+    let bulk = match parse_bulk_event(&body) {
+        Ok(mut bulk) => {
+            if rule_path.is_some() {
+                bulk.path = rule_path.clone();
+                for entry in &mut bulk.entries {
+                    if let pubsub_callback::BulkEvent::CloudEvent(event) = &mut entry.event {
+                        event.path = rule_path.clone();
+                    }
+                }
+            }
+            bulk
+        }
+        // An unparseable envelope can't be answered per entry. A 404 makes
+        // Dapr log an error and drop the whole batch (same as the single path).
+        Err(error) => {
+            eprintln!("dropping unparseable bulk envelope: {error}");
+            return text(StatusCode::NOT_FOUND, "unparseable bulk envelope");
+        }
+    };
+    let statuses: Vec<Value> = pubsub_callback::on_bulk_topic_event(&bulk)
+        .into_iter()
+        .map(|entry| json!({ "entryId": entry.entry_id, "status": status_name(entry.status) }))
+        .collect();
+    json_response(StatusCode::OK, &json!({ "statuses": statuses }))
+}
+
+fn parse_bulk_event(body: &[u8]) -> Result<pubsub_callback::BulkTopicEvent, String> {
+    let value: Value =
+        serde_json::from_slice(body).map_err(|e| format!("invalid bulk envelope JSON: {e}"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "bulk envelope is not a JSON object".to_string())?;
+    let take_str = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_string);
+    let topic = take_str("topic").unwrap_or_default();
+    let pubsub_name = take_str("pubsubname").unwrap_or_default();
+
+    let entries = object
+        .get("entries")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|entry| {
+            let entry_id = entry["entryId"].as_str().unwrap_or_default().to_string();
+            let content_type = entry["contentType"].as_str().map(str::to_string);
+            let event = match &entry["event"] {
+                Value::Object(cloud_event) => {
+                    let mut event = cloud_event_from_object(cloud_event)?;
+                    // Fill the routing fields from the envelope if the
+                    // CloudEvent lacks them.
+                    if event.topic.is_empty() {
+                        event.topic = topic.clone();
+                    }
+                    if event.pubsub_name.is_empty() {
+                        event.pubsub_name = pubsub_name.clone();
+                    }
+                    pubsub_callback::BulkEvent::CloudEvent(event)
+                }
+                Value::String(b64) => pubsub_callback::BulkEvent::Raw(base64_decode(b64)?),
+                other => {
+                    return Err(format!(
+                        "bulk entry {entry_id}: unexpected event shape {other}"
+                    ))
+                }
+            };
+            Ok(pubsub_callback::BulkTopicEventEntry {
+                entry_id,
+                event,
+                content_type,
+                metadata: string_map(&entry["metadata"]),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(pubsub_callback::BulkTopicEvent {
+        id: take_str("id").unwrap_or_default(),
+        entries,
+        metadata: string_map(object.get("metadata").unwrap_or(&Value::Null)),
+        topic,
+        pubsub_name,
+        type_: take_str("type").unwrap_or_default(),
+        path: take_str("path"),
+    })
+}
+
+/// A JSON object of strings as WIT `metadata` (non-strings become JSON text).
+fn string_map(value: &Value) -> Vec<(String, String)> {
+    value
+        .as_object()
+        .map(|object| {
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let text = value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| value.to_string());
+                    (key.clone(), text)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Parse a Dapr-delivered CloudEvent (structured JSON content mode) into the
-/// typed `topic-event`. The domain payload is returned in `data` as bytes:
-/// JSON `data` is re-serialized; `data_base64` is decoded.
+/// typed `topic-event`.
 fn parse_cloud_event(body: &[u8]) -> Result<pubsub_callback::TopicEvent, String> {
     let value: Value =
         serde_json::from_slice(body).map_err(|e| format!("invalid CloudEvent JSON: {e}"))?;
     let object = value
         .as_object()
         .ok_or_else(|| "CloudEvent is not a JSON object".to_string())?;
+    cloud_event_from_object(object)
+}
 
+/// Build a `topic-event` from a CloudEvent JSON object. The domain payload is
+/// returned in `data` as bytes: JSON `data` is re-serialized; `data_base64`
+/// is decoded.
+fn cloud_event_from_object(
+    object: &serde_json::Map<String, Value>,
+) -> Result<pubsub_callback::TopicEvent, String> {
     let take_str = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_string);
 
     let (data, data_content_type) =

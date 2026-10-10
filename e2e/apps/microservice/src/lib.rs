@@ -17,12 +17,16 @@
 //! - `PEER_APP_ID` — the *other* instance's app id, the target of
 //!   `invoke-peer` (cross-app service invocation via the sidecar).
 //! - `SUBSCRIBE` — when set, the app subscribes to the `orders` topic (the
-//!   consumer role) and declares the `ticks` input binding; when unset, it
+//!   consumer role), to the `orders-bulk` topic with bulk delivery, and
+//!   declares the `ticks` input binding; when unset, it
 //!   subscribes to nothing (the publisher role).
 //!   The subscription uses CEL routing rules: orders with `"priority": true`
 //!   go to [`PRIORITY_ROUTE`], all others to the default [`ORDERS_ROUTE`].
 //!   The consumer records the delivered `path` per order (`route-<orderId>`),
 //!   readable via `/route?order=N`.
+//!   `orders-bulk` is bulk-subscribed with a default route ([`BULK_ROUTE`]),
+//!   so bulk delivery and routing are exercised together; bulk entries record
+//!   their delivered `path` as `bulk-route-<orderId>` (`/bulk-route?order=N`).
 //!
 //! The test harness drives the control methods by HTTP-GETting them on the
 //! served app channel (`/smoke`, `/publish?n=N`, `/invoke-self`, …); the
@@ -33,7 +37,9 @@ use dapr_app::callback::bindings_callback::{
 };
 use dapr_app::callback::configuration_callback::ConfigurationUpdate;
 use dapr_app::callback::invocation_callback::{HttpResponse, InvokeRequest};
-use dapr_app::callback::pubsub_callback::{TopicEvent, TopicEventResponse, TopicSubscription};
+use dapr_app::callback::pubsub_callback::{
+    BulkTopicEvent, BulkTopicEventEntryResponse, TopicEvent, TopicEventResponse, TopicSubscription,
+};
 use dapr_app::dapr::types::AppError;
 use dapr_app::dapr::{invocation, runtime, secrets, state};
 use dapr_app::DaprApp;
@@ -43,6 +49,13 @@ const STATE_STORE: &str = "statestore";
 const PUBSUB: &str = "pubsub";
 const TOPIC: &str = "orders";
 const COUNTER_KEY: &str = "processed-count";
+/// The bulk-subscribed topic and its counters: orders processed, and bulk
+/// deliveries (batches) received.
+const BULK_TOPIC: &str = "orders-bulk";
+const BULK_COUNTER_KEY: &str = "bulk-processed-count";
+const BULK_BATCHES_KEY: &str = "bulk-batch-count";
+/// Default route of the `orders-bulk` subscription (bulk + routing together).
+pub const BULK_ROUTE: &str = "/orders-bulk";
 /// Default route of the `orders` subscription.
 pub const ORDERS_ROUTE: &str = "/orders";
 /// Route selected by the CEL rule for priority orders.
@@ -78,9 +91,14 @@ struct Microservice;
 impl DaprApp for Microservice {
     fn list_topic_subscriptions() -> Vec<TopicSubscription> {
         if subscribes() {
-            vec![TopicSubscription::new(PUBSUB, TOPIC)
-                .with_rule(PRIORITY_RULE, PRIORITY_ROUTE)
-                .with_default_route(ORDERS_ROUTE)]
+            vec![
+                TopicSubscription::new(PUBSUB, TOPIC)
+                    .with_rule(PRIORITY_RULE, PRIORITY_ROUTE)
+                    .with_default_route(ORDERS_ROUTE),
+                TopicSubscription::new(PUBSUB, BULK_TOPIC)
+                    .with_bulk_subscribe(Some(10), Some(500))
+                    .with_default_route(BULK_ROUTE),
+            ]
         } else {
             Vec::new()
         }
@@ -88,13 +106,33 @@ impl DaprApp for Microservice {
 
     fn on_topic_event(event: TopicEvent) -> TopicEventResponse {
         // `event.data` is the domain payload; the envelope is already parsed.
-        match process_order(&event.data, event.path.as_deref()) {
+        let (prefix, counter, route_prefix) = if event.topic == BULK_TOPIC {
+            ("bulk-order", BULK_COUNTER_KEY, "bulk-route")
+        } else {
+            ("order", COUNTER_KEY, "route")
+        };
+        match process_order(
+            &event.data,
+            event.path.as_deref(),
+            prefix,
+            counter,
+            route_prefix,
+        ) {
             Ok(()) => TopicEventResponse::Success,
             Err(error) => {
                 eprintln!("order processing failed: {error}");
                 TopicEventResponse::Retry
             }
         }
+    }
+
+    fn on_bulk_topic_event(event: BulkTopicEvent) -> Vec<BulkTopicEventEntryResponse> {
+        // Count the batch (proves delivery came through the bulk path), then
+        // let the SDK hand each entry to `on_topic_event`.
+        if let Err(error) = increment(BULK_BATCHES_KEY) {
+            eprintln!("counting bulk batch failed: {error}");
+        }
+        dapr_app::bulk_to_single(event, <Self as DaprApp>::on_topic_event)
     }
 
     fn list_input_bindings() -> Vec<String> {
@@ -152,10 +190,19 @@ impl DaprApp for Microservice {
     fn on_invoke(request: InvokeRequest) -> HttpResponse {
         let result = match request.method.as_str() {
             "count" | "summary" => read_counter(COUNTER_KEY).map(|c| json!({ "processed": c })),
+            "count-bulk" => read_counter(BULK_COUNTER_KEY).and_then(|processed| {
+                let batches = read_counter(BULK_BATCHES_KEY)?;
+                Ok(json!({ "processed": processed, "batches": batches }))
+            }),
+            "publish" => publish_orders(TOPIC, query_n(request.query.as_deref()))
+                .map(|n| json!({ "published": n })),
+            "publish-bulk" => publish_orders(BULK_TOPIC, query_n(request.query.as_deref()))
+                .map(|n| json!({ "published": n })),
+            "bulk-route" => read_route_at(
+                "bulk-route",
+                query_param(request.query.as_deref(), "order").unwrap_or(0),
+            ),
             "binding" => binding_status(),
-            "publish" => {
-                publish_orders(query_n(request.query.as_deref())).map(|n| json!({ "published": n }))
-            }
             "publish-priority" => publish_priority_order().map(|id| json!({ "published": id })),
             "route" => read_route(query_param(request.query.as_deref(), "order").unwrap_or(0)),
             "smoke" => smoke(StateValue::Json),
@@ -214,7 +261,12 @@ fn publish_priority_order() -> Result<u64, String> {
 
 /// The route an order was delivered on (`null` if not delivered yet).
 fn read_route(order_id: u64) -> Result<serde_json::Value, String> {
-    match state::get(STATE_STORE, &format!("route-{order_id}"), None, &[]) {
+    read_route_at("route", order_id)
+}
+
+/// The route stored under `<prefix>-<order_id>` (`null` if not delivered yet).
+fn read_route_at(prefix: &str, order_id: u64) -> Result<serde_json::Value, String> {
+    match state::get(STATE_STORE, &format!("{prefix}-{order_id}"), None, &[]) {
         Ok(response) if response.data.is_empty() => Ok(json!({ "route": null })),
         Ok(response) => {
             let route: serde_json::Value = serde_json::from_slice(&response.data)
@@ -226,11 +278,11 @@ fn read_route(order_id: u64) -> Result<serde_json::Value, String> {
     }
 }
 
-fn publish_orders(n: u64) -> Result<u64, String> {
+fn publish_orders(topic: &str, n: u64) -> Result<u64, String> {
     for order_id in 1..=n {
         dapr_app::dapr::pubsub::publish(
             PUBSUB,
-            TOPIC,
+            topic,
             json!({ "orderId": order_id }).to_string().as_bytes(),
             Some("application/json"),
             &[],
@@ -393,7 +445,13 @@ fn invoke_peer() -> Result<serde_json::Value, String> {
     Ok(json!({ "processed": summary["processed"].as_u64().unwrap_or(0) }))
 }
 
-fn process_order(order: &[u8], path: Option<&str>) -> Result<(), String> {
+fn process_order(
+    order: &[u8],
+    path: Option<&str>,
+    key_prefix: &str,
+    counter_key: &str,
+    route_prefix: &str,
+) -> Result<(), String> {
     let order: serde_json::Value =
         serde_json::from_slice(order).map_err(|e| format!("invalid order payload: {e}"))?;
     let order_id = order["orderId"]
@@ -404,7 +462,7 @@ fn process_order(order: &[u8], path: Option<&str>) -> Result<(), String> {
         STATE_STORE,
         &[
             state::StateItem {
-                key: format!("order-{order_id}"),
+                key: format!("{key_prefix}-{order_id}"),
                 value: order.to_string().into_bytes(),
                 etag: None,
                 metadata: Vec::new(),
@@ -412,7 +470,7 @@ fn process_order(order: &[u8], path: Option<&str>) -> Result<(), String> {
             },
             // The route the sidecar's CEL routing picked for this order.
             state::StateItem {
-                key: format!("route-{order_id}"),
+                key: format!("{route_prefix}-{order_id}"),
                 value: json!(path).to_string().into_bytes(),
                 etag: None,
                 metadata: Vec::new(),
@@ -423,8 +481,8 @@ fn process_order(order: &[u8], path: Option<&str>) -> Result<(), String> {
     )
     .map_err(|e| format!("saving order failed: {e:?}"))?;
 
-    increment(COUNTER_KEY)?;
-    println!("processed order {order_id}");
+    increment(counter_key)?;
+    println!("processed {key_prefix} {order_id}");
     Ok(())
 }
 

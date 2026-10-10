@@ -23,6 +23,11 @@
 //!             callback::pubsub_callback::TopicSubscription::new("pubsub", "inventory")
 //!                 .with_rule(r#"event.type == "widget""#, "/widgets")
 //!                 .with_default_route("/products"),
+//!             // Opt in to bulk delivery: batches of up to 10 events, at most
+//!             // 100 ms apart. The default `on_bulk_topic_event` still calls
+//!             // `on_topic_event` once per entry.
+//!             callback::pubsub_callback::TopicSubscription::new("pubsub", "audit")
+//!                 .with_bulk_subscribe(Some(10), Some(100)),
 //!         ]
 //!     }
 //!     fn on_topic_event(
@@ -91,6 +96,13 @@ pub trait DaprApp {
     /// declared, this is never reached).
     fn on_topic_event(event: pc::TopicEvent) -> pc::TopicEventResponse {
         pc::TopicEventResponse::Drop
+    }
+
+    /// Handle a batch of events for a bulk-subscribed topic. Default: call
+    /// [`DaprApp::on_topic_event`] once per entry (see [`bulk_to_single`]), so
+    /// an app can opt a subscription in to bulk delivery without new code.
+    fn on_bulk_topic_event(event: pc::BulkTopicEvent) -> Vec<pc::BulkTopicEventEntryResponse> {
+        bulk_to_single(event, <Self as DaprApp>::on_topic_event)
     }
 
     // --- input bindings ---
@@ -176,9 +188,12 @@ pub trait DaprApp {
 
 /// Builder-style constructors for subscriptions, so apps don't spell out every
 /// record field (and keep compiling as optional fields are added).
+/// Builder-style constructors for subscriptions, so apps don't spell out every
+/// record field (and keep compiling as optional fields are added).
 impl pc::TopicSubscription {
     /// Subscribe to `topic` on `pubsub_name`: no metadata, no dead-letter
-    /// topic, no routing rules (one route for the whole topic).
+    /// topic, no routing rules (one route for the whole topic), one event per
+    /// delivery (no bulk).
     pub fn new(pubsub_name: impl Into<String>, topic: impl Into<String>) -> Self {
         Self {
             pubsub_name: pubsub_name.into(),
@@ -186,7 +201,23 @@ impl pc::TopicSubscription {
             metadata: Vec::new(),
             dead_letter_topic: None,
             routes: None,
+            bulk_subscribe: None,
         }
+    }
+
+    /// Opt in to bulk delivery (Dapr `bulkSubscribe`). `None` limits use the
+    /// Dapr defaults. Batches arrive at [`DaprApp::on_bulk_topic_event`].
+    pub fn with_bulk_subscribe(
+        mut self,
+        max_messages_count: Option<i32>,
+        max_await_duration_ms: Option<i32>,
+    ) -> Self {
+        self.bulk_subscribe = Some(pc::BulkSubscribeConfig {
+            enabled: true,
+            max_messages_count,
+            max_await_duration_ms,
+        });
+        self
     }
 
     /// Add one subscription metadata entry (e.g. `rawPayload`).
@@ -228,6 +259,42 @@ impl pc::TopicSubscription {
     }
 }
 
+/// Handle a bulk delivery one entry at a time with a single-event handler,
+/// and collect one status per entry. A CloudEvent entry is passed as is. A raw
+/// entry becomes a `topic-event` with `id` = the entry id, the raw bytes as
+/// `data`, the entry content type, and the batch's topic, pub/sub name, type
+/// and path.
+pub fn bulk_to_single(
+    event: pc::BulkTopicEvent,
+    mut handle: impl FnMut(pc::TopicEvent) -> pc::TopicEventResponse,
+) -> Vec<pc::BulkTopicEventEntryResponse> {
+    event
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let single = match entry.event {
+                pc::BulkEvent::CloudEvent(cloud_event) => cloud_event,
+                pc::BulkEvent::Raw(data) => pc::TopicEvent {
+                    id: entry.entry_id.clone(),
+                    source: String::new(),
+                    type_: event.type_.clone(),
+                    spec_version: "1.0".to_string(),
+                    data_content_type: entry.content_type,
+                    data,
+                    topic: event.topic.clone(),
+                    pubsub_name: event.pubsub_name.clone(),
+                    path: event.path.clone(),
+                    extensions: Vec::new(),
+                },
+            };
+            pc::BulkTopicEventEntryResponse {
+                entry_id: entry.entry_id,
+                status: handle(single),
+            }
+        })
+        .collect()
+}
+
 // Bridge the generated per-interface `Guest` traits to the single `DaprApp`
 // trait via blanket impls, so an app type that implements `DaprApp` satisfies
 // every callback export.
@@ -244,6 +311,9 @@ impl<T: DaprApp> pc::Guest for T {
     }
     fn on_topic_event(event: pc::TopicEvent) -> pc::TopicEventResponse {
         <T as DaprApp>::on_topic_event(event)
+    }
+    fn on_bulk_topic_event(event: pc::BulkTopicEvent) -> Vec<pc::BulkTopicEventEntryResponse> {
+        <T as DaprApp>::on_bulk_topic_event(event)
     }
 }
 

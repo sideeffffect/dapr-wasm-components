@@ -35,7 +35,7 @@ Write your app against the interfaces, [compose](#composing) it with an outbound
 | Interface | Delivered flow | Functions |
 |---|---|---|
 | `invocation-callback` | Service-invocation requests | `on-invoke` |
-| `pubsub-callback` | Topic subscriptions (optional CEL routing rules: `routes { rules: [{match, path}], default }`) + deliveries (`path` = the matched route) | `list-topic-subscriptions`, `on-topic-event` |
+| `pubsub-callback` | Topic subscriptions (optional CEL routing rules: `routes { rules: [{match, path}], default }`; optional **bulk subscribe**) + deliveries (single or batched; `path` = the matched route) | `list-topic-subscriptions`, `on-topic-event`, `on-bulk-topic-event` |
 | `bindings-callback` | Input bindings + deliveries | `list-input-bindings`, `on-binding-event` |
 | `jobs-callback` | Job triggers | `on-job-event` |
 | `actors-callback` | Actor hosting (HTTP app channel only) | `config`, `on-invoke`, `on-timer`, `on-reminder`, `deactivate` |
@@ -141,6 +141,10 @@ impl DaprApp for App {
             ps::TopicSubscription::new("pubsub", "inventory")
                 .with_rule(r#"event.type == "widget""#, "/widgets")
                 .with_default_route("/products"),
+            // Bulk subscribe: batches of up to 100 events. The default
+            // `on_bulk_topic_event` calls `on_topic_event` once per entry;
+            // override it to handle the whole batch.
+            ps::TopicSubscription::new("pubsub", "audit").with_bulk_subscribe(Some(100), None),
         ]
     }
     fn on_topic_event(event: ps::TopicEvent) -> ps::TopicEventResponse {
@@ -278,7 +282,7 @@ Experimental. Tracked follow-up work lives in [ROADMAP.md](ROADMAP.md).
 - The whole Dapr **outbound** HTTP API surface is covered, including alpha APIs (lock, crypto, state query, conversation) — alpha APIs can change with Dapr releases.
 - Values in the HTTP state/bindings APIs are JSON: bytes that parse as JSON are sent as-is, anything else is sent as a JSON string (UTF-8 lossy). Store JSON if you need byte-exact roundtrips — **or use the wasi-grpc provider**, where values are raw protobuf bytes.
 - Crypto is one-shot (no streaming). Conversation models the full alpha2 surface: content-part messages with role wrappers, tool definitions and tool calls, structured-output schema, prompt-cache retention, and per-token usage in the response.
-- **Inbound (Dapr → app) is typed via the `*-callback` interfaces**, implemented by the **`wasi-http-inbound`** provider (full HTTP app-channel router) and the `dapr-app` SDK; both real-Dapr E2Es exercise it (pub/sub delivery + service invocation, self and cross-app). Pub/sub supports CEL routing rules (the matched rule path arrives in `topic-event.path`; verified through real daprd), but not bulk subscribe yet; input bindings are delivered end to end in both real-Dapr E2Es, but note that **daprd ignores the input-binding reply** over the HTTP app channel (and applies only `to`/`data`/`concurrency` over gRPC) — do side effects with the outbound `state`/`bindings` interfaces instead; configuration-update delivery (`configuration-callback`) is wired in the router (`POST /configuration/<store>/<key>`) and covered by a composed in-process test.
+- **Inbound (Dapr → app) is typed via the `*-callback` interfaces**, implemented by the **`wasi-http-inbound`** provider (full HTTP app-channel router) and the `dapr-app` SDK; both real-Dapr E2Es exercise it (pub/sub delivery + service invocation, self and cross-app). Pub/sub supports CEL routing rules (the matched rule path arrives in `topic-event.path`; verified through real daprd), and bulk subscribe (`topic-subscription.bulk-subscribe` + `on-bulk-topic-event`, with an SDK default that loops over `on-topic-event`; combinable with routing rules); both real-Dapr E2Es deliver a routed topic and a bulk-subscribed topic; input bindings are delivered end to end in both real-Dapr E2Es, but note that **daprd ignores the input-binding reply** over the HTTP app channel (and applies only `to`/`data`/`concurrency` over gRPC) — do side effects with the outbound `state`/`bindings` interfaces instead; configuration-update delivery (`configuration-callback`) is wired in the router (`POST /configuration/<store>/<key>`) and covered by a composed in-process test.
 - **Inbound transport is independent of outbound.** The portable `wasi-http-inbound` provider serves the HTTP app channel on any runtime (including behind a `wasi-grpc`-outbound app). The `wasi-grpc-inbound` provider serves Dapr's `AppCallback` gRPC service (`--app-protocol grpc`); it is verified working over Spin's inbound h2c with `grpcurl` (`ListTopicSubscriptions`, `HealthCheck`) but does not yet have an automated daprd `--app-protocol grpc` E2E. Actor *hosting* is HTTP-only regardless, since Dapr's `AppCallback` has no actor methods.
 - The wasi-grpc (outbound) provider remains a proof of concept: it runs only on Spin ≥ 3.4 (outbound h2c), its h2c allowlist holds a single authority, and most interfaces are compile-checked but only the E2E surface (state, invocation, pub/sub, metadata) is integration-tested.
 

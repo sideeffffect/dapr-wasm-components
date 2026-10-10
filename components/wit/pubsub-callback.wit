@@ -1,11 +1,28 @@
 /// Inbound pub/sub — the application side of Dapr publish & subscribe.
 /// `list-topic-subscriptions` declares what the app subscribes to (the
 /// provider renders it to `GET /dapr/subscribe` or `ListTopicSubscriptions`),
-/// and `on-topic-event` receives each delivered CloudEvent. Mirrors
-/// `AppCallback.ListTopicSubscriptions` / `OnTopicEvent`.
+/// `on-topic-event` receives each delivered CloudEvent, and
+/// `on-bulk-topic-event` receives a batch for a bulk-subscribed topic. Mirrors
+/// `AppCallback.ListTopicSubscriptions` / `OnTopicEvent` / `OnBulkTopicEvent`.
 /// https://docs.dapr.io/reference/api/pubsub_api/
+/// https://docs.dapr.io/developing-applications/building-blocks/pubsub/pubsub-bulk/
 interface pubsub-callback {
   use types.{metadata};
+
+  /// Bulk subscribe settings for one subscription (Dapr `bulkSubscribe` /
+  /// `BulkSubscribeConfig`). When `enabled`, the sidecar delivers batches of
+  /// events to `on-bulk-topic-event` instead of single events to
+  /// `on-topic-event`.
+  record bulk-subscribe-config {
+    /// Turns bulk delivery on or off for this subscription.
+    enabled: bool,
+    /// Max number of events in one batch (`maxMessagesCount`). `none` uses
+    /// the Dapr default (100).
+    max-messages-count: option<s32>,
+    /// Max time in milliseconds the sidecar waits to fill a batch before it
+    /// delivers it (`maxAwaitDurationMs`). `none` uses the Dapr default.
+    max-await-duration-ms: option<s32>,
+  }
 
   /// One routing rule: when the CEL expression `match` evaluates to true for
   /// an event, the sidecar delivers it to `path`. Rules are evaluated in
@@ -29,8 +46,7 @@ interface pubsub-callback {
     default: option<string>,
   }
 
-  /// One topic this application subscribes to. Bulk subscribe is not
-  /// modelled in this version.
+  /// One topic this application subscribes to.
   record topic-subscription {
     pubsub-name: string,
     topic: string,
@@ -39,6 +55,8 @@ interface pubsub-callback {
     /// CEL routing rules. `none` = one route for the whole topic: events
     /// arrive without a `path`; dispatch in-app on (`pubsub-name`, `topic`).
     routes: option<topic-routes>,
+    /// Opt in to bulk delivery. `none` = one event per call.
+    bulk-subscribe: option<bulk-subscribe-config>,
   }
 
   /// A delivered event, compatible with CloudEvents spec v1.0. The provider
@@ -68,10 +86,52 @@ interface pubsub-callback {
     drop,
   }
 
+  /// The content of one entry in a bulk delivery.
+  variant bulk-event {
+    /// A CloudEvent; the provider parses the envelope as for `on-topic-event`.
+    cloud-event(topic-event),
+    /// A raw payload (the subscription has `rawPayload: true`), byte-exact.
+    raw(list<u8>),
+  }
+
+  /// One entry of a bulk delivery (`TopicEventBulkRequestEntry`).
+  record bulk-topic-event-entry {
+    /// Unique id of this entry; echo it back in the response.
+    entry-id: string,
+    event: bulk-event,
+    /// The content type of the entry's event.
+    content-type: option<string>,
+    metadata: metadata,
+  }
+
+  /// A batch of events for a bulk-subscribed topic (`TopicEventBulkRequest`).
+  record bulk-topic-event {
+    /// Unique id of this bulk request.
+    id: string,
+    entries: list<bulk-topic-event-entry>,
+    metadata: metadata,
+    topic: string,
+    pubsub-name: string,
+    %type: string,
+    /// The matched subscription path, when the sidecar supplies one.
+    path: option<string>,
+  }
+
+  /// The app's status for one entry of a bulk delivery
+  /// (`TopicEventBulkResponseEntry`). An entry with no status is retried.
+  record bulk-topic-event-entry-response {
+    entry-id: string,
+    status: topic-event-response,
+  }
+
   /// Declares the topics this app subscribes to. Called at startup.
   list-topic-subscriptions: func() -> list<topic-subscription>;
 
   /// Handle one delivered event. Dispatch on (`pubsub-name`, `topic`) and,
   /// for routed subscriptions, on `path`.
   on-topic-event: func(event: topic-event) -> topic-event-response;
+
+  /// Handle one batch of events for a bulk-subscribed topic. Return one
+  /// status per entry, keyed by `entry-id`.
+  on-bulk-topic-event: func(event: bulk-topic-event) -> list<bulk-topic-event-entry-response>;
 }
