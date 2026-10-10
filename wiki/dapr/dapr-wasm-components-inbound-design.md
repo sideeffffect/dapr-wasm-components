@@ -310,7 +310,7 @@ Same typed handler imports; the transport is Dapr's **`AppCallback`** gRPC servi
 | `OnInvoke` | `invocation-handler.handle()` (and actor invoke, depending on daprd routing) |
 | `AppCallbackHealthCheck.HealthCheck` | `health.check()` |
 | `AppCallbackAlpha.OnJobEventAlpha1` | `jobs-handler.on-job()` |
-| `AppCallbackAlpha.OnBulkTopicEventAlpha1` | (out of scope v1 — see limitations) |
+| `OnBulkTopicEvent` (+ deprecated `AppCallbackAlpha.OnBulkTopicEventAlpha1`) | `pubsub-callback.on-bulk-topic-event` (since `0.6.0`) |
 
 **Risk to verify:** serving gRPC from wasm = exporting `wasi:http/incoming-handler` and decoding HTTP/2 + gRPC framing into tonic **server** codegen. The outbound provider proved the tonic **client** path over `wasi-grpc`/`wasi-hyperium`; the **server** direction (incoming) needs confirmation that `wasi-hyperium` supports it. If not, fallback is hand-rolled gRPC framing over `wasi:http/incoming-handler`, or land wasi-grpc inbound after wasi-http (the typed boundary is identical, so it's purely a new transport). Actor hosting over gRPC is historically constrained in `AppCallback`; document whatever daprd 1.18 actually supports.
 
@@ -327,11 +327,21 @@ Mirror every WIT change across: **both** providers, the e2e mock + tests, the de
 
 ## v1 limitations (documented, deferred)
 
-- **No bulk subscribe**, no CEL **routing rules** / multiple routes per topic — one route per (pubsub, topic); the app does content routing internally.
+- ~~**No bulk subscribe**~~ — shipped in `0.6.0` (see *Bulk subscribe* below). Still no CEL **routing rules** / multiple routes per topic — one route per (pubsub, topic); the app does content routing internally.
 - **Configuration inbound** depends on adding outbound config subscribe (above); shipped together or config inbound is a no-op until then.
 - **Actor** reentrancy/turn-based concurrency relies on the single-threaded wasm instance; reentrancy config is surfaced but enforced by daprd. gRPC actor hosting may be constrained.
 - **Binding-response** exact JSON field names (`state`/`to`/`concurrency`/`data`) to be pinned against the HTTP API reference during implementation.
 - wasi-grpc **incoming/server** transport support is unconfirmed (see risk above).
+
+## Bulk subscribe (as built, `0.6.0`, 2026-10-10)
+
+Dapr bulk subscribe lets a subscription opt in (`bulkSubscribe: {enabled, maxMessagesCount, maxAwaitDurationMs}`); the sidecar then delivers a batch and the app answers with a per-entry SUCCESS / RETRY / DROP. Shapes were verified against the [pub/sub API reference](https://docs.dapr.io/reference/api/pubsub_api/), the [bulk guide](https://docs.dapr.io/developing-applications/building-blocks/pubsub/pubsub-bulk/), the vendored v1.18 protos, and daprd `release-1.18` source.
+
+- **WIT.** `topic-subscription.bulk-subscribe: option<bulk-subscribe-config>`; `on-bulk-topic-event(bulk-topic-event) -> list<bulk-topic-event-entry-response>`. An entry's `event` is a `variant bulk-event { cloud-event(topic-event), raw(list<u8>) }` — faithful to the proto `oneof` (`cloud_event` / `bytes`). Statuses reuse the single-event `topic-event-response` enum. The result is a plain list (no `app-error`), like `on-topic-event`; an entry the app leaves out is retried by Dapr.
+- **HTTP wire.** daprd POSTs `{ id, type, topic, pubsubname, metadata, entries: [{ entryId, event, contentType, metadata }] }` to the subscription route (`pkg/runtime/pubsub/bulksubscribe_events.go`). A CloudEvent entry carries the *parsed CloudEvent object* in `event`; a raw-payload entry carries its bytes as a *base64 string* (`pkg/runtime/subscription/bulksubscription.go`). The reply is `{ "statuses": [{ entryId, status }] }`. Because the single and bulk bodies differ, `wasi-http-inbound` advertises bulk subscriptions on a **separate route** (`/__dapr_wasm_components/pubsub-bulk`). An unparseable envelope gets a 404 (Dapr drops the batch).
+- **gRPC wire.** daprd calls `AppCallback.OnBulkTopicEvent` and falls back to `AppCallbackAlpha.OnBulkTopicEventAlpha1` only on `UNIMPLEMENTED`; `wasi-grpc-inbound` serves both paths with one handler. The CloudEvent entry (`TopicEventCERequest`) has no topic/pubsub, so the provider fills them from the batch. `BulkSubscribeConfig` limits are `int32` where `0` = unset.
+- **SDK.** `DaprApp::on_bulk_topic_event` defaults to `bulk_to_single(event, on_topic_event)` — existing apps keep working when a subscription opts in. A raw entry is turned into a `topic-event` (`id` = entry id, batch topic/pubsub/type/path). Opt-in helpers: `TopicSubscription::new(..)`, `.with_bulk_subscribe(max_count, max_await_ms)`, `.with_dead_letter_topic(..)`.
+- **Tests.** Composed in-process (`e2e/tests/composed.rs`: `inbound_subscribe_advertises_bulk_subscribe`, `inbound_bulk_topic_event_is_delivered` — CloudEvent + raw + RETRY entries) and the shared real-Dapr scenario (`orders-bulk` topic; the consumer counts batches to prove the bulk path). Both real-Dapr suites use the HTTP app channel, so the gRPC bulk server path is compile-checked only.
 
 ## See Also
 

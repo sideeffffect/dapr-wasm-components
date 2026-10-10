@@ -369,8 +369,8 @@ pub struct Endpoints<'a> {
     /// Instance with app id `publisher` (does not subscribe): publishes,
     /// invokes, and runs the state smoke checks.
     pub publisher_base: &'a str,
-    /// Instance with app id `consumer` (subscribes to `orders`): processes
-    /// deliveries into its counter.
+    /// Instance with app id `consumer` (subscribes to `orders`, and to
+    /// `orders-bulk` with bulk delivery): processes deliveries into counters.
     pub consumer_base: &'a str,
     /// Also assert a *binary* (non-JSON) byte-exact state roundtrip. Only the
     /// gRPC provider can do that (raw protobuf bytes), so only the wasi-grpc
@@ -380,7 +380,8 @@ pub struct Endpoints<'a> {
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
 /// runtime: state roundtrip + etag CAS + delete, service invocation (self and
-/// cross-app), and a cross-sidecar pub/sub publish→deliver→count loop. Panics
+/// cross-app), and cross-sidecar pub/sub publish→deliver→count loops (single
+/// and bulk subscribe). Panics
 /// (with context) on the first failed assertion.
 pub fn run_mirrored_scenario(endpoints: Endpoints) {
     let Endpoints {
@@ -420,6 +421,32 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         assert!(
             Instant::now() < deadline,
             "orders were not all processed in time: {count}"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    // 5b. Bulk subscribe: the consumer subscribes to `orders-bulk` with
+    //     `bulkSubscribe` enabled, so daprd delivers the three orders in
+    //     batches to `on-bulk-topic-event` (the app counts each batch).
+    let published = get_json(&format!("{publisher_base}/publish-bulk?n=3"));
+    assert_eq!(
+        published["published"], 3,
+        "bulk publish failed: {published}"
+    );
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        let count = get_json(&format!("{consumer_base}/count-bulk"));
+        if count["processed"] == 3 {
+            let batches = count["batches"].as_u64().unwrap_or(0);
+            assert!(
+                (1..=3).contains(&batches),
+                "bulk orders did not arrive through bulk delivery: {count}"
+            );
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "bulk orders were not all processed in time: {count}"
         );
         std::thread::sleep(Duration::from_millis(500));
     }
