@@ -16,10 +16,10 @@ http-body-util = "0.1"
 hyper = "1"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }
-wac-graph = "0.10"
-wasmtime = "45"
-wasmtime-wasi = "45"
-wasmtime-wasi-http = "45"
+wac-graph = "0.12"
+wasmtime = "49"
+wasmtime-wasi = "49"
+wasmtime-wasi-http = "49"
 
 [dev-dependencies]
 tempfile = "3"
