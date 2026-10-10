@@ -104,6 +104,7 @@ impl DaprApp for Microservice {
             "invoke-self" => invoke_self(),
             "invoke-peer" => invoke_peer(),
             "echo" => Ok(json!({ "echo": String::from_utf8_lossy(&request.data).into_owned() })),
+            "crypto" => crypto_check(request.query.as_deref()),
             _ => return json_response(404, &json!({ "error": "not found" })),
         };
         match result {
@@ -121,6 +122,89 @@ fn json_response(status: u16, value: &serde_json::Value) -> HttpResponse {
         headers: vec![("content-type".to_string(), "application/json".to_string())],
         body: value.to_string().into_bytes(),
     }
+}
+
+/// A `name=value` query parameter.
+fn query_param<'a>(query: Option<&'a str>, name: &str) -> Option<&'a str> {
+    query
+        .unwrap_or("")
+        .split('&')
+        .find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))
+}
+
+/// Payload of the streaming crypto check: 3 MiB, under daprd's default 4Mi
+/// HTTP body limit once encrypted.
+const CRYPTO_PAYLOAD: usize = 3 * 1024 * 1024;
+/// Write size of the streaming crypto check.
+const CRYPTO_CHUNK: usize = 64 * 1024;
+
+/// Streaming crypto against the real sidecar (`?component=…&key=…`):
+/// encrypt [`CRYPTO_PAYLOAD`] bytes in [`CRYPTO_CHUNK`] writes, read the
+/// ciphertext in chunks, decrypt it the same way and compare; decrypt the
+/// same ciphertext one-shot; and expect `component-not-found` for an unknown
+/// component.
+fn crypto_check(query: Option<&str>) -> Result<serde_json::Value, String> {
+    use dapr_app::dapr::crypto::{
+        CryptoError, CryptoOutput, Decryptor, EncryptError, EncryptOptions, Encryptor,
+    };
+
+    let component = query_param(query, "component").ok_or("missing component")?;
+    let key = query_param(query, "key").ok_or("missing key")?;
+    let options = EncryptOptions {
+        key_name: key.to_string(),
+        key_wrap_algorithm: "A256KW".to_string(),
+        data_encryption_cipher: None,
+        omit_decryption_key_name: None,
+        decryption_key_name: None,
+    };
+    let read_all = |output: CryptoOutput| {
+        let mut bytes = Vec::new();
+        while let Some(chunk) = output.read(CRYPTO_CHUNK as u64) {
+            bytes.extend(chunk);
+        }
+        bytes
+    };
+    let plaintext: Vec<u8> = (0..CRYPTO_PAYLOAD).map(|i| (i * 7 % 253) as u8).collect();
+
+    let encryptor = Encryptor::new(component, &options);
+    for chunk in plaintext.chunks(CRYPTO_CHUNK) {
+        encryptor
+            .write(chunk)
+            .map_err(|e| format!("encrypt write: {e:?}"))?;
+    }
+    let ciphertext = read_all(Encryptor::finish(encryptor).map_err(|e| format!("encrypt: {e:?}"))?);
+
+    let decryptor = Decryptor::new(component, None);
+    for chunk in ciphertext.chunks(CRYPTO_CHUNK) {
+        decryptor
+            .write(chunk)
+            .map_err(|e| format!("decrypt write: {e:?}"))?;
+    }
+    let decrypted = read_all(Decryptor::finish(decryptor).map_err(|e| format!("decrypt: {e:?}"))?);
+    if decrypted != plaintext {
+        return Err("streaming crypto roundtrip mismatch".to_string());
+    }
+
+    let one_shot = dapr_app::dapr::crypto::decrypt(component, &ciphertext, None)
+        .map_err(|e| format!("one-shot decrypt: {e:?}"))?;
+    if one_shot != plaintext {
+        return Err("one-shot decrypt mismatch".to_string());
+    }
+
+    let missing = Encryptor::new("no-such-crypto", &options);
+    let rejected = missing
+        .write(b"hello")
+        .and_then(|()| Encryptor::finish(missing).map(|_| ()));
+    if !matches!(
+        rejected,
+        Err(EncryptError::Crypto(CryptoError::ComponentNotFound(_)))
+    ) {
+        return Err(format!(
+            "unknown component: expected component-not-found, got {rejected:?}"
+        ));
+    }
+
+    Ok(json!({ "ok": true, "plaintext": plaintext.len(), "ciphertext": ciphertext.len() }))
 }
 
 /// Extract `n` from a `n=N` query string (default 1).

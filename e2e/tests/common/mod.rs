@@ -343,6 +343,7 @@ spec:
 "#
         ),
     );
+    write_crypto_resources(dir);
     std::fs::write(
         dir.join(CONFIG_FILE),
         format!(
@@ -363,6 +364,46 @@ spec:
     relax_permissions(dir);
 }
 
+/// Name of the crypto component both real-Dapr suites load.
+pub const CRYPTO_COMPONENT: &str = "e2ecrypto";
+/// The key the scenario encrypts with: a file under the component's `path`.
+pub const CRYPTO_KEY: &str = "e2e-key.json";
+
+/// A `crypto.dapr.localstorage` component (`e2ecrypto`) reading keys from
+/// `<DAPRD_MOUNT>/keys`, plus one fixed AES-256 test key as a JWK (`oct`) —
+/// a test fixture, not a secret.
+fn write_crypto_resources(dir: &Path) {
+    write_resource(
+        dir,
+        "crypto.yaml",
+        &format!(
+            r#"apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {CRYPTO_COMPONENT}
+spec:
+  type: crypto.dapr.localstorage
+  version: v1
+  metadata:
+  - name: path
+    value: "{DAPRD_MOUNT}/keys"
+"#
+        ),
+    );
+    let keys = dir.join("keys");
+    std::fs::create_dir_all(&keys).unwrap();
+    std::fs::write(
+        keys.join(CRYPTO_KEY),
+        r#"{"kty":"oct","k":"r-S0HpwnrbMQu0HaXbOxfc24sG70xGK2_iD4b2UiX5c"}"#,
+    )
+    .unwrap();
+    for (path, mode) in [(keys.clone(), 0o755), (keys.join(CRYPTO_KEY), 0o644)] {
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, mode);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+}
+
 /// The two app instances of the mirrored scenario, addressed by their app
 /// channel base URLs (e.g. `http://127.0.0.1:8091`).
 pub struct Endpoints<'a> {
@@ -380,7 +421,8 @@ pub struct Endpoints<'a> {
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
 /// runtime: state roundtrip + etag CAS + delete, service invocation (self and
-/// cross-app), and a cross-sidecar pub/sub publish→deliver→count loop. Panics
+/// cross-app), a cross-sidecar pub/sub publish→deliver→count loop, and a
+/// streaming crypto roundtrip. Panics
 /// (with context) on the first failed assertion.
 pub fn run_mirrored_scenario(endpoints: Endpoints) {
     let Endpoints {
@@ -428,4 +470,12 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
     //    the sidecars to resolve each other's app ids).
     let peer = get_json(&format!("{publisher_base}/invoke-peer"));
     assert_eq!(peer["processed"], 3, "cross-app invocation failed: {peer}");
+
+    // 7. Streaming crypto against a real crypto component: a 3 MiB payload
+    //    encrypted and decrypted in 64 KiB writes (under daprd's 4Mi HTTP
+    //    body limit), the one-shot form, and component-not-found.
+    let crypto = get_json(&format!(
+        "{publisher_base}/crypto?component={CRYPTO_COMPONENT}&key={CRYPTO_KEY}"
+    ));
+    assert_eq!(crypto["ok"], true, "crypto failed: {crypto}");
 }
