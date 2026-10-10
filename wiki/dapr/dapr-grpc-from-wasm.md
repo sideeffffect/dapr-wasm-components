@@ -128,6 +128,19 @@ Nothing that blocks the gRPC transport has moved since June 2026:
 
 Consequence: the Spin-only, single-authority limitation of `wasi-grpc-outbound` stands. The portable fix is still the guest-side `h2` over `wasi:sockets` path above. No upstream change will remove it.
 
+## Wider landscape (2026-10-10)
+
+> Raw: [wasm-grpc-landscape-2026-10](../../raw/dapr/wasm-grpc-landscape-2026-10.md)
+
+The re-check above looked only at Spin and wasmtime. A wider search changes the picture:
+
+- **Spin is not abandoned.** Spin 4.0–4.2.2 shipped Apr–Oct 2026. It is a CNCF Sandbox project; Akamai bought Fermyon (Dec 2025) and keeps funding it. The stale part is the **`fermyon/wasi-grpc` crate** (no commit since Oct 2025, tonic 0.13).
+- **wasmCloud v2 does host-side gRPC over plain `wasi:http`.** `wash-runtime` sends every outgoing request with `content-type: application/grpc*` over a pooled HTTP/2 connection: h2c by prior knowledge for `http://`, ALPN h2 for `https://`. There is no env var and no fixed authority. Inbound serves h1 and h2c on one port. Its `grpc-hello-world` client is **`wstd` 0.6 + tonic 0.14 codegen-only + a ~60-line `tower::Service`** — the same stack as `wasi-http-outbound`, with no `wasi-grpc`/`wasi-hyperium`/`spin-executor`.
+- **Guest-side h2 got easier.** tokio 1.51 (Apr 2026) added `wasm32-wasip2` networking (`--cfg tokio_unstable`, no DNS). So hyper's `client::conn::http2` over `tokio::net::TcpStream` can now run in the guest. tonic's `channel` still does not compile on wasip2 ([grpc-rust#2910](https://github.com/grpc/grpc-rust/pull/2910) open), so keep codegen-only tonic + own `tower::Service`.
+- **Standards: no movement.** The wasi-http HTTP/2 handlers PR ([wasi-http#129](https://github.com/WebAssembly/wasi-http/pull/129)) closed unmerged. Wasmtime has no h2 work open.
+
+Implication for `wasi-grpc-outbound`: rebuilding it on `wstd` + tonic codegen (dropping `wasi-grpc`/`spin-executor`) gives one artifact that runs on **wasmCloud v2** (any authority, no knob) and **Spin** (still with `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`). It also unblocks the tonic/prost 0.14 bump. Wasmtime CLI support still needs the guest-side tokio+hyper h2 path. (Confidence 0.8: the wasmCloud path is read from source and an example; not yet run against daprd. gRPC trailers through `wstd` bodies are unverified.)
+
 ## See Also
 
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md)
