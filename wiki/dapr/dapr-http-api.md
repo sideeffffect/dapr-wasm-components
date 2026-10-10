@@ -1,7 +1,7 @@
 # Dapr HTTP API (sidecar REST)
 
 > Sources: docs.dapr.io API reference (v1.18), 2026-06-11 survey; dapr/dapr v1.18.0 source `pkg/api/http/crypto.go` (2026-10-10)
-> Raw: [dapr-http-api-reference-v1-18](../../raw/dapr/dapr-http-api-reference-v1-18.md)
+> Raw: [dapr-http-api-reference-v1-18](../../raw/dapr/dapr-http-api-reference-v1-18.md), [daprd-input-binding-reply-v1-18](../../raw/dapr/daprd-input-binding-reply-v1-18.md)
 
 ## Overview
 
@@ -30,7 +30,7 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 
 ## Traps and asymmetries
 
-- **204 means "not found"** on state get, secrets get, and actor state get — not an error. But 204 is also the *success* code for writes.
+- **204 means "not found"** on state get, secrets get, and actor state get — not an error. But 204 is also the *success* code for writes. Caveat for secrets: daprd only returns 204 when the store returns *no data*; most stores (e.g. `local.file`) report a missing secret as an error, which daprd turns into `500 ERR_SECRET_GET` (`failed getting secret with key <key> from secret store <store>: <store error>`).
 - Bulk state get items carry the value under **`value`**; state *query* results use **`data`**.
 - Delete etag goes in the **`If-Match` header**, not the body/query.
 - Bulk publish entry id is **`entryId`**; partial failure = HTTP 500 + `failedEntries` array.
@@ -41,6 +41,7 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 - **Crypto streams in, not out** (v1.18.0 source, [`pkg/api/http/crypto.go`](https://github.com/dapr/dapr/blob/v1.18.0/pkg/api/http/crypto.go)): the request body is piped into the encryption, but the handler `io.ReadAll`s the whole output before it answers, and `MaxBodySizeMiddleware` caps the input at `--max-body-size` (default 4Mi). An unknown component is a **400 `ERR_CRYPTO_PROVIDER_NOT_FOUND`**, sent *before* the body is read. A missing key (`ERR_CRYPTO_KEY`) and a failed operation (`ERR_CRYPTO`) are **500**. The gRPC `EncryptAlpha1`/`DecryptAlpha1` stream both ways.
 - Actor state transaction body is a bare array, unlike the state-store transaction's `{"operations": ...}` wrapper.
 - Service invocation passes the target's status/body through verbatim — a 4xx/5xx from the target is a response, not a sidecar error.
+- **Input-binding reply is documented but ignored over HTTP.** The bindings reference says the app can answer `POST /<binding>` with `{"storeName", "state", "to", "data", "concurrency"}` (these are the `bindings.AppResponse` JSON tags; `concurrency` is `parallel`/`sequential`). daprd 1.18 never parses the HTTP reply body, so none of it has an effect. Over gRPC (`OnBindingEvent`) daprd honours `to` + `data` + `concurrency` only; `store_name`/`states` are ignored. Both paths worked in daprd 1.0 and were lost by 1.5. Verified in source and empirically (see [Inbound Design](dapr-wasm-components-inbound-design.md#binding-reply-what-daprd-really-does)).
 - Per-call component metadata = `?metadata.<field>=<value>` query params; API auth = `dapr-api-token` header.
 
 ## See Also

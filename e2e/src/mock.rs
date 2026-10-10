@@ -226,11 +226,27 @@ async fn unlock(Json(request): Json<serde_json::Value>) -> Json<serde_json::Valu
     Json(json!({ "status": status }))
 }
 
-async fn get_secret(Path((_store, key)): Path<(String, String)>) -> Response {
-    if key == "missing" {
-        return StatusCode::NO_CONTENT.into_response();
+async fn get_secret(Path((store, key)): Path<(String, String)>) -> Response {
+    // How real daprd reports a store error: ERR_SECRET_GET with the store's
+    // own message appended (`local.file` says `secret <key> not found`).
+    let secret_get = |store_error: &str| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "errorCode": "ERR_SECRET_GET",
+                "message": format!(
+                    "failed getting secret with key {key} from secret store {store}: {store_error}"
+                ),
+            })),
+        )
+            .into_response()
+    };
+    match key.as_str() {
+        "missing" => StatusCode::NO_CONTENT.into_response(),
+        "missing-in-store" => secret_get(&format!("secret {key} not found")),
+        "store-down" => secret_get("connection refused"),
+        _ => Json(json!({"password": "hunter2"})).into_response(),
     }
-    Json(json!({"password": "hunter2"})).into_response()
 }
 
 /// Record the converse request and return a canned alpha2 response that

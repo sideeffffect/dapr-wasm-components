@@ -11,8 +11,9 @@
 //!   resolution: sqlite (shared db, bind-mounted into both sidecars).
 //!
 //! The scenario then drives state + CAS + delete, service invocation (self and
-//! cross-app), and a cross-sidecar publish→deliver→count loop, all from the
-//! app's HTTP surface. Mechanical scaffolding is shared in [`common`].
+//! cross-app), a cross-sidecar publish→deliver→count loop, and a cron input
+//! binding (`ticks`) delivered to the consumer, all from the app's HTTP
+//! surface. Mechanical scaffolding is shared in [`common`].
 //!
 //! Ignored by default — requires Docker and the `wasmtime` CLI:
 //!

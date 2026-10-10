@@ -100,11 +100,23 @@ impl Sidecar {
     where
         Fut: Future<Output = Result<tonic::Response<Res>, tonic::Status>>,
     {
+        self.unary_status(message, call).map_err(classify)
+    }
+
+    /// Like [`unary`](Self::unary), but returns the raw `tonic::Status`
+    /// unclassified, for a caller that must inspect it before [`classify`]
+    /// (which panics on tier-3 codes).
+    pub fn unary_status<Req, Res, Fut>(
+        &self,
+        message: Req,
+        call: impl FnOnce(Client, tonic::Request<Req>) -> Fut,
+    ) -> Result<Res, tonic::Status>
+    where
+        Fut: Future<Output = Result<tonic::Response<Res>, tonic::Status>>,
+    {
         let request = self.request(message);
         let client = self.client();
-        spin_executor::run(call(client, request))
-            .map(tonic::Response::into_inner)
-            .map_err(classify)
+        spin_executor::run(call(client, request)).map(tonic::Response::into_inner)
     }
 
     /// A bare client, for call shapes `unary` does not fit (streaming).

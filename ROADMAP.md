@@ -17,13 +17,6 @@ for the inbound spec.
   field on the test `DaprdConfig`, and a scenario variant that drives the app
   *through* daprd's invoke API (since the app no longer speaks HTTP directly when
   the app channel is gRPC).
-- **Input-binding response field names.** `bindings-callback.on-binding-event` can
-  ask the sidecar to persist state / forward to output bindings; the JSON shape
-  the `wasi-http-inbound` provider emits follows the bindings API reference but is
-  not yet integration-tested against a real input-binding component.
-- **Pub/sub routing rules and bulk subscribe.** `pubsub-callback` models one route
-  per topic (dispatch on `pubsub-name` + `topic`). Dapr's CEL routing rules
-  (`TopicRoutes`) and bulk subscribe (`OnBulkTopicEvent`) are not exposed.
 
 ## gRPC provider
 
@@ -76,6 +69,43 @@ for the inbound spec.
   mock tests (4 MiB roundtrip, early rejection, composed kv-demo 3 MiB) and by
   both real-Dapr E2Es (`crypto.dapr.localstorage`, 3 MiB).
 
+- **Interfaces 0.6.0 — pub/sub bulk subscribe.** `topic-subscription` gained an
+  optional `bulk-subscribe: bulk-subscribe-config { enabled, max-messages-count,
+  max-await-duration-ms }`, and `pubsub-callback` a new
+  `on-bulk-topic-event(bulk-topic-event) -> list<bulk-topic-event-entry-response>`
+  (each entry is a parsed CloudEvent or a raw payload; per-entry statuses reuse
+  `topic-event-response`). `wasi-http-inbound` advertises `bulkSubscribe` on
+  `/dapr/subscribe` with a separate bulk route and answers `{ statuses }`;
+  `wasi-grpc-inbound` sets `TopicSubscription.bulk_subscribe` and serves
+  `OnBulkTopicEvent` (+ the deprecated `OnBulkTopicEventAlpha1` fallback). The
+  `dapr-app` SDK's default `on_bulk_topic_event` loops over `on_topic_event`
+  (`bulk_to_single`), so existing apps need no change; `TopicSubscription::new(..)
+  .with_bulk_subscribe(..)` opts in. Verified by composed in-process tests and by
+  a bulk-subscribed `orders-bulk` topic in the shared real-Dapr scenario (both
+  suites; the gRPC `OnBulkTopicEvent` server path is compile-checked, like the
+  rest of `wasi-grpc-inbound`).
+
+- **Interfaces 0.6.0 — pub/sub CEL routing rules (breaking record change).**
+  `topic-subscription` gained `routes: option<topic-routes>` (`rules: list<topic-rule
+  {match, path}>`, `default: option<string>`), faithful to the HTTP API's
+  `routes: {rules, default}` and gRPC `TopicRoutes`. daprd evaluates the CEL
+  rules and the matched path arrives in `topic-event.path`. `wasi-http-inbound`
+  advertises rule paths under its reserved pub/sub prefix and recovers the path
+  from the delivery URL; `wasi-grpc-inbound` emits `TopicRoutes` verbatim. The
+  `dapr-app` SDK adds `TopicSubscription::new(..).with_rule(..).with_default_route(..)`.
+  Verified by composed in-process tests and by both real-daprd E2Es (a priority
+  order routed by a CEL rule on `event.data`).
+
+- **Input-binding E2E + reply check.** Both real-Dapr suites now drive a
+  `bindings.cron` input binding (`ticks`, `@every 1s`) into the consumer's
+  `on-binding-event`. The reply field names (`storeName`, `state`, `to`,
+  `data`, `concurrency`) were checked against the docs and the daprd /
+  components-contrib source: they are correct, so no provider fix was needed.
+  But **daprd 1.18 ignores the HTTP binding reply body**, and over gRPC it applies
+  only `to` + `data` + `concurrency` (never `store_name`/`states`). The E2E
+  pins this (a `storeName`/`state` reply is not persisted); a composed
+  in-process test pins the reply shape. Details:
+  [Inbound Design](wiki/dapr/dapr-wasm-components-inbound-design.md#binding-reply-what-daprd-really-does).
 - **Interfaces 0.5.0 — error-model redesign (breaking).** Dropped the single
   shared 7-case `error` variant that every operation returned. Failures are now
   sorted by who acts on them: the success type is the happy path only (a missing
