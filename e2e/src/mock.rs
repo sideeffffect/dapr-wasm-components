@@ -20,6 +20,19 @@ pub struct PublishedEvent {
     pub body: Vec<u8>,
 }
 
+/// One crypto request the mock received.
+#[derive(Debug, Clone)]
+pub struct CryptoRequest {
+    /// `encrypt` or `decrypt`.
+    pub operation: String,
+    pub component: String,
+    /// Total request-body bytes.
+    pub body_len: usize,
+    /// Whether the body came with `transfer-encoding: chunked` (no
+    /// `content-length`) — i.e. the provider streamed it.
+    pub chunked: bool,
+}
+
 #[derive(Default)]
 pub struct Recorded {
     /// (store, key) -> stored JSON value
@@ -29,6 +42,8 @@ pub struct Recorded {
     pub metadata_labels: HashMap<String, String>,
     /// Raw converse request bodies, in order.
     pub converse_requests: Vec<serde_json::Value>,
+    /// Crypto requests, in order.
+    pub crypto_requests: Vec<CryptoRequest>,
 }
 
 pub struct MockSidecar {
@@ -51,7 +66,16 @@ impl MockSidecar {
             )
             .route(
                 "/v1.0/metadata",
-                get(|| async { Json(json!({"id": "mock-sidecar"})) }),
+                get(|| async {
+                    Json(json!({
+                        "id": "mock-sidecar",
+                        "components": [{
+                            "name": MOCK_CRYPTO_COMPONENT,
+                            "type": "crypto.mock",
+                            "version": "v1",
+                        }],
+                    }))
+                }),
             )
             .route(
                 "/v1.0/metadata/{key}",
@@ -82,6 +106,10 @@ impl MockSidecar {
             .route(
                 "/v1.0-alpha2/conversation/{component}/converse",
                 post(converse),
+            )
+            .route(
+                "/v1.0-alpha1/crypto/{component}/{operation}",
+                axum::routing::put(crypto),
             )
             .with_state(recorded.clone());
 
@@ -293,4 +321,113 @@ async fn get_job(State(recorded): State<Shared>, Path(name): Path<String>) -> Re
 async fn delete_job(State(recorded): State<Shared>, Path(name): Path<String>) -> StatusCode {
     recorded.lock().unwrap().scheduled_jobs.remove(&name);
     StatusCode::NO_CONTENT
+}
+
+/// The only crypto component the mock knows.
+pub const MOCK_CRYPTO_COMPONENT: &str = "mockcrypto";
+/// Prefix of the mock's "encrypted document".
+const MOCK_CRYPTO_MAGIC: &[u8] = b"MOCKENC1:";
+
+/// A reversible stand-in for Dapr's encryption scheme: the document is
+/// `MOCKENC1:<key-name>\n` followed by the payload XOR 0x5a. Like daprd, an
+/// unknown component is a 400 `ERR_CRYPTO_PROVIDER_NOT_FOUND`, sent without
+/// reading the body. The body is
+/// consumed frame by frame (no size limit), and the output is sent whole
+/// (daprd buffers its output too).
+async fn crypto(
+    State(recorded): State<Shared>,
+    Path((component, operation)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: axum::body::Body,
+) -> Response {
+    use http_body_util::BodyExt;
+
+    let chunked = headers
+        .get("transfer-encoding")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("chunked"));
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+    };
+
+    // Like daprd, reject an unknown component before reading the body: the
+    // provider must cope with an answer that arrives mid-upload.
+    if component != MOCK_CRYPTO_COMPONENT {
+        recorded
+            .lock()
+            .unwrap()
+            .crypto_requests
+            .push(CryptoRequest {
+                operation,
+                component: component.clone(),
+                body_len: 0,
+                chunked,
+            });
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "errorCode": "ERR_CRYPTO_PROVIDER_NOT_FOUND",
+                "message": format!("crypto provider {component} not found"),
+            })),
+        )
+            .into_response();
+    }
+
+    let mut input = Vec::new();
+    let mut body = body;
+    while let Some(frame) = body.frame().await {
+        match frame {
+            Ok(frame) => {
+                if let Some(data) = frame.data_ref() {
+                    input.extend_from_slice(data);
+                }
+            }
+            Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        }
+    }
+
+    recorded
+        .lock()
+        .unwrap()
+        .crypto_requests
+        .push(CryptoRequest {
+            operation: operation.clone(),
+            component: component.clone(),
+            body_len: input.len(),
+            chunked,
+        });
+
+    let xor = |bytes: &[u8]| bytes.iter().map(|b| b ^ 0x5a).collect::<Vec<u8>>();
+    match operation.as_str() {
+        "encrypt" => {
+            let Some(key) = header("dapr-key-name") else {
+                return (StatusCode::BAD_REQUEST, "missing dapr-key-name").into_response();
+            };
+            let mut output = MOCK_CRYPTO_MAGIC.to_vec();
+            output.extend_from_slice(key.as_bytes());
+            output.push(b'\n');
+            output.extend(xor(&input));
+            (StatusCode::OK, output).into_response()
+        }
+        "decrypt" => {
+            let malformed = || {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"errorCode": "ERR_CRYPTO", "message": "malformed document"})),
+                )
+                    .into_response()
+            };
+            let Some(rest) = input.strip_prefix(MOCK_CRYPTO_MAGIC) else {
+                return malformed();
+            };
+            let Some(newline) = rest.iter().position(|b| *b == b'\n') else {
+                return malformed();
+            };
+            (StatusCode::OK, xor(&rest[newline + 1..])).into_response()
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
 }

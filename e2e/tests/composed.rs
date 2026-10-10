@@ -6,7 +6,7 @@
 use wasmtime::component::Component;
 use wasmtime::Store;
 
-use dapr_wasm_components_e2e::mock::MockSidecar;
+use dapr_wasm_components_e2e::mock::{MockSidecar, MOCK_CRYPTO_COMPONENT};
 use dapr_wasm_components_e2e::{
     compose, engine, http_inbound_path, http_outbound_path, kv_demo_path, linker,
     microservice_path, serve_inbound, Ctx,
@@ -25,7 +25,13 @@ async fn composed_kv_demo_runs() {
     let component = Component::new(&engine, &composed).unwrap();
     let linker = linker(&engine).unwrap();
 
-    let env = vec![("DAPR_HTTP_ENDPOINT".to_string(), sidecar.endpoint.clone())];
+    let env = vec![
+        ("DAPR_HTTP_ENDPOINT".to_string(), sidecar.endpoint.clone()),
+        (
+            "KV_DEMO_CRYPTO_COMPONENT".to_string(),
+            MOCK_CRYPTO_COMPONENT.to_string(),
+        ),
+    ];
     let mut store = Store::new(&engine, Ctx::new(&env));
 
     let command =
@@ -41,6 +47,14 @@ async fn composed_kv_demo_runs() {
     // ...and exactly one event was published.
     assert_eq!(recorded.published.len(), 1);
     assert_eq!(recorded.published[0].topic, "kv-demo");
+    // The 3 MiB streaming crypto roundtrip went through as two streamed
+    // uploads (encrypt, then decrypt).
+    let crypto = &recorded.crypto_requests;
+    assert_eq!(crypto.len(), 2, "expected one encrypt and one decrypt");
+    assert_eq!(crypto[0].operation, "encrypt");
+    assert_eq!(crypto[0].body_len, 3 * 1024 * 1024);
+    assert_eq!(crypto[1].operation, "decrypt");
+    assert!(crypto.iter().all(|r| r.chunked), "uploads must be streamed");
 }
 
 /// The full bidirectional composition (`outbound → app → inbound`) must encode

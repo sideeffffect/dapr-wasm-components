@@ -1,7 +1,23 @@
 /// Dapr cryptography building block (alpha).
-/// The HTTP API is streaming-capable; this interface exposes the simple
-/// one-shot form (whole payload in memory).
 /// https://docs.dapr.io/reference/api/cryptography_api/
+///
+/// Two forms:
+///  - **one-shot** `encrypt`/`decrypt`: the whole payload is one `list<u8>`.
+///  - **streaming** `encryptor`/`decryptor` resources: the app writes the
+///    input in chunks, calls `finish`, then reads the output in chunks from a
+///    `crypto-output`. Neither the app nor the provider needs to hold the
+///    whole payload in memory at once.
+///
+/// The streaming form is **write-all-then-read**: all input is written
+/// before any output can be read (`finish` consumes the writer and only then
+/// hands out the reader). Interleaving writes and reads is not supported.
+/// This matches the sidecar: daprd's HTTP crypto handler sends its response
+/// only after the request body ends.
+///
+/// Limits come from the sidecar and the provider, not from this interface:
+/// over HTTP, daprd buffers the whole output and caps the input at its
+/// `--max-body-size` (default 4Mi); the gRPC provider buffers input and
+/// output in its own memory (see the provider docs).
 interface crypto {
   /// Setup/config failures common to every crypto operation.
   variant crypto-error {
@@ -49,4 +65,44 @@ interface crypto {
   /// Decrypt `data`. `key-name` is only needed when it was omitted from
   /// the encrypted document.
   decrypt: func(component-name: string, data: list<u8>, key-name: option<string>) -> result<list<u8>, decrypt-error>;
+
+  /// Streaming encryption. Create it, `write` the plaintext in chunks, then
+  /// `finish` to get the ciphertext as a `crypto-output`.
+  ///
+  /// A failure can surface at `write` (when the sidecar rejects the request
+  /// early) or at `finish`. Dropping an `encryptor` without `finish` aborts
+  /// the operation.
+  resource encryptor {
+    /// Start encrypting with the crypto component `component-name`.
+    constructor(component-name: string, options: encrypt-options);
+    /// Append a chunk of plaintext.
+    write: func(chunk: list<u8>) -> result<_, encrypt-error>;
+    /// End the input and get the ciphertext.
+    finish: static func(this: encryptor) -> result<crypto-output, encrypt-error>;
+  }
+
+  /// Streaming decryption. Create it, `write` the ciphertext in chunks, then
+  /// `finish` to get the plaintext as a `crypto-output`.
+  ///
+  /// A failure can surface at `write` (when the sidecar rejects the request
+  /// early) or at `finish`. Dropping a `decryptor` without `finish` aborts
+  /// the operation.
+  resource decryptor {
+    /// Start decrypting with the crypto component `component-name`.
+    /// `key-name` is only needed when it was omitted from the encrypted
+    /// document.
+    constructor(component-name: string, key-name: option<string>);
+    /// Append a chunk of ciphertext.
+    write: func(chunk: list<u8>) -> result<_, decrypt-error>;
+    /// End the input and get the plaintext.
+    finish: static func(this: decryptor) -> result<crypto-output, decrypt-error>;
+  }
+
+  /// The output of a finished `encryptor`/`decryptor`.
+  resource crypto-output {
+    /// Read the next chunk of at most `max-len` bytes (`max-len` > 0).
+    /// Blocks until data is available. Returns a non-empty chunk, or `none`
+    /// at the end of the output.
+    read: func(max-len: u64) -> option<list<u8>>;
+  }
 }

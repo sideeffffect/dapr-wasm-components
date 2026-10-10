@@ -21,6 +21,7 @@ pub struct HttpResult {
 
 /// A recoverable, non-2xx sidecar response. Tier-3 failures (transport, 5xx,
 /// serialization) never produce a `DaprFailure` — they panic.
+#[derive(Clone)]
 pub struct DaprFailure {
     pub status: u16,
     pub message: String,
@@ -64,6 +65,16 @@ impl Sidecar {
                 .ok()
                 .filter(|v| !v.is_empty()),
         }
+    }
+
+    /// The sidecar base URL (`scheme://authority`, no trailing slash).
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+
+    /// The `dapr-api-token`, when configured.
+    pub fn api_token(&self) -> Option<&str> {
+        self.api_token.as_deref()
     }
 
     /// Execute a request against the sidecar. `path_and_query` must start
