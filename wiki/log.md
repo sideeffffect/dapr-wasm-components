@@ -7,6 +7,15 @@
 ## [2026-10-10] update | workflow deprecation scope (HTTP only; gRPC uses non-deprecated `*WorkflowBeta1`) + actor-hosting workaround for gRPC apps (`--out grpc --in http`, daprd `--app-protocol http`; `SubscribeActorEventsAlpha1` rejected)
 - Updated: dapr-wasm-components Architecture (two key decisions)
 
+## [2026-10-10] lint | 30+ issues found, all but 1 auto-fixed
+- Links: README self-anchor (`#two-directions-…--both-typed`), dead Dapr gRPC API doc link, moved dapr4s `DaprApp.scala` link.
+- Drift vs code: Architecture + Inbound Design (split providers, `@0.5.0`, five OCI packages, four workspaces, inbound status now implemented, gRPC error mapping per 0.5.0 `classify`); old provider names/paths and v1 host framing in the other eight articles; See Also cross-refs expanded.
+- Outside wiki: README, ROADMAP, AGENTS.md, proto/README.md (wasi-grpc-inbound exists, spin E2E uses wasi-http-inbound, 0.5.0 "no option in success" wording).
+- Reported, not fixed: wasi-grpc-outbound `get-secret` — a missing secret returns gRPC `Internal`, which `classify` treats as a trap, contrary to the `secrets.rs` comment.
+
+## [2026-10-10] ingest | wider wasm gRPC landscape: Spin active (4.2.2, CNCF, Akamai) but fermyon/wasi-grpc stale; wasmCloud v2 routes `application/grpc` wasi:http egress over h2/h2c automatically (wstd + tonic 0.14 codegen example); tokio 1.51 wasip2 networking; tonic channel still blocked (grpc-rust#2910); wasi-http HTTP/2 PR closed.
+- Updated: gRPC to Dapr from Wasm (wider landscape section)
+
 ## [2026-10-10] update | dependency bump: wit-bindgen 0.62, wasmtime 49, wac-graph 0.12, ureq 3, CI wasmtime 49.0.2 / Spin v4.2.2 / wkg 0.16.1 / wasm-tools 1.261.0, daprd 1.18.7. tonic/prost 0.13 + spin-executor 4 are held by wasi-grpc 0.1.0.
 - Updated: Wasmtime Host Embedding (wasi-http 49 import move)
 - Updated: wasm-pkg-tools (wkg) (`wkg wit build` deprecated)

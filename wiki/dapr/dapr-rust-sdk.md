@@ -42,7 +42,7 @@ The Dapr Rust SDK (`dapr` crate) is the **Alpha**-status client library for talk
 
 ## Implications for dapr-wasm-components
 
-**Historical note (2026-06-11):** the project initially bridged to this SDK from a native wasmtime host (v1 architecture), but was redesigned the same day to a pure-wasm implementation over the sidecar's HTTP API — the SDK (tokio/tonic) cannot compile to wasm32-wasip2, and its gaps (no distributed lock, no client-level state transactions, stubbed gRPC input bindings) limited coverage. The SDK is no longer a dependency; see [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md). This article remains as reference on the SDK itself.
+**Historical note (2026-06-11):** the project initially bridged to this SDK from a native wasmtime host (v1 architecture), but was redesigned the same day to a pure-wasm implementation over the sidecar's HTTP API — the SDK (tokio/tonic) cannot compile to wasm32-wasip2, and its gaps (no distributed lock, no client-level state transactions, stubbed gRPC input bindings) limited coverage. The SDK is no longer a dependency. The later gRPC providers (`wasi-grpc-outbound`/`wasi-grpc-inbound`) also avoid it: they use tonic codegen without its transport, over Spin's outbound/inbound HTTP/2. See [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md). This article remains as reference on the SDK itself.
 
 ## See Also
 

@@ -16,10 +16,11 @@ As of June 2026, **no shipped project exposes Dapr building blocks (state, pub/s
 
 ## Design vocabulary worth borrowing
 
-wasmCloud's capability model over WIT: `wasi:keyvalue`, `wasi:messaging`, `wasi:http` — the closest adjacent art for shaping `dapr:*` interfaces.
+wasmCloud's capability model over WIT: `wasi:keyvalue`, `wasi:messaging`, `wasi:http` — the closest adjacent art for shaping the Dapr WIT interfaces (the project's package is `dapr-wasm-components:interfaces`).
 
 ## See Also
 
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md) (the project this art is prior to)
 - [Dapr Rust SDK](dapr-rust-sdk.md)
+- [gRPC to Dapr from Wasm](dapr-grpc-from-wasm.md) (wasmCloud v2 host-side gRPC in the wider landscape)
 - [Component Model Overview](../wasm-component-model/component-model-overview.md)

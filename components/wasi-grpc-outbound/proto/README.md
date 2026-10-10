@@ -1,12 +1,13 @@
 # Vendored Dapr protos
 
 `dapr/proto/**/*.proto` are copied verbatim from
-[dapr/dapr](https://github.com/dapr/dapr) at tag **v1.18.0** (the daprd
-version the E2E tests run against).
+[dapr/dapr](https://github.com/dapr/dapr) at tag **v1.18.0** (the E2E
+tests run daprd 1.18.7 by default, see `DAPRD_IMAGE_TAG`).
 
 The tonic/prost client code generated from them is checked in under
 `../src/proto/` (like the Dapr Rust SDK does), so building this crate
-needs neither `protoc` nor a codegen build script.
+needs neither `protoc` nor a codegen build script. `wasi-grpc-inbound`
+reuses the same generated messages (via `#[path]`), so a regen affects both.
 
 To regenerate after bumping the protos, run from this directory:
 
@@ -28,4 +29,4 @@ fn main() {
 }
 EOF
 cargo run
-cp out/dapr.proto.*.rs <repo>/components/wasi-grpc/src/proto/
+cp out/dapr.proto.*.rs <repo>/components/wasi-grpc-outbound/src/proto/

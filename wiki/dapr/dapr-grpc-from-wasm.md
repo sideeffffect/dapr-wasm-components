@@ -20,6 +20,10 @@ Fermyon's `wasi-grpc` crate and passes a real-daprd E2E under Spin 4.0 (state by
 CAS, invocation, pub/sub). The Spin coupling documented below was accepted knowingly; the
 `wasi:sockets`+`h2` option remains the portable follow-up. Implementation decisions and traps
 live in [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md).
+(Since the 2026-06-13 restructure and outbound/inbound split, this provider is
+`dapr-wasm-components-wasi-grpc-outbound` in `components/wasi-grpc-outbound/`. A
+`wasi-grpc-inbound` provider now serves Dapr's `AppCallback` service over Spin inbound h2c.
+CI runs the Spin E2E on Spin 4.2.2.)
 
 ## What Dapr's gRPC API requires
 
@@ -69,7 +73,8 @@ basis for a `dapr-wasm-components` provider, for reasons of *coupling*, not idea
    `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE` to switch the outbound path to cleartext h2c. v2 dropped
    the native wasmtime+SDK host precisely so the impl is pure wasm on *any* WASI 0.2 runtime;
    `wasi-grpc` just swaps "custom wasmtime host" for "custom Spin host". The project's E2E runs on
-   the wasmtime CLI — `wasi-grpc` components won't run there at all.
+   the wasmtime CLI — `wasi-grpc` components won't run there at all. (Since the PoC, a second
+   real-Dapr E2E, `e2e/tests/spin.rs`, runs the gRPC provider under the `spin` CLI.)
 2. **Its HTTP/2 is a Spin host *feature*, not a WASI contract.** `wasi:http` 0.2's WIT cannot
    express "HTTP/2 with prior knowledge"; Spin's outbound h2 is a host extension activated
    out-of-band by an env var the *host* interprets. So the protocol behavior lives in the host,
@@ -111,6 +116,9 @@ cover the same **unary** surface as wasi-http; streaming waits for WASI Preview 
 - **Config (mirror the SDK):** `DAPR_GRPC_ENDPOINT` → `:$DAPR_GRPC_PORT` → default `:50001`;
   `DAPR_API_TOKEN` as `dapr-api-token` gRPC metadata.
 - **Errors:** `grpc-status` codes → WIT `error` variant (cleaner 1:1 than the HTTP status-class map).
+  *Superseded by interfaces `0.5.0`:* there is no shared `error` variant any more. Expected
+  failures are typed per function, and infrastructure failures trap (see the error-model
+  decision in [Architecture](dapr-wasm-components-architecture.md)).
 - **Naming:** the real import is `wasi:sockets`, so `dapr-wasm-components-wasi-sockets-grpc` (or
   plain `-grpc`); a future Spin-only `wasi-grpc`-backed build would be a separate artifact.
 
@@ -127,6 +135,19 @@ Nothing that blocks the gRPC transport has moved since June 2026:
 - **wasmCloud / jco / WasmEdge:** found no evidence of outbound h2c.
 
 Consequence: the Spin-only, single-authority limitation of `wasi-grpc-outbound` stands. The portable fix is still the guest-side `h2` over `wasi:sockets` path above. No upstream change will remove it.
+
+## Wider landscape (2026-10-10)
+
+> Raw: [wasm-grpc-landscape-2026-10](../../raw/dapr/wasm-grpc-landscape-2026-10.md)
+
+The re-check above looked only at Spin and wasmtime. A wider search changes the picture:
+
+- **Spin is not abandoned.** Spin 4.0–4.2.2 shipped Apr–Oct 2026. It is a CNCF Sandbox project; Akamai bought Fermyon (Dec 2025) and keeps funding it. The stale part is the **`fermyon/wasi-grpc` crate** (no commit since Oct 2025, tonic 0.13).
+- **wasmCloud v2 does host-side gRPC over plain `wasi:http`.** `wash-runtime` sends every outgoing request with `content-type: application/grpc*` over a pooled HTTP/2 connection: h2c by prior knowledge for `http://`, ALPN h2 for `https://`. There is no env var and no fixed authority. Inbound serves h1 and h2c on one port. Its `grpc-hello-world` client is **`wstd` 0.6 + tonic 0.14 codegen-only + a ~60-line `tower::Service`** — the same stack as `wasi-http-outbound`, with no `wasi-grpc`/`wasi-hyperium`/`spin-executor`.
+- **Guest-side h2 got easier.** tokio 1.51 (Apr 2026) added `wasm32-wasip2` networking (`--cfg tokio_unstable`, no DNS). So hyper's `client::conn::http2` over `tokio::net::TcpStream` can now run in the guest. tonic's `channel` still does not compile on wasip2 ([grpc-rust#2910](https://github.com/grpc/grpc-rust/pull/2910) open), so keep codegen-only tonic + own `tower::Service`.
+- **Standards: no movement.** The wasi-http HTTP/2 handlers PR ([wasi-http#129](https://github.com/WebAssembly/wasi-http/pull/129)) closed unmerged. Wasmtime has no h2 work open.
+
+Implication for `wasi-grpc-outbound`: rebuilding it on `wstd` + tonic codegen (dropping `wasi-grpc`/`spin-executor`) gives one artifact that runs on **wasmCloud v2** (any authority, no knob) and **Spin** (still with `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`). It also unblocks the tonic/prost 0.14 bump. Wasmtime CLI support still needs the guest-side tokio+hyper h2 path. (Confidence 0.8: the wasmCloud path is read from source and an example; not yet run against daprd. gRPC trailers through `wstd` bodies are unverified.)
 
 ## See Also
 

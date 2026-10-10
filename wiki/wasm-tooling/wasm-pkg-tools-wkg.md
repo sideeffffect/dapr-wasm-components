@@ -28,7 +28,7 @@ auth = { username = "...", password = "..." }  # falls back to docker config.jso
 
 ## OCI naming convention
 
-Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.z`, e.g. `wasi:http@0.2.1` → `ghcr.io/webassembly/wasi/http:0.2.1`. The tag **must** be valid semver. So for this project, `dapr:client@0.1.0` with prefix `sideeffffect/` → `ghcr.io/sideeffffect/dapr/client:0.1.0`.
+Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.z`, e.g. `wasi:http@0.2.1` → `ghcr.io/webassembly/wasi/http:0.2.1`. The tag **must** be valid semver. So `dapr:client@0.1.0` with prefix `sideeffffect/` → `ghcr.io/sideeffffect/dapr/client:0.1.0` (this project's v1 layout). This project now bypasses the scheme: CI pushes `dapr-wasm-components:interfaces` with `wkg oci push` to the exact reference `ghcr.io/sideeffffect/dapr-wasm-components-interfaces:<tag>`.
 
 ## Verified in practice (this repo, 2026-06-11)
 
@@ -36,8 +36,9 @@ Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.
 - `interface` is a reserved WIT keyword — it cannot be a package name component (`dapr-wasm-components:interface` fails to parse; plural `interfaces` works).
 
 - In wkg **0.15.1**, `wkg.toml` `[metadata] authors` must be a **string**, not a list — the README's `authors = ["..."]` example fails with "invalid type: sequence, expected a string".
-- `wkg publish` + docker/login-action + `GITHUB_TOKEN` works first try in GitHub Actions; packages published from a public repo's workflow with the `repository` metadata set come out linked to the repo and publicly pullable.
-- The namespace→ghcr mapping in a checked-in config (`WKG_CONFIG_FILE=.wkg/config.toml`) is a clean CI pattern.
+- (v1 CI) `wkg publish` + docker/login-action + `GITHUB_TOKEN` works first try in GitHub Actions; packages published from a public repo's workflow with the `repository` metadata set come out linked to the repo and publicly pullable.
+- The namespace→ghcr mapping in a checked-in config (`WKG_CONFIG_FILE=.wkg/config.toml`) is a clean CI pattern. (v1 only: the v2 redesign removed `.wkg/` — `wkg oci push` with explicit references needs no namespace config.)
+- Current CI (2026-10-10) pins **wkg 0.16.1**: `wkg build --wit-dir components/wit` builds the interface package (reading the repo-root `wkg.toml`), then five `wkg oci push` calls publish the interface and the four providers.
 
 ## wkg.toml and wkg.lock
 
@@ -60,3 +61,6 @@ wkg falls back to `~/.docker/config.json` credentials when config.toml has no `a
 ## See Also
 
 - [WIT Format](../wasm-component-model/wit-format.md)
+- [Component Model Overview](../wasm-component-model/component-model-overview.md)
+- [Wasmtime Host Embedding](wasmtime-host-embedding.md)
+- [dapr-wasm-components Architecture](../dapr/dapr-wasm-components-architecture.md) (OCI publishing decision)

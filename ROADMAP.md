@@ -78,13 +78,14 @@ for the inbound spec.
 
 - **Interfaces 0.5.0 — error-model redesign (breaking).** Dropped the single
   shared 7-case `error` variant that every operation returned. Failures are now
-  sorted by who acts on them: expected outcomes are `option` in the success type
-  (missing value = `none`), recoverable failures are per-interface + per-function
+  sorted by who acts on them: the success type is the happy path only (a missing
+  value is an error case such as `state.get` → `get-error::key-not-found`, never an
+  `option`), recoverable failures are per-interface + per-function
   `variant`s (e.g. `state.save` → `write-error { etag-mismatch, state }`), and
   unrecoverable/infra failures (sidecar down, 5xx, timeouts, I/O) are no longer
   typed at all — the provider traps. Inbound callbacks use `types.app-error`.
-  Modelled on wasi-keyvalue. Mirrored across both providers, both inbound
-  providers, the `dapr-app` SDK, and the e2e mock/tests.
+  Modelled on wasi-keyvalue. Mirrored across all four providers (outbound +
+  inbound, HTTP + gRPC), the `dapr-app` SDK, and the e2e mock/tests.
 - **Interfaces 0.4.0.** The WIT package was tightened across 0.3.0 → 0.4.0 to
   follow the Dapr HTTP API faithfully, the provider worlds were renamed
   `dapr-outbound`/`dapr-inbound` → `outbound`/`inbound`, and the published OCI
@@ -104,8 +105,9 @@ for the inbound spec.
   `TopicEventRequest.extensions` (a `google.protobuf.Struct`) into
   `topic-event.extensions`, stringifying each value the same way the HTTP
   provider does (string verbatim, otherwise JSON text) — implemented JSON-dep-free
-  to keep the published component lean. Compile-checked (the gRPC provider's
-  standing posture); exercised opportunistically by the spin E2E.
+  to keep the published component lean. Compile-checked only (the gRPC provider's
+  standing posture): the spin E2E composes the wasi-http **inbound** provider, so
+  it does not exercise this path (see the gRPC app-channel E2E item above).
 - **Configuration-update delivery (inbound).** The `wasi-http-inbound` router now
   recognises the sidecar's config-update push (`POST /configuration/<store>/<key>`
   carrying Dapr's `UpdateEvent` — `items` is a map keyed by configuration key) and
