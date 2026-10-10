@@ -5,7 +5,7 @@
 
 ## Overview
 
-Wasmtime (45.x as of June 2026; the e2e harness is on 49.x since 2026-10-10) embeds components in Rust via `wasmtime::component::bindgen!`. The crucial fact for this project: **a sync WIT function can be implemented by an async Rust host function**. The guest blocks; the runtime awaits the host future. This lets tokio-based clients (like the Dapr SDK) sit behind sync guest-facing interfaces — no need for WASI 0.3 async.
+Wasmtime (45.x as of June 2026; the e2e harness is on 49.x since 2026-10-10) embeds components in Rust via `wasmtime::component::bindgen!`. The crucial fact for this project: **a sync WIT function can be implemented by an async Rust host function**. The guest blocks; the runtime awaits the host future. This lets tokio-based clients (like the Dapr SDK) sit behind sync guest-facing interfaces — no need for WASI 0.3 async. (That was this project's v1 design. Since v2 the providers are pure-wasm guests, and the project embeds wasmtime only in the `e2e/` test harness.)
 
 ## Modern bindgen! syntax (wasmtime ≥ ~34; 45.x current)
 
@@ -40,9 +40,9 @@ Flags: `async`, `store`, `tracing`, `verbose_tracing`, `trappable`, `ignore_wit`
 - `wit_bindgen::generate!` inside a non-root module needs `default_bindings_module: "crate::<mod>"` or the generated `export!` macro fails with "could not find `export` in the crate root".
 - Generated host bindings take metadata-ish list params as `&Vec<(String, String)>` (not `&[...]`).
 - `wstd` (0.6.x) is the maintained way to do HTTP clients in WASI 0.2 guests: `wstd::runtime::block_on` + `wstd::http::{Client, Request, Body}`; `Body: From<Vec<u8>>`, `body.contents().await`. Blocking inside a sync export works fine.
-- Composition without the wac CLI: the `wac-graph` crate (`CompositionGraph`, `Package::from_bytes`, `instantiate`, `alias_instance_export`, `set_instantiation_argument`, `graph.export`, `encode`) is the programmatic `wac plug`.
+- Composition without the wac CLI: the `wac-graph` crate (0.12 in `e2e/` since 2026-10-10) (`CompositionGraph`, `Package::from_bytes`, `instantiate`, `alias_instance_export`, `set_instantiation_argument`, `graph.export`, `encode`) is the programmatic `wac plug`.
 
-## Guest side (wit-bindgen 0.58)
+## Guest side (wit-bindgen 0.58; 0.62 in the wasm workspaces since 2026-10-10)
 
 `wit_bindgen::generate!({ world, path: "wit", generate_all })` + `export!(Component)`; `crate-type = ["cdylib"]`; build with `cargo build --target wasm32-wasip2` (tier-2 since Rust 1.82, produces a component directly — cargo-component not needed and in maintenance mode).
 
@@ -54,6 +54,9 @@ WASI 0.3.0 final released 2026-06-11 (native async ABI, `stream`/`future`); wasm
 
 ## See Also
 
+- [Component Model Overview](../wasm-component-model/component-model-overview.md)
 - [WIT Format](../wasm-component-model/wit-format.md)
 - [wasm-pkg-tools (wkg)](wasm-pkg-tools-wkg.md)
 - [Dapr Rust SDK](../dapr/dapr-rust-sdk.md)
+- [dapr-wasm-components Architecture](../dapr/dapr-wasm-components-architecture.md) (the e2e harness that embeds wasmtime)
+- [gRPC to Dapr from Wasm](../dapr/dapr-grpc-from-wasm.md) (wasmtime's HTTP/1-only outbound)
