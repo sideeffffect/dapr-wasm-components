@@ -1,7 +1,8 @@
 //! E2E microservice — a single typed Dapr **reactor**, run as **two
 //! instances** (a *publisher* and a *consumer*) so one app exercises the whole
 //! Dapr round-trip: outbound state / pub/sub / service-invocation calls *and*
-//! the inbound app channel (pub/sub delivery, invocation handling). It never
+//! the inbound app channel (pub/sub delivery, input bindings, invocation
+//! handling). It never
 //! touches HTTP — it implements [`DaprApp`] and is composed behind a provider.
 //!
 //! The **same** binary backs both the wasi-http E2E (composed with the
@@ -16,7 +17,8 @@
 //! - `PEER_APP_ID` — the *other* instance's app id, the target of
 //!   `invoke-peer` (cross-app service invocation via the sidecar).
 //! - `SUBSCRIBE` — when set, the app subscribes to the `orders` topic (the
-//!   consumer role); when unset, it subscribes to nothing (the publisher role).
+//!   consumer role) and declares the `ticks` input binding; when unset, it
+//!   subscribes to nothing (the publisher role).
 //!   The subscription uses CEL routing rules: orders with `"priority": true`
 //!   go to [`PRIORITY_ROUTE`], all others to the default [`ORDERS_ROUTE`].
 //!   The consumer records the delivered `path` per order (`route-<orderId>`),
@@ -26,9 +28,13 @@
 //! served app channel (`/smoke`, `/publish?n=N`, `/invoke-self`, …); the
 //! inbound provider routes those unknown paths to [`DaprApp::on_invoke`].
 
+use dapr_app::callback::bindings_callback::{
+    BindingConcurrency, BindingEvent, BindingEventResponse,
+};
 use dapr_app::callback::configuration_callback::ConfigurationUpdate;
 use dapr_app::callback::invocation_callback::{HttpResponse, InvokeRequest};
 use dapr_app::callback::pubsub_callback::{TopicEvent, TopicEventResponse, TopicSubscription};
+use dapr_app::dapr::types::AppError;
 use dapr_app::dapr::{invocation, runtime, state};
 use dapr_app::DaprApp;
 use serde_json::json;
@@ -45,6 +51,14 @@ pub const PRIORITY_ROUTE: &str = "/orders/priority";
 const PRIORITY_RULE: &str = "has(event.data.priority) && event.data.priority == true";
 /// The `orderId` that `publish-priority` uses.
 const PRIORITY_ORDER_ID: u64 = 100;
+/// The cron input binding the consumer handles (`bindings.cron`, `@every 1s`).
+const TICKS_BINDING: &str = "ticks";
+/// Counter the consumer bumps itself (outbound state API) on every tick.
+const TICKS_KEY: &str = "binding-ticks";
+/// Key the consumer asks *the sidecar* to persist, via the input-binding
+/// response (`storeName` + `state`).
+const BINDING_RESPONSE_KEY: &str = "binding-response";
+const BINDING_RESPONSE_VALUE: &str = r#"{"from":"binding-response"}"#;
 
 fn app_id() -> String {
     std::env::var("APP_ID").unwrap_or_else(|_| "microservice".to_string())
@@ -82,6 +96,38 @@ impl DaprApp for Microservice {
         }
     }
 
+    fn list_input_bindings() -> Vec<String> {
+        if subscribes() {
+            vec![TICKS_BINDING.to_string()]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn on_binding_event(event: BindingEvent) -> Result<BindingEventResponse, AppError> {
+        if event.name != TICKS_BINDING {
+            return Err(AppError {
+                message: format!("unexpected input binding {}", event.name),
+            });
+        }
+        // Count the delivery ourselves, so delivery is observable on its own.
+        increment(TICKS_KEY).map_err(|message| AppError { message })?;
+        // Then ask the sidecar to persist one more item for us.
+        Ok(BindingEventResponse {
+            store_name: Some(STATE_STORE.to_string()),
+            states: vec![state::StateItem {
+                key: BINDING_RESPONSE_KEY.to_string(),
+                value: BINDING_RESPONSE_VALUE.as_bytes().to_vec(),
+                etag: None,
+                metadata: Vec::new(),
+                options: None,
+            }],
+            to: Vec::new(),
+            data: None,
+            concurrency: BindingConcurrency::Sequential,
+        })
+    }
+
     fn on_configuration_event(update: ConfigurationUpdate) {
         // Persist each delivered item under `config-<key>` so the round-trip is
         // observable from outside (the harness asserts on the state writes).
@@ -104,7 +150,8 @@ impl DaprApp for Microservice {
 
     fn on_invoke(request: InvokeRequest) -> HttpResponse {
         let result = match request.method.as_str() {
-            "count" | "summary" => read_counter().map(|c| json!({ "processed": c })),
+            "count" | "summary" => read_counter(COUNTER_KEY).map(|c| json!({ "processed": c })),
+            "binding" => binding_status(),
             "publish" => {
                 publish_orders(query_n(request.query.as_deref())).map(|n| json!({ "published": n }))
             }
@@ -358,16 +405,16 @@ fn process_order(order: &[u8], path: Option<&str>) -> Result<(), String> {
     )
     .map_err(|e| format!("saving order failed: {e:?}"))?;
 
-    increment_counter()?;
+    increment(COUNTER_KEY)?;
     println!("processed order {order_id}");
     Ok(())
 }
 
-/// CAS-increment the processed-order counter (deliveries may be concurrent):
-/// read value + etag, write back first-write, retry on conflict.
-fn increment_counter() -> Result<(), String> {
+/// CAS-increment the counter at `key` (deliveries may be concurrent): read
+/// value + etag, write back first-write, retry on conflict.
+fn increment(key: &str) -> Result<(), String> {
     for _ in 0..16 {
-        let (count, etag) = match state::get(STATE_STORE, COUNTER_KEY, None, &[]) {
+        let (count, etag) = match state::get(STATE_STORE, key, None, &[]) {
             Ok(response) => (
                 String::from_utf8_lossy(&response.data)
                     .parse::<u64>()
@@ -381,7 +428,7 @@ fn increment_counter() -> Result<(), String> {
         let result = state::save(
             STATE_STORE,
             &[state::StateItem {
-                key: COUNTER_KEY.to_string(),
+                key: key.to_string(),
                 value: (count + 1).to_string().into_bytes(),
                 etag,
                 metadata: Vec::new(),
@@ -401,12 +448,26 @@ fn increment_counter() -> Result<(), String> {
     Err("incrementing counter failed: too many etag conflicts".to_string())
 }
 
-fn read_counter() -> Result<u64, String> {
-    match state::get(STATE_STORE, COUNTER_KEY, None, &[]) {
+fn read_counter(key: &str) -> Result<u64, String> {
+    match state::get(STATE_STORE, key, None, &[]) {
         Ok(response) => Ok(String::from_utf8_lossy(&response.data)
             .parse::<u64>()
             .unwrap_or(0)),
         Err(state::GetError::KeyNotFound) => Ok(0),
         Err(other) => Err(format!("reading counter failed: {other:?}")),
     }
+}
+
+/// Input-binding status: how many `ticks` events were delivered, and what the
+/// sidecar persisted from our binding responses (`null` if nothing).
+fn binding_status() -> Result<serde_json::Value, String> {
+    let ticks = read_counter(TICKS_KEY)?;
+    let persisted = match state::get(STATE_STORE, BINDING_RESPONSE_KEY, None, &[]) {
+        Ok(response) if !response.data.is_empty() => {
+            Some(String::from_utf8_lossy(&response.data).into_owned())
+        }
+        Ok(_) | Err(state::GetError::KeyNotFound) => None,
+        Err(other) => return Err(format!("reading {BINDING_RESPONSE_KEY} failed: {other:?}")),
+    };
+    Ok(json!({ "ticks": ticks, "responseState": persisted }))
 }

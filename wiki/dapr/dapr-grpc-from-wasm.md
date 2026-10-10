@@ -20,6 +20,10 @@ Fermyon's `wasi-grpc` crate and passes a real-daprd E2E under Spin 4.0 (state by
 CAS, invocation, pub/sub). The Spin coupling documented below was accepted knowingly; the
 `wasi:sockets`+`h2` option remains the portable follow-up. Implementation decisions and traps
 live in [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md).
+(Since the 2026-06-13 restructure and outbound/inbound split, this provider is
+`dapr-wasm-components-wasi-grpc-outbound` in `components/wasi-grpc-outbound/`. A
+`wasi-grpc-inbound` provider now serves Dapr's `AppCallback` service over Spin inbound h2c.
+CI runs the Spin E2E on Spin 4.2.2.)
 
 ## What Dapr's gRPC API requires
 
@@ -69,7 +73,8 @@ basis for a `dapr-wasm-components` provider, for reasons of *coupling*, not idea
    `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE` to switch the outbound path to cleartext h2c. v2 dropped
    the native wasmtime+SDK host precisely so the impl is pure wasm on *any* WASI 0.2 runtime;
    `wasi-grpc` just swaps "custom wasmtime host" for "custom Spin host". The project's E2E runs on
-   the wasmtime CLI — `wasi-grpc` components won't run there at all.
+   the wasmtime CLI — `wasi-grpc` components won't run there at all. (Since the PoC, a second
+   real-Dapr E2E, `e2e/tests/spin.rs`, runs the gRPC provider under the `spin` CLI.)
 2. **Its HTTP/2 is a Spin host *feature*, not a WASI contract.** `wasi:http` 0.2's WIT cannot
    express "HTTP/2 with prior knowledge"; Spin's outbound h2 is a host extension activated
    out-of-band by an env var the *host* interprets. So the protocol behavior lives in the host,
@@ -111,6 +116,9 @@ cover the same **unary** surface as wasi-http; streaming waits for WASI Preview 
 - **Config (mirror the SDK):** `DAPR_GRPC_ENDPOINT` → `:$DAPR_GRPC_PORT` → default `:50001`;
   `DAPR_API_TOKEN` as `dapr-api-token` gRPC metadata.
 - **Errors:** `grpc-status` codes → WIT `error` variant (cleaner 1:1 than the HTTP status-class map).
+  *Superseded by interfaces `0.5.0`:* there is no shared `error` variant any more. Expected
+  failures are typed per function, and infrastructure failures trap (see the error-model
+  decision in [Architecture](dapr-wasm-components-architecture.md)).
 - **Naming:** the real import is `wasi:sockets`, so `dapr-wasm-components-wasi-sockets-grpc` (or
   plain `-grpc`); a future Spin-only `wasi-grpc`-backed build would be a separate artifact.
 

@@ -1,11 +1,11 @@
 # Dapr HTTP API (sidecar REST)
 
 > Sources: docs.dapr.io API reference (v1.18), 2026-06-11 survey
-> Raw: [dapr-http-api-reference-v1-18](../../raw/dapr/dapr-http-api-reference-v1-18.md)
+> Raw: [dapr-http-api-reference-v1-18](../../raw/dapr/dapr-http-api-reference-v1-18.md), [daprd-input-binding-reply-v1-18](../../raw/dapr/daprd-input-binding-reply-v1-18.md)
 
 ## Overview
 
-The sidecar serves a REST API on `http://localhost:3500` (default). This is what dapr-wasm-components-wasi-http implements against. The raw file holds the full endpoint-by-endpoint reference with exact field names; this article captures the version map and the traps.
+The sidecar serves a REST API on `http://localhost:3500` (default). This is what the `wasi-http-outbound` provider (`components/wasi-http-outbound/`) implements against; the `wasi-http-inbound` provider serves the reverse direction (the sidecar's HTTP app channel). The raw file holds the full endpoint-by-endpoint reference with exact field names; this article captures the version map and the traps.
 
 ## Version prefix map (v1.18)
 
@@ -40,6 +40,7 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 - Crypto uses **PUT** with `dapr-key-name`/`dapr-key-wrap-algorithm` headers and raw octet-stream bodies.
 - Actor state transaction body is a bare array, unlike the state-store transaction's `{"operations": ...}` wrapper.
 - Service invocation passes the target's status/body through verbatim — a 4xx/5xx from the target is a response, not a sidecar error.
+- **Input-binding reply is documented but ignored over HTTP.** The bindings reference says the app can answer `POST /<binding>` with `{"storeName", "state", "to", "data", "concurrency"}` (these are the `bindings.AppResponse` JSON tags; `concurrency` is `parallel`/`sequential`). daprd 1.18 never parses the HTTP reply body, so none of it has an effect. Over gRPC (`OnBindingEvent`) daprd honours `to` + `data` + `concurrency` only; `store_name`/`states` are ignored. Both paths worked in daprd 1.0 and were lost by 1.5. Verified in source and empirically (see [Inbound Design](dapr-wasm-components-inbound-design.md#binding-reply-what-daprd-really-does)).
 - Per-call component metadata = `?metadata.<field>=<value>` query params; API auth = `dapr-api-token` header.
 
 ## See Also
@@ -47,3 +48,4 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md)
 - [gRPC to Dapr from Wasm](dapr-grpc-from-wasm.md) (the gRPC counterpart to this REST API)
 - [Dapr Rust SDK](dapr-rust-sdk.md)
+- [Inbound Design](dapr-wasm-components-inbound-design.md) (the HTTP app channel, sidecar → app)

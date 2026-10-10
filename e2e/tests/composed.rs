@@ -209,3 +209,50 @@ async fn inbound_routed_event_is_delivered_with_path() {
         assert_eq!(route, &expected_route, "wrong path for {url_path}");
     }
 }
+
+/// Inbound input-binding delivery: a sidecar `POST /<binding>` must reach the
+/// app's `on-binding-event`, and the reply must be serialized with the field
+/// names of Dapr's `bindings.AppResponse` JSON tags (`storeName`, `state`,
+/// `to`, `data`, `concurrency` — components-contrib `bindings/responses.go`).
+/// The microservice (with `SUBSCRIBE`) declares `ticks`, counts the delivery
+/// via the outbound state API, and replies with one `state` item.
+#[tokio::test]
+async fn inbound_binding_event_reply_shape() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let composed = full_http_composition();
+
+    let (status, body) = serve_inbound_with_env(
+        &composed,
+        &sidecar.endpoint,
+        &[("SUBSCRIBE", "1")],
+        "POST",
+        "/ticks",
+        "application/json",
+        Vec::new(),
+    )
+    .await
+    .expect("inbound handler errored");
+    assert_eq!(status, 200, "binding delivery should return 200");
+
+    let reply: serde_json::Value =
+        serde_json::from_slice(&body).expect("binding reply is not JSON");
+    assert_eq!(
+        reply,
+        serde_json::json!({
+            "storeName": "statestore",
+            "state": [
+                { "key": "binding-response", "value": { "from": "binding-response" } }
+            ]
+        }),
+        "unexpected binding reply"
+    );
+
+    let recorded = sidecar.recorded.lock().unwrap();
+    assert_eq!(
+        recorded
+            .state
+            .get(&("statestore".to_string(), "binding-ticks".to_string())),
+        Some(&serde_json::json!(1)),
+        "app did not count the delivery"
+    );
+}
