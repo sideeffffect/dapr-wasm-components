@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-10-10] update | dapr-wasm-components Architecture (missing secret = `secret-not-found` on both providers: real daprd sends ERR_SECRET_GET for a store's "not found" — HTTP 500 / gRPC Internal — not a 204; providers now sniff "not found" in the appended store error, other ERR_SECRET_GET traps; real-Dapr scenario checks it with `secretstores.local.file`)
+- Updated: Dapr HTTP API (204-vs-500 caveat for secrets get)
+
 ## [2026-10-10] ingest | daprd input-binding reply handling (v1.18 source + real-daprd E2E). daprd ignores the HTTP binding reply body entirely; over gRPC it honours only to/data/concurrency, never store_name/states. Field names emitted by wasi-http-inbound match the AppResponse JSON tags — no provider bug.
 - Raw: daprd-input-binding-reply-v1-18
 - Updated: Dapr HTTP API (trap: binding reply ignored)
