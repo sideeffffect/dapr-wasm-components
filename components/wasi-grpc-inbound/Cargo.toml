@@ -17,5 +17,5 @@ http-body-util = "0.1"
 prost = "0.13"
 prost-types = "0.13"
 tonic = { version = "0.13.1", default-features = false, features = ["codegen", "prost"] }
-wit-bindgen = "0.58"
+wit-bindgen = "0.62"
 wstd = "0.6"

@@ -20,4 +20,4 @@ serde_json = "1"
 spin-executor = "4"
 tonic = { version = "0.13.1", default-features = false, features = ["codegen", "prost"] }
 wasi-grpc = "0.1.0"
-wit-bindgen = "0.58"
+wit-bindgen = "0.62"

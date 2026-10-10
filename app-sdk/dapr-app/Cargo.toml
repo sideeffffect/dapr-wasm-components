@@ -8,4 +8,4 @@ repository = "https://github.com/sideeffffect/dapr-wasm-components"
 publish = false
 
 [dependencies]
-wit-bindgen = "0.58"
+wit-bindgen = "0.62"
