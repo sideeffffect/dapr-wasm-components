@@ -1,5 +1,10 @@
 # Wiki Log
 
+## [2026-10-10] ingest | daprd input-binding reply handling (v1.18 source + real-daprd E2E). daprd ignores the HTTP binding reply body entirely; over gRPC it honours only to/data/concurrency, never store_name/states. Field names emitted by wasi-http-inbound match the AppResponse JSON tags — no provider bug.
+- Raw: daprd-input-binding-reply-v1-18
+- Updated: Dapr HTTP API (trap: binding reply ignored)
+- Updated: dapr-wasm-components Inbound Design (new section "Binding reply: what daprd really does"; refreshed the stale wasi-grpc inbound limitation)
+
 ## [2026-10-10] lint | 30+ issues found, all but 1 auto-fixed
 - Links: README self-anchor (`#two-directions-…--both-typed`), dead Dapr gRPC API doc link, moved dapr4s `DaprApp.scala` link.
 - Drift vs code: Architecture + Inbound Design (split providers, `@0.5.0`, five OCI packages, four workspaces, inbound status now implemented, gRPC error mapping per 0.5.0 `classify`); old provider names/paths and v1 host framing in the other eight articles; See Also cross-refs expanded.

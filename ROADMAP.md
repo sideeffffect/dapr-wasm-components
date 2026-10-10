@@ -17,10 +17,6 @@ for the inbound spec.
   field on the test `DaprdConfig`, and a scenario variant that drives the app
   *through* daprd's invoke API (since the app no longer speaks HTTP directly when
   the app channel is gRPC).
-- **Input-binding response field names.** `bindings-callback.on-binding-event` can
-  ask the sidecar to persist state / forward to output bindings; the JSON shape
-  the `wasi-http-inbound` provider emits follows the bindings API reference but is
-  not yet integration-tested against a real input-binding component.
 - **Pub/sub routing rules and bulk subscribe.** `pubsub-callback` models one route
   per topic (dispatch on `pubsub-name` + `topic`). Dapr's CEL routing rules
   (`TopicRoutes`) and bulk subscribe (`OnBulkTopicEvent`) are not exposed.
@@ -49,6 +45,16 @@ for the inbound spec.
 
 ## Recently shipped
 
+- **Input-binding E2E + reply check.** Both real-Dapr suites now drive a
+  `bindings.cron` input binding (`ticks`, `@every 1s`) into the consumer's
+  `on-binding-event`. The reply field names (`storeName`, `state`, `to`,
+  `data`, `concurrency`) were checked against the docs and the daprd /
+  components-contrib source: they are correct, so no provider fix was needed.
+  But **daprd 1.18 ignores the HTTP binding reply body**, and over gRPC it applies
+  only `to` + `data` + `concurrency` (never `store_name`/`states`). The E2E
+  pins this (a `storeName`/`state` reply is not persisted); a composed
+  in-process test pins the reply shape. Details:
+  [Inbound Design](wiki/dapr/dapr-wasm-components-inbound-design.md#binding-reply-what-daprd-really-does).
 - **Interfaces 0.5.0 — error-model redesign (breaking).** Dropped the single
   shared 7-case `error` variant that every operation returned. Failures are now
   sorted by who acts on them: the success type is the happy path only (a missing

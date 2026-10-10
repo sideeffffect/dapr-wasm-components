@@ -9,7 +9,7 @@ use wasmtime::Store;
 use dapr_wasm_components_e2e::mock::MockSidecar;
 use dapr_wasm_components_e2e::{
     compose, engine, http_inbound_path, http_outbound_path, kv_demo_path, linker,
-    microservice_path, serve_inbound, Ctx,
+    microservice_path, serve_inbound, serve_inbound_with_env, Ctx,
 };
 
 #[tokio::test]
@@ -100,4 +100,55 @@ async fn inbound_configuration_update_is_delivered() {
         .get(&("statestore".to_string(), "config-feature-flag".to_string()))
         .expect("app did not persist the delivered config item");
     assert_eq!(stored, &serde_json::json!("enabled"));
+}
+
+/// Inbound input-binding delivery: a sidecar `POST /<binding>` must reach the
+/// app's `on-binding-event`, and the reply must be serialized with the field
+/// names of Dapr's `bindings.AppResponse` JSON tags (`storeName`, `state`,
+/// `to`, `data`, `concurrency` — components-contrib `bindings/responses.go`).
+/// The microservice (with `SUBSCRIBE`) declares `ticks`, counts the delivery
+/// via the outbound state API, and replies with one `state` item.
+#[tokio::test]
+async fn inbound_binding_event_reply_shape() {
+    let sidecar = MockSidecar::start().await.unwrap();
+
+    let app = std::fs::read(microservice_path()).expect("microservice component not built");
+    let outbound = std::fs::read(http_outbound_path()).expect("http-outbound not built");
+    let inbound = std::fs::read(http_inbound_path()).expect("http-inbound not built");
+    let composed = compose::plug_full(app, outbound, inbound).expect("full composition failed");
+
+    let (status, body) = serve_inbound_with_env(
+        &composed,
+        &sidecar.endpoint,
+        &[("SUBSCRIBE", "1")],
+        "POST",
+        "/ticks",
+        "application/json",
+        Vec::new(),
+    )
+    .await
+    .expect("inbound handler errored");
+    assert_eq!(status, 200, "binding delivery should return 200");
+
+    let reply: serde_json::Value =
+        serde_json::from_slice(&body).expect("binding reply is not JSON");
+    assert_eq!(
+        reply,
+        serde_json::json!({
+            "storeName": "statestore",
+            "state": [
+                { "key": "binding-response", "value": { "from": "binding-response" } }
+            ]
+        }),
+        "unexpected binding reply"
+    );
+
+    let recorded = sidecar.recorded.lock().unwrap();
+    assert_eq!(
+        recorded
+            .state
+            .get(&("statestore".to_string(), "binding-ticks".to_string())),
+        Some(&serde_json::json!(1)),
+        "app did not count the delivery"
+    );
 }

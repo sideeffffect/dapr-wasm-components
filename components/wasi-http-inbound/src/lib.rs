@@ -314,7 +314,10 @@ fn deliver_binding(name: String, headers: &[(String, String)], body: Vec<u8>) ->
 fn binding_response(response: &bindings_callback::BindingEventResponse) -> Response<Body> {
     // The Dapr input-binding response JSON instructs the sidecar to persist
     // state and/or forward `data` to output bindings. Field names follow the
-    // bindings API reference; values use the provider's JSON convention.
+    // bindings API reference (= components-contrib `bindings.AppResponse` JSON
+    // tags); values use the provider's JSON convention. Note: daprd (checked up
+    // to 1.18) never parses this body on the HTTP app channel, so it has no
+    // effect there today — see the inbound design wiki page.
     let mut object = serde_json::Map::new();
     if let Some(store) = &response.store_name {
         object.insert("storeName".to_string(), json!(store));

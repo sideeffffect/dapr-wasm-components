@@ -179,6 +179,8 @@ fn on_binding_event(payload: &[u8]) -> Response<Body> {
         data: event.data,
         metadata: event.metadata.into_iter().collect(),
     };
+    // daprd (checked up to 1.18) applies only `to` + `data` + `concurrency`
+    // from this reply; it ignores `store_name`/`states`. We still map them all.
     match bindings_callback::on_binding_event(&wit_event) {
         Ok(response) => grpc_ok(&pb::BindingEventResponse {
             store_name: response.store_name.unwrap_or_default(),

@@ -265,6 +265,23 @@ spec:
   version: v1
 "#;
 
+/// A `bindings.cron` input binding named `ticks` that fires every second — a
+/// deterministic input-binding trigger with no external dependency. Only the
+/// app instance that declares `ticks` (the consumer) receives the events.
+pub const BINDING_CRON_TICKS: &str = r#"apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: ticks
+spec:
+  type: bindings.cron
+  version: v1
+  metadata:
+  - name: schedule
+    value: "@every 1s"
+  - name: direction
+    value: "input"
+"#;
+
 /// Write `<dir>/resources/<name>` (creating the `resources/` subdir as
 /// needed) — daprd loads every component definition under `--resources-path`.
 pub fn write_resource(dir: &Path, name: &str, yaml: &str) {
@@ -343,6 +360,7 @@ spec:
 "#
         ),
     );
+    write_resource(dir, "ticks.yaml", BINDING_CRON_TICKS);
     std::fs::write(
         dir.join(CONFIG_FILE),
         format!(
@@ -380,8 +398,9 @@ pub struct Endpoints<'a> {
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
 /// runtime: state roundtrip + etag CAS + delete, service invocation (self and
-/// cross-app), and a cross-sidecar pub/sub publish→deliver→count loop. Panics
-/// (with context) on the first failed assertion.
+/// cross-app), a cross-sidecar pub/sub publish→deliver→count loop, and a cron
+/// input binding delivered to the consumer. Panics (with context) on the first
+/// failed assertion.
 pub fn run_mirrored_scenario(endpoints: Endpoints) {
     let Endpoints {
         publisher_base,
@@ -428,4 +447,32 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
     //    the sidecars to resolve each other's app ids).
     let peer = get_json(&format!("{publisher_base}/invoke-peer"));
     assert_eq!(peer["processed"], 3, "cross-app invocation failed: {peer}");
+
+    // 7. Input binding: the cron `ticks` binding (every 1s) reaches the
+    //    consumer's `on-binding-event` through the inbound provider; the app
+    //    counts each delivery itself (outbound state API).
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        let status = get_json(&format!("{consumer_base}/binding"));
+        if status["ticks"].as_u64().unwrap_or(0) >= 3 {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "input binding events were not delivered in time: {status}"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    };
+
+    // 8. Each reply also asked the sidecar to persist `binding-response` via
+    //    `storeName` + `state`. daprd (checked up to 1.18) ignores the body of
+    //    an HTTP app-channel binding reply — `sendBindingEventToApp` never
+    //    parses it — so nothing is persisted, even after 3+ replies. This pins
+    //    that upstream behaviour: if it starts failing, daprd now honours the
+    //    reply — flip this to a positive check and update the docs.
+    assert!(
+        status["responseState"].is_null(),
+        "daprd now applies the input-binding reply over the HTTP app channel \
+         (update the docs and this check): {status}"
+    );
 }
