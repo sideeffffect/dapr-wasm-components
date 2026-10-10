@@ -111,7 +111,12 @@ impl Drop for Service {
 pub fn wait_http_ok(url: &str, what: &str, timeout: Duration) {
     let start = Instant::now();
     loop {
-        match ureq::get(url).timeout(Duration::from_secs(2)).call() {
+        match ureq::get(url)
+            .config()
+            .timeout_global(Some(Duration::from_secs(2)))
+            .build()
+            .call()
+        {
             Ok(_) => return,
             Err(error) => {
                 if start.elapsed() > timeout {
@@ -125,12 +130,15 @@ pub fn wait_http_ok(url: &str, what: &str, timeout: Duration) {
 
 /// GET `url` and parse the body as JSON, panicking with context on failure.
 pub fn get_json(url: &str) -> serde_json::Value {
-    let response = ureq::get(url)
-        .timeout(Duration::from_secs(30))
+    let mut response = ureq::get(url)
+        .config()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
         .call()
         .unwrap_or_else(|e| panic!("GET {url} failed: {e}"));
     response
-        .into_json()
+        .body_mut()
+        .read_json()
         .unwrap_or_else(|e| panic!("GET {url} returned non-JSON: {e}"))
 }
 
