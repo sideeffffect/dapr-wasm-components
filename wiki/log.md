@@ -1,5 +1,12 @@
 # Wiki Log
 
+## [2026-10-10] update | streaming crypto (interfaces 0.6.0): sync WIT resources encryptor/decryptor/crypto-output; daprd v1.18 HTTP crypto buffers its output (`io.ReadAll`) and caps input at `--max-body-size`, gRPC streams; wasi-grpc provider buffers; early-rejection trap (wasmtime `HttpProtocolError`) → metadata pre-check; component-not-found mapping fixed
+- Updated: dapr-wasm-components Architecture (streaming crypto decision)
+- Updated: Dapr HTTP API (crypto streams in, not out; crypto error codes)
+
+## [2026-10-10] update | workflow deprecation scope (HTTP only; gRPC uses non-deprecated `*WorkflowBeta1`) + actor-hosting workaround for gRPC apps (`--out grpc --in http`, daprd `--app-protocol http`; `SubscribeActorEventsAlpha1` rejected)
+- Updated: dapr-wasm-components Architecture (two key decisions)
+
 ## [2026-10-10] update | pub/sub bulk subscribe (interfaces 0.6.0): `topic-subscription.bulk-subscribe` + `on-bulk-topic-event`, both inbound providers, SDK default loops over `on-topic-event`; wire shapes checked against Dapr docs, v1.18 protos and daprd release-1.18 source
 - Updated: dapr-wasm-components Inbound Design (new *Bulk subscribe* section; AppCallback mapping; limitations)
 - Updated: dapr-wasm-components Architecture (E2E scenario bulk step)

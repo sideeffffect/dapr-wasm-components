@@ -13,6 +13,7 @@
 //! composition graph (`outbound → app → inbound`) stays acyclic.
 
 mod sidecar;
+mod streaming;
 
 mod actors;
 mod bindings_block;

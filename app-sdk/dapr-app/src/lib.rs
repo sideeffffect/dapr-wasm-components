@@ -366,3 +366,130 @@ impl<T: DaprApp> callback::health_callback::Guest for T {
         <T as DaprApp>::health_check()
     }
 }
+
+/// `std::io` adapters over the streaming crypto resources
+/// ([`dapr::crypto::Encryptor`], [`dapr::crypto::Decryptor`],
+/// [`dapr::crypto::CryptoOutput`]).
+///
+/// Write the input through an [`EncryptWriter`]/[`DecryptWriter`] (e.g. with
+/// `std::io::copy`), call `finish`, then read the output through the returned
+/// [`OutputReader`]. The order is write-all-then-read: the output is
+/// available only after `finish`.
+///
+/// ```ignore
+/// use std::io::{copy, Read, Write};
+/// use dapr_app::crypto_io::EncryptWriter;
+///
+/// let mut writer = EncryptWriter::new("mycrypto", &options);
+/// copy(&mut plaintext_file, &mut writer)?;
+/// let mut ciphertext = writer.finish()?; // OutputReader
+/// copy(&mut ciphertext, &mut out_file)?;
+/// ```
+///
+/// An `io::Error` from `write` wraps the typed error
+/// ([`dapr::crypto::EncryptError`] / [`dapr::crypto::DecryptError`]); get
+/// it back with `io::Error::get_ref` + `downcast_ref`.
+pub mod crypto_io {
+    use std::io;
+
+    use crate::dapr::crypto::{
+        CryptoOutput, DecryptError, Decryptor, EncryptError, EncryptOptions, Encryptor,
+    };
+
+    /// Default chunk size [`OutputReader`] asks the provider for when the
+    /// caller's buffer is larger.
+    const MAX_READ: usize = 64 * 1024;
+
+    /// An `io::Write` that encrypts everything written to it.
+    pub struct EncryptWriter(Encryptor);
+
+    impl EncryptWriter {
+        /// Start encrypting with the crypto component `component_name`.
+        pub fn new(component_name: &str, options: &EncryptOptions) -> Self {
+            Self(Encryptor::new(component_name, options))
+        }
+
+        /// End the input and get a reader over the ciphertext.
+        pub fn finish(self) -> Result<OutputReader, EncryptError> {
+            Encryptor::finish(self.0).map(OutputReader::new)
+        }
+    }
+
+    impl io::Write for EncryptWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.write(buf).map_err(io::Error::other)?;
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// An `io::Write` that decrypts everything written to it.
+    pub struct DecryptWriter(Decryptor);
+
+    impl DecryptWriter {
+        /// Start decrypting with the crypto component `component_name`.
+        /// `key_name` is only needed when it was omitted from the document.
+        pub fn new(component_name: &str, key_name: Option<&str>) -> Self {
+            Self(Decryptor::new(component_name, key_name))
+        }
+
+        /// End the input and get a reader over the plaintext.
+        pub fn finish(self) -> Result<OutputReader, DecryptError> {
+            Decryptor::finish(self.0).map(OutputReader::new)
+        }
+    }
+
+    impl io::Write for DecryptWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.write(buf).map_err(io::Error::other)?;
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// An `io::Read` over a [`CryptoOutput`].
+    pub struct OutputReader {
+        output: CryptoOutput,
+        pending: Vec<u8>,
+        offset: usize,
+    }
+
+    impl OutputReader {
+        fn new(output: CryptoOutput) -> Self {
+            Self {
+                output,
+                pending: Vec::new(),
+                offset: 0,
+            }
+        }
+    }
+
+    impl io::Read for OutputReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if buf.is_empty() {
+                return Ok(0);
+            }
+            if self.offset >= self.pending.len() {
+                let want = buf.len().min(MAX_READ) as u64;
+                match self.output.read(want) {
+                    Some(chunk) => {
+                        self.pending = chunk;
+                        self.offset = 0;
+                    }
+                    None => return Ok(0),
+                }
+            }
+            let available = &self.pending[self.offset..];
+            let len = available.len().min(buf.len());
+            buf[..len].copy_from_slice(&available[..len]);
+            self.offset += len;
+            Ok(len)
+        }
+    }
+}

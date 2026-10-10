@@ -1,6 +1,6 @@
 # Dapr HTTP API (sidecar REST)
 
-> Sources: docs.dapr.io API reference (v1.18), 2026-06-11 survey
+> Sources: docs.dapr.io API reference (v1.18), 2026-06-11 survey; dapr/dapr v1.18.0 source `pkg/api/http/crypto.go` (2026-10-10)
 > Raw: [dapr-http-api-reference-v1-18](../../raw/dapr/dapr-http-api-reference-v1-18.md), [daprd-input-binding-reply-v1-18](../../raw/dapr/daprd-input-binding-reply-v1-18.md)
 
 ## Overview
@@ -25,7 +25,7 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 - **Workflow:** an optional `?appID=` query parameter targets a workflow in another app. When the workflow FAILED, `properties` carry `dapr.workflow.failure.{error_type,error_message,stack_trace}`. The HTTP API is still deprecated but still served.
 - **Jobs:** `data` is optional, and `schedule` accepts a `CRON_TZ=`/`TZ=` prefix.
 - **Conversation:** still `/v1.0-alpha2`, with a new optional `max_tokens` field.
-- **Unchanged:** crypto (still alpha, one-shot over HTTP), bulk subscribe, routing rules, the input-binding response shape, and all alpha/beta statuses.
+- **Unchanged:** crypto (still alpha; the HTTP handler still buffers its output, see below), bulk subscribe, routing rules, the input-binding response shape, and all alpha/beta statuses.
 - **1.18.x patches** fixed bugs only: 1.18.6 strips a spoofed `Dapr-Caller-App-Id`, and 1.18.7 fixes concurrent requests on the HTTP app channel.
 
 ## Traps and asymmetries
@@ -38,6 +38,7 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 - Workflow start's query param is **`instanceID`** (capital ID); workflow component name must be `dapr`.
 - Conversation alpha2 wraps messages in role keys (`ofUser`, `ofSystem`, …) with `content: [{"text": ...}]`; alpha1 used flat `{content, role, scrubPII}`.
 - Crypto uses **PUT** with `dapr-key-name`/`dapr-key-wrap-algorithm` headers and raw octet-stream bodies.
+- **Crypto streams in, not out** (v1.18.0 source, [`pkg/api/http/crypto.go`](https://github.com/dapr/dapr/blob/v1.18.0/pkg/api/http/crypto.go)): the request body is piped into the encryption, but the handler `io.ReadAll`s the whole output before it answers, and `MaxBodySizeMiddleware` caps the input at `--max-body-size` (default 4Mi). An unknown component is a **400 `ERR_CRYPTO_PROVIDER_NOT_FOUND`**, sent *before* the body is read. A missing key (`ERR_CRYPTO_KEY`) and a failed operation (`ERR_CRYPTO`) are **500**. The gRPC `EncryptAlpha1`/`DecryptAlpha1` stream both ways.
 - Actor state transaction body is a bare array, unlike the state-store transaction's `{"operations": ...}` wrapper.
 - Service invocation passes the target's status/body through verbatim — a 4xx/5xx from the target is a response, not a sidecar error.
 - **Input-binding reply is documented but ignored over HTTP.** The bindings reference says the app can answer `POST /<binding>` with `{"storeName", "state", "to", "data", "concurrency"}` (these are the `bindings.AppResponse` JSON tags; `concurrency` is `parallel`/`sequential`). daprd 1.18 never parses the HTTP reply body, so none of it has an effect. Over gRPC (`OnBindingEvent`) daprd honours `to` + `data` + `concurrency` only; `store_name`/`states` are ignored. Both paths worked in daprd 1.0 and were lost by 1.5. Verified in source and empirically (see [Inbound Design](dapr-wasm-components-inbound-design.md#binding-reply-what-daprd-really-does)).

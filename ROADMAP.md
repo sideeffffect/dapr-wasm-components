@@ -31,9 +31,22 @@ for the inbound spec.
 
 ## Outbound / API coverage
 
-- **Crypto** is one-shot (no streaming encrypt/decrypt).
-- **Workflow** uses the `/v1.0` HTTP API, which Dapr documents as deprecated in
-  favour of the SDKs.
+- **Crypto error mapping.** daprd reports a missing key (`ERR_CRYPTO_KEY`) and a
+  failed decryption/unwrap (`ERR_CRYPTO`) as HTTP 500 / gRPC `Internal`, so both
+  providers trap instead of returning `key-not-found` / `malformed-ciphertext`.
+  Needs: a crypto-specific classifier that maps these error codes before the
+  generic 5xx trap (HTTP: `errorCode`; gRPC: the `ErrorInfo` reason).
+- **True streaming crypto over gRPC.** `wasi-grpc-outbound`'s `encryptor` /
+  `decryptor` buffer the whole input and output, because one tonic bidi call
+  cannot stay in flight across several export calls (`spin_executor::run` per
+  call). daprd's gRPC handlers stream for real, so a provider that keeps the
+  call alive (or WASI 0.3) would make this O(chunk).
+- **Workflow** — `wasi-http-outbound` uses the `/v1.0` HTTP API, which Dapr
+  documents as deprecated in favour of the SDKs. Dapr offers no non-deprecated
+  HTTP replacement, and 1.19 still serves it. The deprecation affects only the
+  HTTP provider: `wasi-grpc-outbound` calls the `*WorkflowBeta1` RPCs, which carry
+  no `deprecated` option in the vendored v1.18 protos (`dapr.proto`; only the
+  `*WorkflowAlpha1` set is deprecated).
 
 ## Packaging / DX
 
@@ -41,6 +54,20 @@ for the inbound spec.
   publishing it (crates.io or a stable git tag) would make app authoring smoother.
 
 ## Recently shipped
+
+- **Interfaces 0.6.0 — streaming crypto (breaking).** `crypto` gained sync WIT
+  resources `encryptor` / `decryptor` (constructor, `write(chunk)`,
+  `finish` → `crypto-output`) and `crypto-output.read(max-len)`; the one-shot
+  `encrypt`/`decrypt` stay. Write-all-then-read by construction (`finish`
+  consumes the writer). `wasi-http-outbound` streams both HTTP bodies over raw
+  `wasi:http` 0.2 handles kept in the resource; daprd v1.18 itself buffers the
+  output and caps the HTTP input at `--max-body-size` (default 4Mi).
+  **gRPC caveat:** `wasi-grpc-outbound` buffers in provider memory and runs one
+  RPC at `finish` (now sent as 1 MiB `seq`-numbered messages, so > 4Mi works).
+  `dapr-app` adds `crypto_io` (`std::io` adapters). Both providers now map
+  daprd's `ERR_CRYPTO_PROVIDER_NOT_FOUND` to `component-not-found`. Covered by
+  mock tests (4 MiB roundtrip, early rejection, composed kv-demo 3 MiB) and by
+  both real-Dapr E2Es (`crypto.dapr.localstorage`, 3 MiB).
 
 - **Interfaces 0.6.0 — pub/sub bulk subscribe.** `topic-subscription` gained an
   optional `bulk-subscribe: bulk-subscribe-config { enabled, max-messages-count,
@@ -125,9 +152,9 @@ for the inbound spec.
 These are the upstream changes that would unblock items above. None of them has landed yet. Details: [wiki/dapr/dapr-grpc-from-wasm.md](wiki/dapr/dapr-grpc-from-wasm.md#upstream-status-re-check-2026-10-10) and [wiki/dapr/dapr-http-api.md](wiki/dapr/dapr-http-api.md#dapr-119-delta-v1190-rc2-checked-2026-10-10).
 
 - **gRPC outside Spin / multi-authority h2c.** Wasmtime (up to 50-rc) still has HTTP/1-only outbound `wasi-http`. Spin 4.2 still uses the single-authority `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`. `wasi-grpc` is still 0.1.0 (tonic 0.13). The only path we control is guest-side `h2` over `wasi:sockets`.
-- **Actor hosting over gRPC.** Dapr 1.19 `AppCallback` still has no actor methods.
-- **Streaming crypto.** Dapr crypto is still alpha and one-shot over HTTP. Streaming would also need WIT `stream`. WASI 0.3.1 is out and on by default in wasmtime ≥ 46 and Spin ≥ 4.1, but our WIT convention stays sync.
-- **Workflow.** The `/v1.0` HTTP API is still deprecated but served in 1.19.
+- **Actor hosting over gRPC.** Dapr 1.19 `AppCallback` still has no actor methods. Workaround: gRPC outbound + HTTP inbound (see *Standing design constraints*).
+- **Streaming crypto.** Shipped in 0.6.0 with sync WIT resources (no WIT `stream` needed). Remaining upstream limits: daprd's HTTP crypto handler still buffers the whole output and caps the input at `--max-body-size`; true streaming over gRPC needs a call that survives across export calls (or WASI 0.3).
+- **Workflow.** The `/v1.0` HTTP API is still deprecated but served in 1.19 (HTTP provider only; the gRPC provider uses the non-deprecated `*WorkflowBeta1` RPCs).
 
 Additive Dapr 1.19 surface we could adopt (1.19 is still an RC): actor timer reads (`ListActorTimers` / `GetActorTimer`), conversation `max_tokens`, optional job `data`, and workflow `appID` targeting.
 
@@ -136,7 +163,13 @@ Additive Dapr 1.19 surface we could adopt (1.19 is still an RC): actor timer rea
 - **Actor *hosting* is HTTP app-channel only.** Dapr's gRPC `AppCallback` service
   has no actor methods, so `actors-callback` is reachable only via the
   `wasi-http-inbound` provider. (Actor *client* calls work over either transport
-  through the outbound `actors` interface.)
+  through the outbound `actors` interface.) **Workaround for gRPC apps:** compose
+  `wasi-grpc-outbound` + `wasi-http-inbound` (`./compose.sh my_app.wasm --out grpc
+  --in http`) and run daprd with `--app-protocol http` — outbound goes over gRPC,
+  actor hosting over the HTTP app channel. The gRPC-native path,
+  `SubscribeActorEventsAlpha1` (an app-initiated bidi stream, `actors.proto`
+  ~line 172), was rejected: it needs a long-lived bidi stream that request-scoped
+  wasm/Spin HTTP triggers cannot hold, and it is alpha.
 - **Outbound and inbound are separate components** because a single bidirectional
   provider forms an `app ↔ provider` instantiation cycle the component model
   forbids. This is by design, not a limitation to remove.

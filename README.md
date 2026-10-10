@@ -23,9 +23,9 @@ Write your app against the interfaces, [compose](#composing) it with an outbound
 | `configuration` | Configuration: get, **subscribe**, unsubscribe | stable |
 | `invocation` | Service invocation with full HTTP semantics (verb, headers, status passthrough) | stable |
 | `lock` | Distributed lock: try-lock, unlock | alpha |
-| `workflow` | Workflow management: start, get, terminate, raise-event, pause, resume, purge | deprecated-but-served HTTP API |
+| `workflow` | Workflow management: start, get, terminate, raise-event, pause, resume, purge | HTTP: `/v1.0`, deprecated but served; gRPC: `*WorkflowBeta1`, not deprecated |
 | `jobs` | Jobs/scheduler: schedule (incl. failure policy), get, delete | stable since 1.16 |
-| `crypto` | Cryptography: encrypt, decrypt (one-shot) | alpha |
+| `crypto` | Cryptography: encrypt, decrypt (one-shot), and **streaming** `encryptor` / `decryptor` / `crypto-output` resources (write chunks, finish, read chunks) | alpha |
 | `conversation` | Conversation (LLM): converse | alpha2 |
 | `actors` | Actors (client side): invoke, state, transactions, reminders, timers | stable |
 | `runtime` | Sidecar metadata, labels, health checks | stable |
@@ -210,7 +210,7 @@ environment = { DAPR_GRPC_ENDPOINT = "http://127.0.0.1:50001" }
 
 Endpoint resolution mirrors the SDKs: `DAPR_GRPC_ENDPOINT`, then `http://127.0.0.1:$DAPR_GRPC_PORT`, then `http://127.0.0.1:50001`; `DAPR_API_TOKEN` becomes `dapr-api-token` gRPC metadata. See `e2e/apps/microservice/` and `e2e/tests/spin.rs` for a complete working setup.
 
-Divergences from the wasi-http provider (inherent to the gRPC API): service invocation cannot pass through the target app's exact status code (success is always `200`, non-2xx surfaces as `error`); a missing state/actor key is indistinguishable from a stored empty value; sidecar health checks use `GetMetadata` (daprd has no gRPC health service); crypto's streaming RPCs are driven in one-shot form.
+Divergences from the wasi-http provider (inherent to the gRPC API): service invocation cannot pass through the target app's exact status code (success is always `200`, non-2xx surfaces as `error`); a missing state/actor key is indistinguishable from a stored empty value; sidecar health checks use `GetMetadata` (daprd has no gRPC health service); crypto's streaming RPCs are driven as one RPC per operation, so the streaming `encryptor`/`decryptor` resources **buffer** the whole input and output in provider memory (the payload goes out as 1 MiB `seq`-numbered messages, so it is not limited by daprd's 4Mi per-message cap).
 
 ## Repository layout
 
@@ -228,7 +228,7 @@ Divergences from the wasi-http provider (inherent to the gRPC API): service invo
 | `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es (shared scenario in `tests/common/`) |
 | `e2e/apps/` | Demo/fixture app components the E2Es compose and drive (their own wasm-only workspace) |
 | `e2e/apps/kv-demo/` | Outbound-only example (`wasi:cli` command), used by the mock composition test |
-| `e2e/apps/microservice/` | The real-Dapr E2E app (a typed reactor): run as two instances (publisher + consumer) by **both** suites to exercise state, pub/sub and service invocation |
+| `e2e/apps/microservice/` | The real-Dapr E2E app (a typed reactor): run as two instances (publisher + consumer) by **both** suites to exercise state, pub/sub, service invocation and streaming crypto |
 | `wiki/`, `raw/` | LLM-maintained knowledge base with the research behind the design |
 
 ## Development
@@ -281,8 +281,14 @@ Experimental. Tracked follow-up work lives in [ROADMAP.md](ROADMAP.md).
 
 - The whole Dapr **outbound** HTTP API surface is covered, including alpha APIs (lock, crypto, state query, conversation) — alpha APIs can change with Dapr releases.
 - Values in the HTTP state/bindings APIs are JSON: bytes that parse as JSON are sent as-is, anything else is sent as a JSON string (UTF-8 lossy). Store JSON if you need byte-exact roundtrips — **or use the wasi-grpc provider**, where values are raw protobuf bytes.
-- Crypto is one-shot (no streaming). Conversation models the full alpha2 surface: content-part messages with role wrappers, tool definitions and tool calls, structured-output schema, prompt-cache retention, and per-token usage in the response.
+- **Streaming crypto** (`encryptor` / `decryptor` → `crypto-output`) is sync WIT resources, no WASI 0.3: write the input in chunks, `finish`, then read the output in chunks (write-all-then-read; interleaving is not supported). The `dapr-app` SDK wraps them as `std::io` types (`dapr_app::crypto_io`). What it saves depends on the provider and on daprd:
+  - `wasi-http-outbound` streams both bodies over `wasi:http`, so neither the app nor the provider holds the whole payload. But daprd v1.18 buffers the whole output before it answers ([`io.ReadAll` in `pkg/api/http/crypto.go`](https://github.com/dapr/dapr/blob/v1.18.0/pkg/api/http/crypto.go)) and caps the HTTP input at `--max-body-size` (default 4Mi); a larger input makes daprd fail the call (a 5xx, so the provider traps). The streaming resources first check the component with `GET /v1.0/metadata`.
+  - `wasi-grpc-outbound` buffers input and output in provider memory (see the gRPC section). daprd's gRPC side streams for real and has no total-size cap.
+  - daprd reports a missing key (`ERR_CRYPTO_KEY`) and a failed decryption (`ERR_CRYPTO`) as HTTP 500 / gRPC `Internal`, so both providers trap on these instead of returning `key-not-found` / `malformed-ciphertext`.
+- Conversation models the full alpha2 surface: content-part messages with role wrappers, tool definitions and tool calls, structured-output schema, prompt-cache retention, and per-token usage in the response.
 - **Inbound (Dapr → app) is typed via the `*-callback` interfaces**, implemented by the **`wasi-http-inbound`** provider (full HTTP app-channel router) and the `dapr-app` SDK; both real-Dapr E2Es exercise it (pub/sub delivery + service invocation, self and cross-app). Pub/sub supports CEL routing rules (the matched rule path arrives in `topic-event.path`; verified through real daprd), and bulk subscribe (`topic-subscription.bulk-subscribe` + `on-bulk-topic-event`, with an SDK default that loops over `on-topic-event`; combinable with routing rules); both real-Dapr E2Es deliver a routed topic and a bulk-subscribed topic; input bindings are delivered end to end in both real-Dapr E2Es, but note that **daprd ignores the input-binding reply** over the HTTP app channel (and applies only `to`/`data`/`concurrency` over gRPC) — do side effects with the outbound `state`/`bindings` interfaces instead; configuration-update delivery (`configuration-callback`) is wired in the router (`POST /configuration/<store>/<key>`) and covered by a composed in-process test.
+- **Workflow deprecation affects only the HTTP provider.** `wasi-http-outbound` uses the `/v1.0` workflow HTTP API. Dapr documents it as deprecated in favour of the SDKs, but offers no non-deprecated HTTP replacement, and Dapr 1.19 still serves it. `wasi-grpc-outbound` uses the gRPC `*WorkflowBeta1` RPCs. In the vendored v1.18 protos these RPCs have no `deprecated` option (only the `*WorkflowAlpha1` set has it).
+- **Actor hosting with gRPC outbound.** Dapr's `AppCallback` gRPC service has no actor methods, so actor hosting needs the HTTP app channel. To use gRPC outbound *and* host actors, compose `wasi-grpc-outbound` with `wasi-http-inbound` (`./compose.sh my_app.wasm --out grpc --in http`) and run daprd with `--app-protocol http`. Outbound calls go over gRPC; actor callbacks arrive over the HTTP app channel. The gRPC-native alternative, `SubscribeActorEventsAlpha1` (an app-initiated bidirectional stream, `actors.proto`), is not used: it needs a long-lived bidi stream that request-scoped wasm/Spin HTTP triggers cannot hold, and it is alpha.
 - **Inbound transport is independent of outbound.** The portable `wasi-http-inbound` provider serves the HTTP app channel on any runtime (including behind a `wasi-grpc`-outbound app). The `wasi-grpc-inbound` provider serves Dapr's `AppCallback` gRPC service (`--app-protocol grpc`); it is verified working over Spin's inbound h2c with `grpcurl` (`ListTopicSubscriptions`, `HealthCheck`) but does not yet have an automated daprd `--app-protocol grpc` E2E. Actor *hosting* is HTTP-only regardless, since Dapr's `AppCallback` has no actor methods.
 - The wasi-grpc (outbound) provider remains a proof of concept: it runs only on Spin ≥ 3.4 (outbound h2c), its h2c allowlist holds a single authority, and most interfaces are compile-checked but only the E2E surface (state, invocation, pub/sub, metadata) is integration-tested.
 

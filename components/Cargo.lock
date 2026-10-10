@@ -140,6 +140,7 @@ dependencies = [
  "serde",
  "serde_json",
  "urlencoding",
+ "wasip2",
  "wit-bindgen 0.62.0",
  "wstd",
 ]
