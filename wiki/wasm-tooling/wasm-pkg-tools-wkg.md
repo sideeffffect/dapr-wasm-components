@@ -46,7 +46,7 @@ Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.
 
 ## Typical commands
 
-- `wkg wit build --wit-dir wit` — build a `wit/` directory into a WIT package `.wasm` named `ns:pkg@x.y.z.wasm` (embedding wkg.toml metadata).
+- `wkg wit build --wit-dir wit` (**deprecated in wkg 0.16** → `wkg build --wit-dir wit`, byte-identical output) — build a `wit/` directory into a WIT package `.wasm` named `ns:pkg@x.y.z.wasm` (embedding wkg.toml metadata).
 - `wkg wit fetch` — fetch dependencies declared in `wit/` into `wit/deps/`, writing `wkg.lock`.
 - `wkg publish ns:pkg@x.y.z.wasm` — publish a WIT package; `wkg publish component.wasm --package ns:pkg@x.y.z` for a component binary. Registry resolved through namespace config.
 - `wkg oci push ghcr.io/user/name:0.1.0 file.wasm` / `wkg oci pull` — raw OCI operations with explicit references, no config needed.

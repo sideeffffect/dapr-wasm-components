@@ -12,8 +12,8 @@ env:
   # Pinned so a new upstream release (or a flaky binstall fetch) can't change
   # or break the WIT tooling under us; bump deliberately. Cached by version
   # below, so the happy path never hits the network to install them.
-  WKG_VERSION: "0.15.1"
-  WASM_TOOLS_VERSION: "1.251.0"
+  WKG_VERSION: "0.16.1"
+  WASM_TOOLS_VERSION: "1.261.0"
 
 jobs:
   test:
@@ -61,7 +61,7 @@ jobs:
       - name: Validate WIT package
         run: |
           wasm-tools component wit components/wit/ > /dev/null
-          wkg wit build --wit-dir components/wit -o dapr-wasm-components-interfaces.wasm
+          wkg build --wit-dir components/wit -o dapr-wasm-components-interfaces.wasm
 
       - name: Build components (providers)
         run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
@@ -97,7 +97,7 @@ jobs:
     # all infrastructure is started by the test itself via testcontainers.
     runs-on: ubuntu-latest
     env:
-      WASMTIME_VERSION: "45.0.1"
+      WASMTIME_VERSION: "49.0.2"
     steps:
       - uses: actions/checkout@v7
 
@@ -137,7 +137,7 @@ jobs:
     # API; daprd runs as a testcontainer started by the test itself.
     runs-on: ubuntu-latest
     env:
-      SPIN_VERSION: "v4.0.1"
+      SPIN_VERSION: "v4.2.2"
     steps:
       - uses: actions/checkout@v7
 
@@ -232,7 +232,7 @@ jobs:
 
       - name: Build modules
         run: |
-          wkg wit build --wit-dir components/wit -o dapr-wasm-components-interfaces.wasm
+          wkg build --wit-dir components/wit -o dapr-wasm-components-interfaces.wasm
           cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
 
       - name: Publish interface module

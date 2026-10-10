@@ -167,7 +167,7 @@ pub struct DaprdConfig<'a> {
 
 /// A daprd sidecar as a testcontainer (daprio/daprd image, host networking so
 /// it can dial the wasm app served on the host). Dumps its logs when the test
-/// fails. Override the image tag with `DAPRD_IMAGE_TAG` (default 1.18.0).
+/// fails. Override the image tag with `DAPRD_IMAGE_TAG` (default 1.18.7).
 pub struct Daprd {
     name: &'static str,
     container: Container<GenericImage>,
@@ -183,7 +183,7 @@ impl Daprd {
             config_file,
             shared_dir,
         } = config;
-        let tag = std::env::var("DAPRD_IMAGE_TAG").unwrap_or_else(|_| "1.18.0".to_string());
+        let tag = std::env::var("DAPRD_IMAGE_TAG").unwrap_or_else(|_| "1.18.7".to_string());
         let mut cmd = vec![
             "/daprd".to_string(),
             "--app-id".to_string(),

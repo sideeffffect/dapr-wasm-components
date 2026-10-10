@@ -22,7 +22,7 @@
 //! cargo test --test dapr -- --ignored
 //! ```
 //!
-//! Overrides: WASMTIME_BIN, DAPRD_IMAGE_TAG (default 1.18.0),
+//! Overrides: WASMTIME_BIN, DAPRD_IMAGE_TAG (default 1.18.7),
 //! REDIS_HOST (skips the Redis testcontainer).
 
 mod common;

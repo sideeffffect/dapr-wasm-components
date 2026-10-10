@@ -23,7 +23,7 @@
 //! cargo test --test spin -- --ignored
 //! ```
 //!
-//! Overrides: SPIN_BIN, DAPRD_IMAGE_TAG (default 1.18.0),
+//! Overrides: SPIN_BIN, DAPRD_IMAGE_TAG (default 1.18.7),
 //! REDIS_HOST (skips the Redis testcontainer).
 
 mod common;

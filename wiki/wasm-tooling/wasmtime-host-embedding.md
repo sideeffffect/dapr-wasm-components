@@ -5,7 +5,7 @@
 
 ## Overview
 
-Wasmtime (45.x as of June 2026) embeds components in Rust via `wasmtime::component::bindgen!`. The crucial fact for this project: **a sync WIT function can be implemented by an async Rust host function**. The guest blocks; the runtime awaits the host future. This lets tokio-based clients (like the Dapr SDK) sit behind sync guest-facing interfaces — no need for WASI 0.3 async.
+Wasmtime (45.x as of June 2026; the e2e harness is on 49.x since 2026-10-10) embeds components in Rust via `wasmtime::component::bindgen!`. The crucial fact for this project: **a sync WIT function can be implemented by an async Rust host function**. The guest blocks; the runtime awaits the host future. This lets tokio-based clients (like the Dapr SDK) sit behind sync guest-facing interfaces — no need for WASI 0.3 async.
 
 ## Modern bindgen! syntax (wasmtime ≥ ~34; 45.x current)
 
@@ -24,6 +24,7 @@ Flags: `async`, `store`, `tracing`, `verbose_tracing`, `trappable`, `ignore_wit`
 
 ## Runtime requirements
 
+- **wasmtime-wasi-http 49:** `WasiHttpView`/`WasiHttpCtxView` moved from `wasmtime_wasi_http::p2::` to the crate root (`p2` re-export is private); `p2::add_only_http_to_linker_async` and `p2::bindings` are unchanged.
 - `Config::async_support(true)` — **deprecated in wasmtime 45 and a no-op**: async support is always on; just use `Engine::new(&Config::new())`. (Older docs/examples still show it as required.)
 - wasmtime 45 has its own `wasmtime::Error`/`wasmtime::Result` (anyhow-like, 99% API-compatible); `From<wasmtime::Error> for anyhow::Error` exists behind the default-on `anyhow` feature, and `wasmtime::error::Context` replaces `anyhow::Context` for `.with_context(...)` on wasmtime results.
 - Generated export bindings live under `bindings::exports::<ns>::<pkg>::<interface>`; world-level exports get `call_<name>` on the instance type, interface exports via accessor methods like `instance.dapr_client_topic_handler()`.
