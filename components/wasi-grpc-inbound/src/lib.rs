@@ -64,6 +64,12 @@ fn dispatch(path: &str, body: &[u8]) -> Response<Body> {
         "/dapr.proto.runtime.v1.AppCallback/OnInvoke" => on_invoke(payload),
         "/dapr.proto.runtime.v1.AppCallback/ListTopicSubscriptions" => list_topic_subscriptions(),
         "/dapr.proto.runtime.v1.AppCallback/OnTopicEvent" => on_topic_event(payload),
+        // daprd calls the stable RPC and falls back to the deprecated Alpha1
+        // one only on UNIMPLEMENTED; serve both with the same handler.
+        "/dapr.proto.runtime.v1.AppCallback/OnBulkTopicEvent"
+        | "/dapr.proto.runtime.v1.AppCallbackAlpha/OnBulkTopicEventAlpha1" => {
+            on_bulk_topic_event(payload)
+        }
         "/dapr.proto.runtime.v1.AppCallback/ListInputBindings" => list_input_bindings(),
         "/dapr.proto.runtime.v1.AppCallback/OnBindingEvent" => on_binding_event(payload),
         "/dapr.proto.runtime.v1.AppCallback/OnJobEvent" => on_job_event(payload),
@@ -122,7 +128,12 @@ fn list_topic_subscriptions() -> Response<Body> {
             metadata: sub.metadata.into_iter().collect(),
             routes: None,
             dead_letter_topic: sub.dead_letter_topic.unwrap_or_default(),
-            bulk_subscribe: None,
+            bulk_subscribe: sub.bulk_subscribe.map(|config| pb::BulkSubscribeConfig {
+                enabled: config.enabled,
+                // 0 = unset; daprd applies its defaults.
+                max_messages_count: config.max_messages_count.unwrap_or_default(),
+                max_await_duration_ms: config.max_await_duration_ms.unwrap_or_default(),
+            }),
         })
         .collect();
     grpc_ok(&pb::ListTopicSubscriptionsResponse { subscriptions })
@@ -145,20 +156,78 @@ fn on_topic_event(payload: &[u8]) -> Response<Body> {
         path: non_empty(event.path),
         extensions: extensions_from_struct(event.extensions.as_ref()),
     };
-    let status = match pubsub_callback::on_topic_event(&wit_event) {
-        pubsub_callback::TopicEventResponse::Success => {
-            pb::topic_event_response::TopicEventResponseStatus::Success
-        }
-        pubsub_callback::TopicEventResponse::Retry => {
-            pb::topic_event_response::TopicEventResponseStatus::Retry
-        }
-        pubsub_callback::TopicEventResponse::Drop => {
-            pb::topic_event_response::TopicEventResponseStatus::Drop
+    let status = status_to_proto(pubsub_callback::on_topic_event(&wit_event));
+    grpc_ok(&pb::TopicEventResponse { status })
+}
+
+fn status_to_proto(status: pubsub_callback::TopicEventResponse) -> i32 {
+    use pb::topic_event_response::TopicEventResponseStatus as Status;
+    (match status {
+        pubsub_callback::TopicEventResponse::Success => Status::Success,
+        pubsub_callback::TopicEventResponse::Retry => Status::Retry,
+        pubsub_callback::TopicEventResponse::Drop => Status::Drop,
+    }) as i32
+}
+
+fn on_bulk_topic_event(payload: &[u8]) -> Response<Body> {
+    use pb::topic_event_bulk_request_entry::Event;
+    let request = match pb::TopicEventBulkRequest::decode(payload) {
+        Ok(request) => request,
+        Err(error) => {
+            return grpc_error(
+                GRPC_INTERNAL,
+                &format!("bad TopicEventBulkRequest: {error}"),
+            )
         }
     };
-    grpc_ok(&pb::TopicEventResponse {
-        status: status as i32,
-    })
+    let path = non_empty(request.path);
+    let entries = request
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let event = match entry.event {
+                Some(Event::CloudEvent(ce)) => {
+                    pubsub_callback::BulkEvent::CloudEvent(pubsub_callback::TopicEvent {
+                        id: ce.id,
+                        source: ce.source,
+                        type_: ce.r#type,
+                        spec_version: ce.spec_version,
+                        data_content_type: non_empty(ce.data_content_type),
+                        data: ce.data,
+                        topic: request.topic.clone(),
+                        pubsub_name: request.pubsub_name.clone(),
+                        path: path.clone(),
+                        extensions: extensions_from_struct(ce.extensions.as_ref()),
+                    })
+                }
+                Some(Event::Bytes(bytes)) => pubsub_callback::BulkEvent::Raw(bytes),
+                None => pubsub_callback::BulkEvent::Raw(Vec::new()),
+            };
+            pubsub_callback::BulkTopicEventEntry {
+                entry_id: entry.entry_id,
+                event,
+                content_type: non_empty(entry.content_type),
+                metadata: entry.metadata.into_iter().collect(),
+            }
+        })
+        .collect();
+    let wit_event = pubsub_callback::BulkTopicEvent {
+        id: request.id,
+        entries,
+        metadata: request.metadata.into_iter().collect(),
+        topic: request.topic,
+        pubsub_name: request.pubsub_name,
+        type_: request.r#type,
+        path,
+    };
+    let statuses = pubsub_callback::on_bulk_topic_event(&wit_event)
+        .into_iter()
+        .map(|entry| pb::TopicEventBulkResponseEntry {
+            entry_id: entry.entry_id,
+            status: status_to_proto(entry.status),
+        })
+        .collect();
+    grpc_ok(&pb::TopicEventBulkResponse { statuses })
 }
 
 fn list_input_bindings() -> Response<Body> {

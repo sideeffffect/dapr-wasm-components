@@ -135,6 +135,29 @@ pub async fn serve_inbound(
     content_type: &str,
     body: Vec<u8>,
 ) -> anyhow::Result<(u16, Vec<u8>)> {
+    serve_inbound_with_env(
+        component_bytes,
+        sidecar_endpoint,
+        &[],
+        method,
+        path,
+        content_type,
+        body,
+    )
+    .await
+}
+
+/// [`serve_inbound`] with extra guest env vars (e.g. the microservice's
+/// `SUBSCRIBE` role switch) next to `DAPR_HTTP_ENDPOINT`.
+pub async fn serve_inbound_with_env(
+    component_bytes: &[u8],
+    sidecar_endpoint: &str,
+    extra_env: &[(&str, &str)],
+    method: &str,
+    path: &str,
+    content_type: &str,
+    body: Vec<u8>,
+) -> anyhow::Result<(u16, Vec<u8>)> {
     use http_body_util::{BodyExt, Full};
     use wasmtime_wasi_http::p2::bindings::http::types::{ErrorCode, Scheme};
     use wasmtime_wasi_http::p2::bindings::ProxyPre;
@@ -144,10 +167,15 @@ pub async fn serve_inbound(
     let linker = linker(&engine)?;
     let pre = ProxyPre::new(linker.instantiate_pre(&component)?)?;
 
-    let env = vec![(
+    let mut env = vec![(
         "DAPR_HTTP_ENDPOINT".to_string(),
         sidecar_endpoint.to_string(),
     )];
+    env.extend(
+        extra_env
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string())),
+    );
     let mut store = Store::new(&engine, Ctx::new(&env));
 
     let request = hyper::Request::builder()

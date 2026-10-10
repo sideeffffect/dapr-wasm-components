@@ -15,8 +15,9 @@
 //!   reported by the `smoke` method).
 //! - `PEER_APP_ID` — the *other* instance's app id, the target of
 //!   `invoke-peer` (cross-app service invocation via the sidecar).
-//! - `SUBSCRIBE` — when set, the app subscribes to the `orders` topic (the
-//!   consumer role); when unset, it subscribes to nothing (the publisher role).
+//! - `SUBSCRIBE` — when set, the app subscribes to the `orders` topic and,
+//!   with bulk delivery, to the `orders-bulk` topic (the consumer role); when
+//!   unset, it subscribes to nothing (the publisher role).
 //!
 //! The test harness drives the control methods by HTTP-GETting them on the
 //! served app channel (`/smoke`, `/publish?n=N`, `/invoke-self`, …); the
@@ -24,7 +25,9 @@
 
 use dapr_app::callback::configuration_callback::ConfigurationUpdate;
 use dapr_app::callback::invocation_callback::{HttpResponse, InvokeRequest};
-use dapr_app::callback::pubsub_callback::{TopicEvent, TopicEventResponse, TopicSubscription};
+use dapr_app::callback::pubsub_callback::{
+    BulkTopicEvent, BulkTopicEventEntryResponse, TopicEvent, TopicEventResponse, TopicSubscription,
+};
 use dapr_app::dapr::{invocation, runtime, state};
 use dapr_app::DaprApp;
 use serde_json::json;
@@ -33,6 +36,11 @@ const STATE_STORE: &str = "statestore";
 const PUBSUB: &str = "pubsub";
 const TOPIC: &str = "orders";
 const COUNTER_KEY: &str = "processed-count";
+/// The bulk-subscribed topic and its counters: orders processed, and bulk
+/// deliveries (batches) received.
+const BULK_TOPIC: &str = "orders-bulk";
+const BULK_COUNTER_KEY: &str = "bulk-processed-count";
+const BULK_BATCHES_KEY: &str = "bulk-batch-count";
 
 fn app_id() -> String {
     std::env::var("APP_ID").unwrap_or_else(|_| "microservice".to_string())
@@ -51,12 +59,10 @@ struct Microservice;
 impl DaprApp for Microservice {
     fn list_topic_subscriptions() -> Vec<TopicSubscription> {
         if subscribes() {
-            vec![TopicSubscription {
-                pubsub_name: PUBSUB.to_string(),
-                topic: TOPIC.to_string(),
-                metadata: Vec::new(),
-                dead_letter_topic: None,
-            }]
+            vec![
+                TopicSubscription::new(PUBSUB, TOPIC),
+                TopicSubscription::new(PUBSUB, BULK_TOPIC).with_bulk_subscribe(Some(10), Some(500)),
+            ]
         } else {
             Vec::new()
         }
@@ -64,13 +70,27 @@ impl DaprApp for Microservice {
 
     fn on_topic_event(event: TopicEvent) -> TopicEventResponse {
         // `event.data` is the domain payload; the envelope is already parsed.
-        match process_order(&event.data) {
+        let (prefix, counter) = if event.topic == BULK_TOPIC {
+            ("bulk-order", BULK_COUNTER_KEY)
+        } else {
+            ("order", COUNTER_KEY)
+        };
+        match process_order(&event.data, prefix, counter) {
             Ok(()) => TopicEventResponse::Success,
             Err(error) => {
                 eprintln!("order processing failed: {error}");
                 TopicEventResponse::Retry
             }
         }
+    }
+
+    fn on_bulk_topic_event(event: BulkTopicEvent) -> Vec<BulkTopicEventEntryResponse> {
+        // Count the batch (proves delivery came through the bulk path), then
+        // let the SDK hand each entry to `on_topic_event`.
+        if let Err(error) = increment_counter(BULK_BATCHES_KEY) {
+            eprintln!("counting bulk batch failed: {error}");
+        }
+        dapr_app::bulk_to_single(event, <Self as DaprApp>::on_topic_event)
     }
 
     fn on_configuration_event(update: ConfigurationUpdate) {
@@ -95,10 +115,15 @@ impl DaprApp for Microservice {
 
     fn on_invoke(request: InvokeRequest) -> HttpResponse {
         let result = match request.method.as_str() {
-            "count" | "summary" => read_counter().map(|c| json!({ "processed": c })),
-            "publish" => {
-                publish_orders(query_n(request.query.as_deref())).map(|n| json!({ "published": n }))
-            }
+            "count" | "summary" => read_counter(COUNTER_KEY).map(|c| json!({ "processed": c })),
+            "count-bulk" => read_counter(BULK_COUNTER_KEY).and_then(|processed| {
+                let batches = read_counter(BULK_BATCHES_KEY)?;
+                Ok(json!({ "processed": processed, "batches": batches }))
+            }),
+            "publish" => publish_orders(TOPIC, query_n(request.query.as_deref()))
+                .map(|n| json!({ "published": n })),
+            "publish-bulk" => publish_orders(BULK_TOPIC, query_n(request.query.as_deref()))
+                .map(|n| json!({ "published": n })),
             "smoke" => smoke(StateValue::Json),
             "smoke-binary" => smoke(StateValue::Binary),
             "invoke-self" => invoke_self(),
@@ -133,11 +158,11 @@ fn query_n(query: Option<&str>) -> u64 {
         .unwrap_or(1)
 }
 
-fn publish_orders(n: u64) -> Result<u64, String> {
+fn publish_orders(topic: &str, n: u64) -> Result<u64, String> {
     for order_id in 1..=n {
         dapr_app::dapr::pubsub::publish(
             PUBSUB,
-            TOPIC,
+            topic,
             json!({ "orderId": order_id }).to_string().as_bytes(),
             Some("application/json"),
             &[],
@@ -284,7 +309,7 @@ fn invoke_peer() -> Result<serde_json::Value, String> {
     Ok(json!({ "processed": summary["processed"].as_u64().unwrap_or(0) }))
 }
 
-fn process_order(order: &[u8]) -> Result<(), String> {
+fn process_order(order: &[u8], key_prefix: &str, counter_key: &str) -> Result<(), String> {
     let order: serde_json::Value =
         serde_json::from_slice(order).map_err(|e| format!("invalid order payload: {e}"))?;
     let order_id = order["orderId"]
@@ -294,7 +319,7 @@ fn process_order(order: &[u8]) -> Result<(), String> {
     state::save(
         STATE_STORE,
         &[state::StateItem {
-            key: format!("order-{order_id}"),
+            key: format!("{key_prefix}-{order_id}"),
             value: order.to_string().into_bytes(),
             etag: None,
             metadata: Vec::new(),
@@ -304,16 +329,16 @@ fn process_order(order: &[u8]) -> Result<(), String> {
     )
     .map_err(|e| format!("saving order failed: {e:?}"))?;
 
-    increment_counter()?;
-    println!("processed order {order_id}");
+    increment_counter(counter_key)?;
+    println!("processed {key_prefix} {order_id}");
     Ok(())
 }
 
 /// CAS-increment the processed-order counter (deliveries may be concurrent):
 /// read value + etag, write back first-write, retry on conflict.
-fn increment_counter() -> Result<(), String> {
+fn increment_counter(counter_key: &str) -> Result<(), String> {
     for _ in 0..16 {
-        let (count, etag) = match state::get(STATE_STORE, COUNTER_KEY, None, &[]) {
+        let (count, etag) = match state::get(STATE_STORE, counter_key, None, &[]) {
             Ok(response) => (
                 String::from_utf8_lossy(&response.data)
                     .parse::<u64>()
@@ -327,7 +352,7 @@ fn increment_counter() -> Result<(), String> {
         let result = state::save(
             STATE_STORE,
             &[state::StateItem {
-                key: COUNTER_KEY.to_string(),
+                key: counter_key.to_string(),
                 value: (count + 1).to_string().into_bytes(),
                 etag,
                 metadata: Vec::new(),
@@ -347,8 +372,8 @@ fn increment_counter() -> Result<(), String> {
     Err("incrementing counter failed: too many etag conflicts".to_string())
 }
 
-fn read_counter() -> Result<u64, String> {
-    match state::get(STATE_STORE, COUNTER_KEY, None, &[]) {
+fn read_counter(counter_key: &str) -> Result<u64, String> {
+    match state::get(STATE_STORE, counter_key, None, &[]) {
         Ok(response) => Ok(String::from_utf8_lossy(&response.data)
             .parse::<u64>()
             .unwrap_or(0)),
