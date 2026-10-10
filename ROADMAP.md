@@ -39,8 +39,12 @@ for the inbound spec.
 ## Outbound / API coverage
 
 - **Crypto** is one-shot (no streaming encrypt/decrypt).
-- **Workflow** uses the `/v1.0` HTTP API, which Dapr documents as deprecated in
-  favour of the SDKs.
+- **Workflow** — `wasi-http-outbound` uses the `/v1.0` HTTP API, which Dapr
+  documents as deprecated in favour of the SDKs. Dapr offers no non-deprecated
+  HTTP replacement, and 1.19 still serves it. The deprecation affects only the
+  HTTP provider: `wasi-grpc-outbound` calls the `*WorkflowBeta1` RPCs, which carry
+  no `deprecated` option in the vendored v1.18 protos (`dapr.proto`; only the
+  `*WorkflowAlpha1` set is deprecated).
 
 ## Packaging / DX
 
@@ -93,9 +97,9 @@ for the inbound spec.
 These are the upstream changes that would unblock items above. None of them has landed yet. Details: [wiki/dapr/dapr-grpc-from-wasm.md](wiki/dapr/dapr-grpc-from-wasm.md#upstream-status-re-check-2026-10-10) and [wiki/dapr/dapr-http-api.md](wiki/dapr/dapr-http-api.md#dapr-119-delta-v1190-rc2-checked-2026-10-10).
 
 - **gRPC outside Spin / multi-authority h2c.** Wasmtime (up to 50-rc) still has HTTP/1-only outbound `wasi-http`. Spin 4.2 still uses the single-authority `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`. `wasi-grpc` is still 0.1.0 (tonic 0.13). The only path we control is guest-side `h2` over `wasi:sockets`.
-- **Actor hosting over gRPC.** Dapr 1.19 `AppCallback` still has no actor methods.
+- **Actor hosting over gRPC.** Dapr 1.19 `AppCallback` still has no actor methods. Workaround: gRPC outbound + HTTP inbound (see *Standing design constraints*).
 - **Streaming crypto.** Dapr crypto is still alpha and one-shot over HTTP. Streaming would also need WIT `stream`. WASI 0.3.1 is out and on by default in wasmtime ≥ 46 and Spin ≥ 4.1, but our WIT convention stays sync.
-- **Workflow.** The `/v1.0` HTTP API is still deprecated but served in 1.19.
+- **Workflow.** The `/v1.0` HTTP API is still deprecated but served in 1.19 (HTTP provider only; the gRPC provider uses the non-deprecated `*WorkflowBeta1` RPCs).
 
 Additive Dapr 1.19 surface we could adopt (1.19 is still an RC): actor timer reads (`ListActorTimers` / `GetActorTimer`), conversation `max_tokens`, optional job `data`, and workflow `appID` targeting.
 
@@ -104,7 +108,13 @@ Additive Dapr 1.19 surface we could adopt (1.19 is still an RC): actor timer rea
 - **Actor *hosting* is HTTP app-channel only.** Dapr's gRPC `AppCallback` service
   has no actor methods, so `actors-callback` is reachable only via the
   `wasi-http-inbound` provider. (Actor *client* calls work over either transport
-  through the outbound `actors` interface.)
+  through the outbound `actors` interface.) **Workaround for gRPC apps:** compose
+  `wasi-grpc-outbound` + `wasi-http-inbound` (`./compose.sh my_app.wasm --out grpc
+  --in http`) and run daprd with `--app-protocol http` — outbound goes over gRPC,
+  actor hosting over the HTTP app channel. The gRPC-native path,
+  `SubscribeActorEventsAlpha1` (an app-initiated bidi stream, `actors.proto`
+  ~line 172), was rejected: it needs a long-lived bidi stream that request-scoped
+  wasm/Spin HTTP triggers cannot hold, and it is alpha.
 - **Outbound and inbound are separate components** because a single bidirectional
   provider forms an `app ↔ provider` instantiation cycle the component model
   forbids. This is by design, not a limitation to remove.
