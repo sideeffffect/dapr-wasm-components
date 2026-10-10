@@ -35,7 +35,7 @@ use dapr_app::callback::configuration_callback::ConfigurationUpdate;
 use dapr_app::callback::invocation_callback::{HttpResponse, InvokeRequest};
 use dapr_app::callback::pubsub_callback::{TopicEvent, TopicEventResponse, TopicSubscription};
 use dapr_app::dapr::types::AppError;
-use dapr_app::dapr::{invocation, runtime, state};
+use dapr_app::dapr::{invocation, runtime, secrets, state};
 use dapr_app::DaprApp;
 use serde_json::json;
 
@@ -59,6 +59,7 @@ const TICKS_KEY: &str = "binding-ticks";
 /// response (`storeName` + `state`).
 const BINDING_RESPONSE_KEY: &str = "binding-response";
 const BINDING_RESPONSE_VALUE: &str = r#"{"from":"binding-response"}"#;
+const SECRET_STORE: &str = "secretstore";
 
 fn app_id() -> String {
     std::env::var("APP_ID").unwrap_or_else(|_| "microservice".to_string())
@@ -160,6 +161,7 @@ impl DaprApp for Microservice {
             "smoke" => smoke(StateValue::Json),
             "smoke-binary" => smoke(StateValue::Binary),
             "invoke-self" => invoke_self(),
+            "secrets" => check_secrets(),
             "invoke-peer" => invoke_peer(),
             "echo" => Ok(json!({ "echo": String::from_utf8_lossy(&request.data).into_owned() })),
             _ => return json_response(404, &json!({ "error": "not found" })),
@@ -329,6 +331,22 @@ fn cas_item(key: &str, value: &[u8], etag: String) -> state::StateItem {
 
 /// Service invocation of our own `echo` method: out through the provider, back
 /// in through our app channel.
+/// Read the `local.file` secret store: `db` exists, `missing` must be the
+/// typed `secret-not-found` (daprd reports it as a generic ERR_SECRET_GET).
+fn check_secrets() -> Result<serde_json::Value, String> {
+    let secret = secrets::get_secret(SECRET_STORE, "db", &[])
+        .map_err(|e| format!("get-secret db failed: {e:?}"))?;
+    if secret != [("db".to_string(), "s3cret".to_string())] {
+        return Err(format!("unexpected secret db: {secret:?}"));
+    }
+    match secrets::get_secret(SECRET_STORE, "missing", &[]) {
+        Err(secrets::GetSecretError::SecretNotFound) => Ok(json!({ "ok": true })),
+        other => Err(format!(
+            "missing secret: expected secret-not-found, got {other:?}"
+        )),
+    }
+}
+
 fn invoke_self() -> Result<serde_json::Value, String> {
     let response = invocation::invoke(
         &app_id(),
