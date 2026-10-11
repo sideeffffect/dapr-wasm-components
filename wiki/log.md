@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-10-12] update | wasi-grpc crate anatomy: client is a ~60-line tower::Service over wasi-hyperium (plain wasi:http) + spin-executor; HTTP/2 is all host-side, so the crate cannot lift the Spin limit. wstd 0.6.8 surfaces incoming trailers.
+- Updated: gRPC to Dapr from Wasm (wider landscape section)
+
 ## [2026-10-10] update | streaming crypto (interfaces 0.6.0): sync WIT resources encryptor/decryptor/crypto-output; daprd v1.18 HTTP crypto buffers its output (`io.ReadAll`) and caps input at `--max-body-size`, gRPC streams; wasi-grpc provider buffers; early-rejection trap (wasmtime `HttpProtocolError`) → metadata pre-check; component-not-found mapping fixed
 - Updated: dapr-wasm-components Architecture (streaming crypto decision)
 - Updated: Dapr HTTP API (crypto streams in, not out; crypto error codes)
