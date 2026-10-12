@@ -5,9 +5,9 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use wstd::http::Method;
 
-use crate::exports::workflow::{
-    FailureDetails, GetError, Guest, InstanceError, RuntimeStatus, StartError, WorkflowError,
-    WorkflowInstance,
+use crate::exports::workflow::{Guest, InstanceError, StartError};
+use crate::exports::workflow_read::{
+    FailureDetails, GetError, Guest as ReadGuest, RuntimeStatus, WorkflowError, WorkflowInstance,
 };
 use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::Component;
@@ -128,40 +128,7 @@ fn get_error(f: DaprFailure) -> GetError {
     GetError::Workflow(workflow_error(f))
 }
 
-impl Guest for Component {
-    fn start(
-        workflow_name: String,
-        instance_id: Option<String>,
-        input: Vec<u8>,
-    ) -> Result<String, StartError> {
-        let sidecar = Sidecar::from_env();
-        let mut path = format!(
-            "/v1.0/workflows/{}/{}/start",
-            seg(WORKFLOW_COMPONENT),
-            seg(&workflow_name)
-        );
-        if let Some(id) = &instance_id {
-            path.push_str(&format!("?instanceID={}", urlencoding::encode(id)));
-        }
-        let response = sidecar
-            .expect_success(
-                Method::POST,
-                &path,
-                &[("content-type".to_string(), "application/json".to_string())],
-                input,
-            )
-            .map_err(start_error)?;
-
-        #[derive(Deserialize)]
-        struct StartJson {
-            #[serde(rename = "instanceID")]
-            instance_id: String,
-        }
-        let parsed: StartJson = serde_json::from_slice(&response.body)
-            .unwrap_or_else(|e| panic!("unexpected workflow start response: {e}"));
-        Ok(parsed.instance_id)
-    }
-
+impl ReadGuest for Component {
     fn get(instance_id: String) -> Result<WorkflowInstance, GetError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
@@ -211,6 +178,41 @@ impl Guest for Component {
             parsed.runtime_status,
             properties,
         ))
+    }
+}
+
+impl Guest for Component {
+    fn start(
+        workflow_name: String,
+        instance_id: Option<String>,
+        input: Vec<u8>,
+    ) -> Result<String, StartError> {
+        let sidecar = Sidecar::from_env();
+        let mut path = format!(
+            "/v1.0/workflows/{}/{}/start",
+            seg(WORKFLOW_COMPONENT),
+            seg(&workflow_name)
+        );
+        if let Some(id) = &instance_id {
+            path.push_str(&format!("?instanceID={}", urlencoding::encode(id)));
+        }
+        let response = sidecar
+            .expect_success(
+                Method::POST,
+                &path,
+                &[("content-type".to_string(), "application/json".to_string())],
+                input,
+            )
+            .map_err(start_error)?;
+
+        #[derive(Deserialize)]
+        struct StartJson {
+            #[serde(rename = "instanceID")]
+            instance_id: String,
+        }
+        let parsed: StartJson = serde_json::from_slice(&response.body)
+            .unwrap_or_else(|e| panic!("unexpected workflow start response: {e}"));
+        Ok(parsed.instance_id)
     }
 
     fn terminate(instance_id: String) -> Result<(), InstanceError> {

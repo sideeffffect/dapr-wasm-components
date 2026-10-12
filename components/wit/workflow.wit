@@ -1,22 +1,10 @@
-/// Dapr workflow building block (management operations).
-/// Authoring workflows requires an app-channel worker and is out of scope
-/// for this outbound interface. Note: Dapr has deprecated the workflow
-/// HTTP API in favor of SDKs; it is still served as of v1.18.
-///
-/// Dapr has a single workflow engine, the built-in workflow component
-/// `dapr`, so the functions take no component name: providers always target
-/// `dapr`.
+/// Dapr workflow building block (management) — the **control** side:
+/// `start`, `terminate`, `raise-event`, `pause`, `resume` and `purge`. The
+/// read side and the shared types live in `workflow-read`; see it for the
+/// scope notes.
 /// https://docs.dapr.io/reference/api/workflow_api/
 interface workflow {
-  /// Setup/config failures common to every workflow operation.
-  variant workflow-error {
-    /// The sidecar's workflow engine (the built-in `dapr` workflow
-    /// component) is not available — e.g. the actor runtime / placement it
-    /// runs on is not configured.
-    component-not-found(string),
-    /// This app is not allowed to use the component (API token / scoping).
-    permission-denied(string),
-  }
+  use workflow-read.{workflow-error};
 
   /// Failure of `start`.
   variant start-error {
@@ -36,73 +24,12 @@ interface workflow {
     workflow(workflow-error),
   }
 
-  /// Failure of `get`.
-  variant get-error {
-    /// No workflow instance with that `instance-id`.
-    not-found(string),
-    workflow(workflow-error),
-  }
-
-  /// The runtime status of a workflow instance. These are the status
-  /// strings daprd reports (`RUNNING`, `COMPLETED`, …), which are the
-  /// durabletask `OrchestrationStatus` values daprd knows by name.
-  enum runtime-status {
-    running,
-    completed,
-    continued-as-new,
-    failed,
-    canceled,
-    terminated,
-    pending,
-    suspended,
-    /// Any status string this package does not know: daprd's own
-    /// `UNKNOWN` (which it reports for durabletask statuses it has no name
-    /// for, e.g. `STALLED`) or a value added by a newer daprd. The provider
-    /// then keeps the raw string in `properties` under
-    /// `dapr.workflow.runtime_status`.
-    unknown,
-  }
-
-  /// Why a workflow instance failed (daprd's
-  /// `dapr.workflow.failure.*` properties).
-  record failure-details {
-    error-type: string,
-    message: string,
-    stack-trace: option<string>,
-  }
-
-  record workflow-instance {
-    instance-id: string,
-    /// The name the workflow was started with.
-    workflow-name: string,
-    created-at: string,
-    last-updated-at: string,
-    runtime-status: runtime-status,
-    /// The instance input as daprd stores it (the serialized input,
-    /// usually JSON); absent when the instance has no input.
-    input: option<list<u8>>,
-    /// The instance output (usually JSON); absent until the instance
-    /// completes with an output.
-    output: option<list<u8>>,
-    /// Set when the instance failed.
-    failure: option<failure-details>,
-    /// The remaining runtime properties daprd reports (e.g.
-    /// `dapr.workflow.custom_status`). The keys the typed fields above
-    /// carry (`dapr.workflow.input`, `dapr.workflow.output`,
-    /// `dapr.workflow.failure.*`) are not repeated here.
-    properties: list<tuple<string, string>>,
-  }
-
   /// Start a new workflow instance. Returns the instance id.
   start: func(
     workflow-name: string,
     instance-id: option<string>,
     input: list<u8>,
   ) -> result<string, start-error>;
-
-  /// Get information about a workflow instance. Fails with `not-found` when
-  /// no instance with that id exists.
-  get: func(instance-id: string) -> result<workflow-instance, get-error>;
 
   /// Terminate a running workflow instance.
   terminate: func(instance-id: string) -> result<_, instance-error>;

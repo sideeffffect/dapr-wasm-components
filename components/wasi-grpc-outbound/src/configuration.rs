@@ -10,8 +10,9 @@
 //! interface this provider drives, so we surface a clear error. Use the
 //! wasi-http provider for configuration subscriptions.
 
-use crate::exports::configuration::{
-    ConfigurationError, ConfigurationItem, Guest, GuestSubscription, Subscription,
+use crate::exports::configuration::{Guest, GuestSubscription, Subscription};
+use crate::exports::configuration_read::{
+    ConfigurationError, ConfigurationItem, Guest as ReadGuest,
 };
 use crate::proto::common as pbc;
 use crate::proto::runtime as pb;
@@ -46,9 +47,7 @@ fn item(item: pbc::ConfigurationItem) -> ConfigurationItem {
     }
 }
 
-impl Guest for Component {
-    type Subscription = NoSubscription;
-
+impl ReadGuest for Component {
     fn get(
         store_name: String,
         keys: Vec<String>,
@@ -75,6 +74,10 @@ impl Guest for Component {
         items.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(items)
     }
+}
+
+impl Guest for Component {
+    type Subscription = NoSubscription;
 
     fn subscribe(
         _store_name: String,

@@ -3,7 +3,7 @@
 /// pushes changes; the provider delivers them as `on-configuration-event`.
 /// https://docs.dapr.io/reference/api/configuration_api/#watch-configuration
 interface configuration-callback {
-  use configuration.{configuration-item};
+  use configuration-read.{configuration-item};
 
   /// A batch of changed configuration items for one subscription.
   record configuration-update {

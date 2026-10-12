@@ -1,24 +1,12 @@
-/// Dapr configuration building block (read + subscribe side).
-/// `subscribe` starts a watch; the sidecar then pushes updates to the
-/// application, which the provider delivers as typed calls to the
-/// `configuration-callback` interface (inbound direction).
+/// Dapr configuration building block — **subscribe**. `subscribe` starts a
+/// watch; the sidecar then pushes updates to the application, which the
+/// provider delivers as typed calls to the `configuration-callback`
+/// interface (inbound direction). The read side lives in
+/// `configuration-read`.
 /// https://docs.dapr.io/reference/api/configuration_api/
 interface configuration {
   use types.{metadata};
-
-  record configuration-item {
-    value: string,
-    version: string,
-    metadata: metadata,
-  }
-
-  /// Setup/config failures common to every configuration operation.
-  variant configuration-error {
-    /// No configuration store named `store-name` is configured.
-    store-not-found(string),
-    /// This app is not allowed to use the store (API token / scoping).
-    permission-denied(string),
-  }
+  use configuration-read.{configuration-error};
 
   /// An active configuration subscription. Updates for it reach the
   /// application through `configuration-callback`, tagged with `id`.
@@ -30,10 +18,6 @@ interface configuration {
     /// `configuration-update.id` in the callback.
     id: func() -> string;
   }
-
-  /// Get the configuration items named `keys` (all items when empty)
-  /// from the configuration store `store-name`, as (key, item) pairs.
-  get: func(store-name: string, keys: list<string>, metadata: metadata) -> result<list<tuple<string, configuration-item>>, configuration-error>;
 
   /// Subscribe to changes of the items named `keys` (all items when empty)
   /// in `store-name`. Updates are delivered to the application through the

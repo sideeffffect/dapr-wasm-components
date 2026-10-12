@@ -11,7 +11,8 @@
 
 use std::collections::HashMap;
 
-use crate::exports::secrets::{GetSecretError, Guest, Secret, SecretsError};
+use crate::exports::secrets::Guest;
+use crate::exports::secrets_read::{GetSecretError, Guest as ReadGuest, Secret, SecretsError};
 use crate::proto::runtime as pb;
 use crate::sidecar::{classify, metadata_map, DaprFailure, Sidecar};
 use crate::types::Metadata;
@@ -57,7 +58,7 @@ fn secret_pairs(map: HashMap<String, String>) -> Secret {
     pairs
 }
 
-impl Guest for Component {
+impl ReadGuest for Component {
     fn get_secret(
         store_name: String,
         key: String,
@@ -79,7 +80,9 @@ impl Guest for Component {
         }
         Ok(secret_pairs(response.data))
     }
+}
 
+impl Guest for Component {
     fn get_bulk_secret(
         store_name: String,
         metadata: Metadata,

@@ -9,11 +9,9 @@ use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interface
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::lock::{
     TryLockError, UnlockError,
 };
-use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::secrets::GetSecretError;
-use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::state::{
-    GetError, StateItem,
-};
-use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::workflow::{
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::secrets_read::GetSecretError;
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::state_read::{GetError, StateItem};
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::workflow_read::{
     GetError as WorkflowGetError, RuntimeStatus,
 };
 use dapr_wasm_components_e2e::load_provider;
@@ -24,6 +22,7 @@ async fn state_roundtrip() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     let state = provider.dapr_wasm_components_interfaces_state();
+    let state_read = provider.dapr_wasm_components_interfaces_state_read();
 
     let value = br#"{"message":"hello"}"#.to_vec();
     state
@@ -43,7 +42,7 @@ async fn state_roundtrip() {
         .unwrap()
         .unwrap();
 
-    let got = state
+    let got = state_read
         .call_get(&mut store, "statestore", "k1", None, &Vec::new())
         .await
         .unwrap()
@@ -51,7 +50,7 @@ async fn state_roundtrip() {
     assert_eq!(got.data, value);
     assert_eq!(got.etag.as_deref(), Some("42"));
 
-    let missing = state
+    let missing = state_read
         .call_get(&mut store, "statestore", "nope", None, &Vec::new())
         .await
         .unwrap();
@@ -60,7 +59,7 @@ async fn state_roundtrip() {
         "missing key should be key-not-found, got {missing:?}"
     );
 
-    let bulk = state
+    let bulk = state_read
         .call_get_bulk(
             &mut store,
             "statestore",
@@ -117,7 +116,7 @@ async fn pubsub_publish_records_content_type() {
 async fn secrets() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
-    let secrets = provider.dapr_wasm_components_interfaces_secrets();
+    let secrets = provider.dapr_wasm_components_interfaces_secrets_read();
 
     let secret = secrets
         .call_get_secret(&mut store, "vault", "db", &Vec::new())
@@ -155,7 +154,7 @@ async fn secret_store_failure_traps() {
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     // Any other ERR_SECRET_GET is a store backend failure: unrecoverable.
     let call = provider
-        .dapr_wasm_components_interfaces_secrets()
+        .dapr_wasm_components_interfaces_secrets_read()
         .call_get_secret(&mut store, "vault", "store-down", &Vec::new())
         .await;
     assert!(
@@ -386,7 +385,7 @@ async fn configuration_subscription_drop_unsubscribes() {
 async fn workflow_get_is_typed() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
-    let workflow = provider.dapr_wasm_components_interfaces_workflow();
+    let workflow = provider.dapr_wasm_components_interfaces_workflow_read();
 
     let failed = workflow
         .call_get(&mut store, "wf-failed")
@@ -457,7 +456,8 @@ async fn jobs_roundtrip() {
     .unwrap()
     .unwrap();
 
-    let job = jobs
+    let job = provider
+        .dapr_wasm_components_interfaces_jobs_read()
         .call_get(&mut store, "nightly")
         .await
         .unwrap()
@@ -507,7 +507,7 @@ async fn unreachable_sidecar_traps() {
     let (mut store, provider) = load_provider("http://127.0.0.1:9").await.unwrap();
 
     let call = provider
-        .dapr_wasm_components_interfaces_state()
+        .dapr_wasm_components_interfaces_state_read()
         .call_get(&mut store, "statestore", "k", None, &Vec::new())
         .await;
     assert!(

@@ -7,8 +7,8 @@
 //!   - the **app** exports the callbacks;
 //!   - the **inbound** provider (`inbound`) instantiates last, taking the
 //!     callbacks from the app and its type-only building-block imports
-//!     (`state`/`invocation`/`types`, pulled in by the callback interfaces)
-//!     from the outbound provider.
+//!     (`state-read`/`configuration-read`/`invocation`/`types`, pulled in by
+//!     the callback interfaces) from the outbound provider.
 //!
 //! A single bidirectional provider would form an `app ↔ provider` cycle, which
 //! the component model forbids; splitting into two components avoids it.

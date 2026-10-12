@@ -8,9 +8,9 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::exports::workflow::{
-    FailureDetails, GetError, Guest, InstanceError, RuntimeStatus, StartError, WorkflowError,
-    WorkflowInstance,
+use crate::exports::workflow::{Guest, InstanceError, StartError};
+use crate::exports::workflow_read::{
+    FailureDetails, GetError, Guest as ReadGuest, RuntimeStatus, WorkflowError, WorkflowInstance,
 };
 use crate::proto::runtime as pb;
 use crate::sidecar::{DaprFailure, Sidecar};
@@ -145,6 +145,29 @@ fn rfc3339(timestamp: Option<prost_types::Timestamp>) -> String {
     }
 }
 
+impl ReadGuest for Component {
+    fn get(instance_id: String) -> Result<WorkflowInstance, GetError> {
+        let sidecar = Sidecar::from_env();
+        let response = sidecar
+            .unary(
+                pb::GetWorkflowRequest {
+                    instance_id,
+                    workflow_component: WORKFLOW_COMPONENT.to_string(),
+                },
+                |mut client, request| async move { client.get_workflow_beta1(request).await },
+            )
+            .map_err(get_error)?;
+        Ok(workflow_instance(
+            response.instance_id,
+            response.workflow_name,
+            rfc3339(response.created_at),
+            rfc3339(response.last_updated_at),
+            response.runtime_status,
+            response.properties.into_iter().collect(),
+        ))
+    }
+}
+
 impl Guest for Component {
     fn start(
         workflow_name: String,
@@ -166,27 +189,6 @@ impl Guest for Component {
             )
             .map_err(start_error)?;
         Ok(response.instance_id)
-    }
-
-    fn get(instance_id: String) -> Result<WorkflowInstance, GetError> {
-        let sidecar = Sidecar::from_env();
-        let response = sidecar
-            .unary(
-                pb::GetWorkflowRequest {
-                    instance_id,
-                    workflow_component: WORKFLOW_COMPONENT.to_string(),
-                },
-                |mut client, request| async move { client.get_workflow_beta1(request).await },
-            )
-            .map_err(get_error)?;
-        Ok(workflow_instance(
-            response.instance_id,
-            response.workflow_name,
-            rfc3339(response.created_at),
-            rfc3339(response.last_updated_at),
-            response.runtime_status,
-            response.properties.into_iter().collect(),
-        ))
     }
 
     fn terminate(instance_id: String) -> Result<(), InstanceError> {

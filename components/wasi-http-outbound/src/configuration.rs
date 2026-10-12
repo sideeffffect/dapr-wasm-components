@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use wstd::http::Method;
 
-use crate::exports::configuration::{
-    ConfigurationError, ConfigurationItem, Guest, GuestSubscription, Subscription,
+use crate::exports::configuration::{Guest, GuestSubscription, Subscription};
+use crate::exports::configuration_read::{
+    ConfigurationError, ConfigurationItem, Guest as ReadGuest,
 };
 use crate::sidecar::{push_metadata_query, seg, with_query, DaprFailure, Sidecar};
 use crate::types::Metadata;
@@ -68,9 +69,7 @@ impl Drop for ConfigurationSubscription {
     }
 }
 
-impl Guest for Component {
-    type Subscription = ConfigurationSubscription;
-
+impl ReadGuest for Component {
     fn get(
         store_name: String,
         keys: Vec<String>,
@@ -113,6 +112,10 @@ impl Guest for Component {
             })
             .collect())
     }
+}
+
+impl Guest for Component {
+    type Subscription = ConfigurationSubscription;
 
     fn subscribe(
         store_name: String,
