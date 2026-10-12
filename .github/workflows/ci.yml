@@ -275,3 +275,16 @@ jobs:
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (inbound): serves Dapr's AppCallback gRPC service over wasi:http/incoming-handler and dispatches to typed dapr-wasm-components callbacks (requires a Spin host that accepts inbound h2c)" \
             --annotation "org.opencontainers.image.licenses=Apache-2.0"
+
+  publish-wit:
+    # The WIT package under wkg's own naming scheme, for `wkg wit fetch`.
+    # Releases only: a versioned WIT package must never be overwritten by an
+    # unreleased main build.
+    needs: [test, dapr-e2e, spin-e2e]
+    if: github.event_name == 'release'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-wit.yml
+    with:
+      ref: ${{ github.ref_name }}
