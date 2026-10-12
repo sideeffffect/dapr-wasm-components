@@ -14,6 +14,10 @@ use crate::proto::runtime as pb;
 use crate::sidecar::{metadata_pairs, DaprFailure, Sidecar};
 use crate::Component;
 
+/// Dapr's only workflow engine is the built-in workflow component `dapr`;
+/// the WIT functions take no component name and always target it.
+const WORKFLOW_COMPONENT: &str = "dapr";
+
 fn workflow_error(f: DaprFailure) -> WorkflowError {
     if f.is_permission() {
         WorkflowError::PermissionDenied(f.message)
@@ -71,7 +75,6 @@ fn rfc3339(timestamp: Option<prost_types::Timestamp>) -> String {
 
 impl Guest for Component {
     fn start(
-        workflow_component: String,
         workflow_name: String,
         instance_id: Option<String>,
         input: Vec<u8>,
@@ -82,7 +85,7 @@ impl Guest for Component {
                 pb::StartWorkflowRequest {
                     // proto3: an empty instance id asks daprd to generate one.
                     instance_id: instance_id.unwrap_or_default(),
-                    workflow_component,
+                    workflow_component: WORKFLOW_COMPONENT.to_string(),
                     workflow_name,
                     options: Default::default(),
                     input,
@@ -93,13 +96,13 @@ impl Guest for Component {
         Ok(response.instance_id)
     }
 
-    fn get(workflow_component: String, instance_id: String) -> Result<WorkflowInstance, GetError> {
+    fn get(instance_id: String) -> Result<WorkflowInstance, GetError> {
         let sidecar = Sidecar::from_env();
         let response = sidecar
             .unary(
                 pb::GetWorkflowRequest {
                     instance_id,
-                    workflow_component,
+                    workflow_component: WORKFLOW_COMPONENT.to_string(),
                 },
                 |mut client, request| async move { client.get_workflow_beta1(request).await },
             )
@@ -113,13 +116,13 @@ impl Guest for Component {
         })
     }
 
-    fn terminate(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {
+    fn terminate(instance_id: String) -> Result<(), InstanceError> {
         let sidecar = Sidecar::from_env();
         sidecar
             .unary(
                 pb::TerminateWorkflowRequest {
                     instance_id,
-                    workflow_component,
+                    workflow_component: WORKFLOW_COMPONENT.to_string(),
                 },
                 |mut client, request| async move { client.terminate_workflow_beta1(request).await },
             )
@@ -128,7 +131,6 @@ impl Guest for Component {
     }
 
     fn raise_event(
-        workflow_component: String,
         instance_id: String,
         event_name: String,
         event_data: Vec<u8>,
@@ -138,7 +140,7 @@ impl Guest for Component {
             .unary(
                 pb::RaiseEventWorkflowRequest {
                     instance_id,
-                    workflow_component,
+                    workflow_component: WORKFLOW_COMPONENT.to_string(),
                     event_name,
                     event_data,
                 },
@@ -150,13 +152,13 @@ impl Guest for Component {
         Ok(())
     }
 
-    fn pause(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {
+    fn pause(instance_id: String) -> Result<(), InstanceError> {
         let sidecar = Sidecar::from_env();
         sidecar
             .unary(
                 pb::PauseWorkflowRequest {
                     instance_id,
-                    workflow_component,
+                    workflow_component: WORKFLOW_COMPONENT.to_string(),
                 },
                 |mut client, request| async move { client.pause_workflow_beta1(request).await },
             )
@@ -164,13 +166,13 @@ impl Guest for Component {
         Ok(())
     }
 
-    fn resume(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {
+    fn resume(instance_id: String) -> Result<(), InstanceError> {
         let sidecar = Sidecar::from_env();
         sidecar
             .unary(
                 pb::ResumeWorkflowRequest {
                     instance_id,
-                    workflow_component,
+                    workflow_component: WORKFLOW_COMPONENT.to_string(),
                 },
                 |mut client, request| async move { client.resume_workflow_beta1(request).await },
             )
@@ -178,13 +180,13 @@ impl Guest for Component {
         Ok(())
     }
 
-    fn purge(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {
+    fn purge(instance_id: String) -> Result<(), InstanceError> {
         let sidecar = Sidecar::from_env();
         sidecar
             .unary(
                 pb::PurgeWorkflowRequest {
                     instance_id,
-                    workflow_component,
+                    workflow_component: WORKFLOW_COMPONENT.to_string(),
                 },
                 |mut client, request| async move { client.purge_workflow_beta1(request).await },
             )

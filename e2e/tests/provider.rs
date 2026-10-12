@@ -318,7 +318,7 @@ async fn workflow_start() {
 
     let instance_id = provider
         .dapr_wasm_components_interfaces_workflow()
-        .call_start(&mut store, "dapr", "order-processing", None, br#"{"id":1}"#)
+        .call_start(&mut store, "order-processing", None, br#"{"id":1}"#)
         .await
         .unwrap()
         .unwrap();

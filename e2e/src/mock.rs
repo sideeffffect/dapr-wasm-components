@@ -96,7 +96,9 @@ impl MockSidecar {
                 post(invoke_echo).get(invoke_echo),
             )
             .route(
-                "/v1.0/workflows/{component}/{name}/start",
+                // Only the built-in `dapr` workflow component is routed: the
+                // providers must always target it (the WIT takes no component).
+                "/v1.0/workflows/dapr/{name}/start",
                 post(|| async { (StatusCode::ACCEPTED, Json(json!({"instanceID": "wf-123"}))) }),
             )
             .route(

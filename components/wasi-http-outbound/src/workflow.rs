@@ -1,6 +1,5 @@
 //! Workflow management — https://docs.dapr.io/reference/api/workflow_api/
-//! (HTTP workflow API is deprecated by Dapr but still served; the
-//! workflow-component is "dapr" in current releases.)
+//! (HTTP workflow API is deprecated by Dapr but still served.)
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -11,6 +10,10 @@ use crate::exports::workflow::{
 };
 use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::Component;
+
+/// Dapr's only workflow engine is the built-in workflow component `dapr`;
+/// the WIT functions take no component name and always target it.
+const WORKFLOW_COMPONENT: &str = "dapr";
 
 /// Map a recoverable failure to the workflow setup/config error.
 fn workflow_error(f: DaprFailure) -> WorkflowError {
@@ -56,7 +59,6 @@ fn get_error(f: DaprFailure) -> GetError {
 
 impl Guest for Component {
     fn start(
-        workflow_component: String,
         workflow_name: String,
         instance_id: Option<String>,
         input: Vec<u8>,
@@ -64,7 +66,7 @@ impl Guest for Component {
         let sidecar = Sidecar::from_env();
         let mut path = format!(
             "/v1.0/workflows/{}/{}/start",
-            seg(&workflow_component),
+            seg(WORKFLOW_COMPONENT),
             seg(&workflow_name)
         );
         if let Some(id) = &instance_id {
@@ -89,11 +91,11 @@ impl Guest for Component {
         Ok(parsed.instance_id)
     }
 
-    fn get(workflow_component: String, instance_id: String) -> Result<WorkflowInstance, GetError> {
+    fn get(instance_id: String) -> Result<WorkflowInstance, GetError> {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/workflows/{}/{}",
-            seg(&workflow_component),
+            seg(WORKFLOW_COMPONENT),
             seg(&instance_id)
         );
         let response = sidecar
@@ -134,12 +136,11 @@ impl Guest for Component {
         })
     }
 
-    fn terminate(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {
-        post_simple(&workflow_component, &instance_id, "terminate")
+    fn terminate(instance_id: String) -> Result<(), InstanceError> {
+        post_simple(&instance_id, "terminate")
     }
 
     fn raise_event(
-        workflow_component: String,
         instance_id: String,
         event_name: String,
         event_data: Vec<u8>,
@@ -147,7 +148,7 @@ impl Guest for Component {
         let sidecar = Sidecar::from_env();
         let path = format!(
             "/v1.0/workflows/{}/{}/raiseEvent/{}",
-            seg(&workflow_component),
+            seg(WORKFLOW_COMPONENT),
             seg(&instance_id),
             seg(&event_name)
         );
@@ -162,28 +163,24 @@ impl Guest for Component {
         Ok(())
     }
 
-    fn pause(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {
-        post_simple(&workflow_component, &instance_id, "pause")
+    fn pause(instance_id: String) -> Result<(), InstanceError> {
+        post_simple(&instance_id, "pause")
     }
 
-    fn resume(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {
-        post_simple(&workflow_component, &instance_id, "resume")
+    fn resume(instance_id: String) -> Result<(), InstanceError> {
+        post_simple(&instance_id, "resume")
     }
 
-    fn purge(workflow_component: String, instance_id: String) -> Result<(), InstanceError> {
-        post_simple(&workflow_component, &instance_id, "purge")
+    fn purge(instance_id: String) -> Result<(), InstanceError> {
+        post_simple(&instance_id, "purge")
     }
 }
 
-fn post_simple(
-    workflow_component: &str,
-    instance_id: &str,
-    action: &str,
-) -> Result<(), InstanceError> {
+fn post_simple(instance_id: &str, action: &str) -> Result<(), InstanceError> {
     let sidecar = Sidecar::from_env();
     let path = format!(
         "/v1.0/workflows/{}/{}/{}",
-        seg(workflow_component),
+        seg(WORKFLOW_COMPONENT),
         seg(instance_id),
         action
     );

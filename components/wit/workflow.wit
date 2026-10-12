@@ -2,11 +2,17 @@
 /// Authoring workflows requires an app-channel worker and is out of scope
 /// for this outbound interface. Note: Dapr has deprecated the workflow
 /// HTTP API in favor of SDKs; it is still served as of v1.18.
+///
+/// Dapr has a single workflow engine, the built-in workflow component
+/// `dapr`, so the functions take no component name: providers always target
+/// `dapr`.
 /// https://docs.dapr.io/reference/api/workflow_api/
 interface workflow {
   /// Setup/config failures common to every workflow operation.
   variant workflow-error {
-    /// No workflow component named `workflow-component` is configured.
+    /// The sidecar's workflow engine (the built-in `dapr` workflow
+    /// component) is not available — e.g. the actor runtime / placement it
+    /// runs on is not configured.
     component-not-found(string),
     /// This app is not allowed to use the component (API token / scoping).
     permission-denied(string),
@@ -50,7 +56,6 @@ interface workflow {
 
   /// Start a new workflow instance. Returns the instance id.
   start: func(
-    workflow-component: string,
     workflow-name: string,
     instance-id: option<string>,
     input: list<u8>,
@@ -58,25 +63,24 @@ interface workflow {
 
   /// Get information about a workflow instance. Fails with `not-found` when
   /// no instance with that id exists.
-  get: func(workflow-component: string, instance-id: string) -> result<workflow-instance, get-error>;
+  get: func(instance-id: string) -> result<workflow-instance, get-error>;
 
   /// Terminate a running workflow instance.
-  terminate: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;
+  terminate: func(instance-id: string) -> result<_, instance-error>;
 
   /// Deliver an external event to a workflow instance.
   raise-event: func(
-    workflow-component: string,
     instance-id: string,
     event-name: string,
     event-data: list<u8>,
   ) -> result<_, instance-error>;
 
   /// Pause a running workflow instance.
-  pause: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;
+  pause: func(instance-id: string) -> result<_, instance-error>;
 
   /// Resume a paused workflow instance.
-  resume: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;
+  resume: func(instance-id: string) -> result<_, instance-error>;
 
   /// Purge the state of a terminated/completed workflow instance.
-  purge: func(workflow-component: string, instance-id: string) -> result<_, instance-error>;
+  purge: func(instance-id: string) -> result<_, instance-error>;
 }
