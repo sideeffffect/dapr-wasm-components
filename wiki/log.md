@@ -93,3 +93,7 @@
 - Updated: Dapr Rust SDK (no longer used by this project)
 - Updated: Wasmtime Host Embedding (wasi-http views, wstd, wac-graph)
 - Updated: wasm-pkg-tools (wkg) (oci push vs publish, latest tags)
+
+## [2026-10-12] ingest | dapr-wasm-components Architecture (interfaces 0.7.0: authority split, subscription resource, typed workflow-instance, no workflow-component)
+- Updated: Dapr HTTP API (workflow get response keys and status strings, daprd release-1.18/1.19 source)
+- Updated: dapr-wasm-components Inbound Design (configuration subscription resource, package 0.7.0)
