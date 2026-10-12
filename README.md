@@ -47,6 +47,8 @@ Write your app against the interfaces, [compose](#composing) it with an outbound
 | `configuration-callback` | Configuration update pushes | `on-configuration-event` |
 | `health-callback` | App health checks | `health-check` |
 
+Diagrams of all worlds, interfaces, type dependencies and resource lifecycles: [components/wit/INTERFACES.md](components/wit/INTERFACES.md).
+
 Worlds: **`app`** (an application — imports the building blocks, exports the callbacks), **`outbound`** (a provider that exports the building blocks) and **`inbound`** (a provider that imports the callbacks). The two provider directions are *separate components* so the composition graph stays acyclic — see below.
 
 ### The import list is the authority manifest
