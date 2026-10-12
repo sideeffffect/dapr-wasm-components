@@ -68,15 +68,14 @@ func wasiSocket(ctx context.Context, net string, family, sotype int, laddr, radd
 		if a, ok := laddr.(*TCPAddr); ok && a != nil {
 			ip, port = a.IP, a.Port
 		}
-		if ip == nil {
-			if family == syscall.AF_INET6 {
-				ip = IPv6unspecified
-			} else {
-				ip = IPv4zero
-			}
+		// A wildcard listen (":port") is dual-stack in Go, but wasi:sockets
+		// IPv6 sockets are IPv6-only (no IPv4-mapped addresses): bind the
+		// IPv4 wildcard, which is what clients of a Dapr port use.
+		if ip == nil || ip.IsUnspecified() {
+			ip = IPv4zero
 		}
-		if family == syscall.AF_INET {
-			ip = ip.To4()
+		if ip4 := ip.To4(); ip4 != nil {
+			ip = ip4
 		}
 		l, lip, lport, err := wasiListenHook(ip, port)
 		if err != nil {
@@ -90,8 +89,10 @@ func wasiSocket(ctx context.Context, net string, family, sotype int, laddr, radd
 	if !ok {
 		return nil, &OpError{Op: "dial", Net: net, Addr: raddr, Err: syscall.EINVAL}
 	}
+	// IPv4 (also IPv4-mapped) goes out as an IPv4 socket: wasi:sockets has
+	// no dual-stack IPv6 sockets.
 	ip := ra.IP
-	if ip4 := ip.To4(); ip4 != nil && family == syscall.AF_INET {
+	if ip4 := ip.To4(); ip4 != nil {
 		ip = ip4
 	}
 	c, lip, lport, err := wasiDialHook(ctx, ip, ra.Port)

@@ -56,7 +56,9 @@ func (self *Encryptor) Drop() {
 }
 
 func EncryptorFromOwnHandle(handle int32) *Encryptor {
-	return (*Encryptor)(unsafe.Pointer(resourceRepEncryptor(handle)))
+	self := (*Encryptor)(unsafe.Pointer(resourceRepEncryptor(handle)))
+	self.handle = handle
+	return self
 }
 
 func EncryptorFromBorrowHandle(rep int32) *Encryptor {
@@ -103,7 +105,9 @@ func (self *Decryptor) Drop() {
 }
 
 func DecryptorFromOwnHandle(handle int32) *Decryptor {
-	return (*Decryptor)(unsafe.Pointer(resourceRepDecryptor(handle)))
+	self := (*Decryptor)(unsafe.Pointer(resourceRepDecryptor(handle)))
+	self.handle = handle
+	return self
 }
 
 func DecryptorFromBorrowHandle(rep int32) *Decryptor {
@@ -150,7 +154,9 @@ func (self *CryptoOutput) Drop() {
 }
 
 func CryptoOutputFromOwnHandle(handle int32) *CryptoOutput {
-	return (*CryptoOutput)(unsafe.Pointer(resourceRepCryptoOutput(handle)))
+	self := (*CryptoOutput)(unsafe.Pointer(resourceRepCryptoOutput(handle)))
+	self.handle = handle
+	return self
 }
 
 func CryptoOutputFromBorrowHandle(rep int32) *CryptoOutput {

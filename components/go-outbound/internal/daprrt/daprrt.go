@@ -64,23 +64,49 @@ var defaultArgs = []string{
 }
 
 var (
-	mu      sync.Mutex
-	started bool
-	rt      *runtime.DaprRuntime
-	ready   = make(chan struct{}) // closed once rt is set (or failed)
-	failed  error
+	mu            sync.Mutex
+	started       bool
+	attachedStart bool
+	rt            *runtime.DaprRuntime
+	ready         = make(chan struct{}) // closed once rt is set (or failed)
+	failed        error
+
+	appID, namespace string // from the parsed arguments / NAMESPACE env
 )
 
-// Start boots the runtime once. With an app handler (the go-inbound pump
-// attached), Dapr's app channel is enabled and served by handler; without
-// one the runtime runs like daprd without --app-port (outbound only).
-// Later calls are no-ops.
-func Start(handler http.Handler) {
+// IsSelf reports whether target ("<app-id>" or "<app-id>.<namespace>")
+// names this runtime's own app.
+func IsSelf(target string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	if appID == "" {
+		return false
+	}
+	ns := namespace
+	if ns == "" {
+		ns = "default"
+	}
+	return target == appID || target == appID+"."+ns
+}
+
+// StartAttached boots the runtime with Dapr's app channel enabled and
+// served by handler (the go-inbound pump is attached). It reports false if
+// the runtime was already started without one.
+func StartAttached(handler http.Handler) bool {
 	mu.Lock()
 	defer mu.Unlock()
 	if started {
-		return
+		return attachedStart
 	}
+	attachedStart = true
+	start(handler)
+	return true
+}
+
+// start boots the runtime; mu must be held. With a handler, Dapr's app
+// channel is enabled and served by it; without one the runtime runs like
+// daprd without --app-port (outbound only).
+func start(handler http.Handler) {
 	started = true
 	checkFields()
 
@@ -116,7 +142,11 @@ func Start(handler http.Handler) {
 // initialized. A runtime that failed to start is an unrecoverable
 // infrastructure failure: API panics (the component traps).
 func API() daprgrpc.API {
-	Start(nil)
+	mu.Lock()
+	if !started {
+		start(nil)
+	}
+	mu.Unlock()
 	<-ready
 	mu.Lock()
 	r, err := rt, failed
@@ -185,6 +215,9 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("parsing daprd arguments: %w", err)
 	}
+	mu.Lock()
+	appID, namespace = opts.AppID, os.Getenv("NAMESPACE")
+	mu.Unlock()
 	opts.Logger.SetAppID(opts.AppID)
 	if err := logger.ApplyOptionsToLoggers(&opts.Logger); err != nil {
 		return err

@@ -107,6 +107,25 @@ pub fn grpc_outbound_path() -> PathBuf {
     )
 }
 
+/// The go family's outbound component: the embedded Dapr runtime (exports
+/// the building blocks plus the private go-events queue). Built by
+/// `components/go-outbound/scripts/build.sh` into the components target dir.
+pub fn go_outbound_path() -> PathBuf {
+    provider_artifact(
+        "GO_OUTBOUND_COMPONENT",
+        "dapr_wasm_components_go_outbound.wasm",
+    )
+}
+
+/// The go family's inbound pump (exports `wasi:cli/run`, imports go-events
+/// and the callbacks).
+pub fn go_inbound_path() -> PathBuf {
+    provider_artifact(
+        "GO_INBOUND_COMPONENT",
+        "dapr_wasm_components_go_inbound.wasm",
+    )
+}
+
 pub fn kv_demo_path() -> PathBuf {
     app_path("KV_DEMO_COMPONENT", "kv-demo.wasm")
 }

@@ -5,6 +5,7 @@ members = [
     "wasi-http-inbound",
     "wasi-grpc-outbound",
     "wasi-grpc-inbound",
+    "go-inbound",
 ]
 
 [profile.release]

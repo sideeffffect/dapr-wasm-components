@@ -15,9 +15,11 @@ import (
 	"strings"
 
 	daprgrpc "github.com/dapr/dapr/pkg/api/grpc"
+	daprmetadata "github.com/dapr/dapr/pkg/api/grpc/metadata"
 	witTypes "go.bytecodealliance.org/pkg/wit/types"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/daprrt"
@@ -44,9 +46,34 @@ func (f *Failure) IsPermission() bool {
 // API returns the embedded runtime's in-process API (starting it if needed).
 func API() daprgrpc.API { return daprrt.API() }
 
+// UserAgent is the user-agent of every in-process API call.
+const UserAgent = "dapr-wasm-components-go"
+
+// Context returns the context of an in-process API call: incoming
+// metadata holding just the user-agent. See WithIncoming.
+func Context() context.Context {
+	return WithIncoming(context.Background(), metadata.MD{"user-agent": {UserAgent}})
+}
+
+// WithIncoming attaches md as the call's incoming gRPC metadata, the way
+// daprd's API server would see it. Dapr reads request metadata through its
+// own pkg/api/grpc/metadata package, which daprd's server interceptor fills
+// from the gRPC metadata; in-process calls bypass the interceptor chain, so
+// run that interceptor here. A real gRPC server never hands Dapr empty
+// metadata (there is always a user-agent, content-type, :authority) and
+// Dapr relies on it — keep md non-empty.
+func WithIncoming(ctx context.Context, md metadata.MD) context.Context {
+	ctx = metadata.NewIncomingContext(ctx, md)
+	_, _ = daprmetadata.SetMetadataInContextUnary(ctx, nil, nil, func(c context.Context, _ any) (any, error) {
+		ctx = c
+		return nil, nil
+	})
+	return ctx
+}
+
 // Do runs f against the in-process API and classifies its error.
 func Do[T any](f func(ctx context.Context, api daprgrpc.API) (T, error)) (T, *Failure) {
-	res, err := f(context.Background(), API())
+	res, err := f(Context(), API())
 	if err != nil {
 		var zero T
 		return zero, Classify(err)

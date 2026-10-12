@@ -233,5 +233,6 @@ fn microservices_through_real_dapr_grpc_on_spin() {
         publisher_base: &format!("http://127.0.0.1:{PUB_LISTEN}"),
         consumer_base: &format!("http://127.0.0.1:{CONS_LISTEN}"),
         binary_state_exact: true,
+        self_invocation: true,
     });
 }

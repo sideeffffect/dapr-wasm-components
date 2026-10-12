@@ -170,5 +170,6 @@ fn microservices_through_real_dapr() {
         publisher_base: &format!("http://127.0.0.1:{PUB_APP}"),
         consumer_base: &format!("http://127.0.0.1:{CONS_APP}"),
         binary_state_exact: false,
+        self_invocation: true,
     });
 }
