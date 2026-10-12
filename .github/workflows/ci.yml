@@ -417,3 +417,16 @@ jobs:
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pump of the go provider family: delivers the embedded Dapr runtime's events to the app's typed dapr-wasm-components callbacks (wasi:cli/run; pair with dapr-wasm-components-go-outbound)" \
             --annotation "org.opencontainers.image.licenses=Apache-2.0"
+
+  publish-wit:
+    # The WIT package under wkg's own naming scheme, for `wkg wit fetch`.
+    # Releases only: a versioned WIT package must never be overwritten by an
+    # unreleased main build.
+    needs: [test, dapr-e2e, spin-e2e, go, go-e2e]
+    if: github.event_name == 'release'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish-wit.yml
+    with:
+      ref: ${{ github.ref_name }}

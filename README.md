@@ -136,6 +136,27 @@ wkg oci pull $ORG/dapr-wasm-components-wasi-http-inbound:latest  -o http-inbound
 wasm-tools component wit interface.wasm    # view the interfaces as WIT text
 ```
 
+### Depending on the WIT package with `wkg`
+
+Releases also publish the WIT package under wkg's own naming scheme
+(`ghcr.io/sideeffffect/dapr-wasm-components/interfaces:<version>`), so you can declare it as a normal WIT
+dependency. Import it from your world:
+
+```wit
+package my:app;
+
+world app {
+  include dapr-wasm-components:interfaces/app@0.7.0;
+}
+```
+
+then copy [`wkg-config.toml`](wkg-config.toml) (or merge its `[namespace_registries]` table into your wkg config) and
+fetch:
+
+```sh
+wkg wit fetch --config wkg-config.toml   # writes wit/deps/ and wkg.lock — commit the lock file
+```
+
 ## Writing an app (Rust)
 
 Depend on the `dapr-app` SDK, implement the `DaprApp` trait (overriding only the callbacks you use), and export it. Call Dapr through the re-exported interfaces under `dapr_app::dapr`.
