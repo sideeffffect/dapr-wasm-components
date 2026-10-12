@@ -1,7 +1,7 @@
 # Roadmap / follow-ups
 
 Tracked follow-up work for `dapr-wasm-components`, current as of package
-`dapr-wasm-components:interfaces@0.6.0`. Grouped by area; each item notes *why*
+`dapr-wasm-components:interfaces@0.7.0`. Grouped by area; each item notes *why*
 it's open and roughly *what* it needs. See
 [wiki/dapr/dapr-wasm-components-architecture.md](wiki/dapr/dapr-wasm-components-architecture.md)
 for the design rationale and [wiki/dapr/dapr-wasm-components-inbound-design.md](wiki/dapr/dapr-wasm-components-inbound-design.md)
@@ -48,12 +48,38 @@ for the inbound spec.
   no `deprecated` option in the vendored v1.18 protos (`dapr.proto`; only the
   `*WorkflowAlpha1` set is deprecated).
 
+- **Real-Dapr coverage for the 0.7.0 shapes.** The configuration
+  `subscription` resource (subscribe → update push → drop → unsubscribe) and
+  the typed `workflow-instance` are tested against the mock sidecar only. A
+  real-Dapr check needs a configuration store component (e.g. Redis) and, for
+  workflows, a workflow worker plus placement/scheduler — and authoring is
+  out of scope until WASI 0.3 (dapr4s proposal W5).
+- **Configuration subscribe over gRPC.** `wasi-grpc-outbound` still traps on
+  `subscribe` (daprd streams updates on the `Dapr` service, not the app
+  channel). The 0.7.0 resource shape would let a provider hold that stream
+  per handle once WASI 0.3 allows it.
+
 ## Packaging / DX
 
 - **Publish the `dapr-app` SDK.** It is consumed today as a git/path dependency;
   publishing it (crates.io or a stable git tag) would make app authoring smoother.
 
 ## Recently shipped
+
+- **Interfaces 0.7.0 (breaking) — harmony with dapr4s** (the
+  [dapr4s proposal](https://github.com/sideeffffect/dapr4s/blob/master/docs/WASM-COMPONENTS-PROPOSAL.md),
+  items W1–W4). **W1:** blocks with a read-only subset are split by
+  authority: `state-read`/`state`, `secrets-read`/`secrets` (bulk),
+  `configuration-read`/`configuration` (subscribe), `jobs-read`/`jobs`,
+  `workflow-read`/`workflow`; `wit-component` keeps only called functions, so
+  the import list is the authority manifest (checked by
+  `e2e/tests/authority.rs` on the new `state-reader` fixture; type-only
+  imports remain for interfaces the callbacks use). **W2:** `subscribe`
+  returns a `subscription` resource; dropping it unsubscribes (a failed
+  unsubscribe is logged, not trapped); the free `unsubscribe` is gone.
+  **W3:** `workflow-instance` is typed (`workflow-name`, `runtime-status`
+  enum incl. `canceled` and `unknown`, `input`, `output`, `failure`).
+  **W4:** no `workflow-component` parameter (always `dapr`).
 
 - **Interfaces 0.6.0 — streaming crypto (breaking).** `crypto` gained sync WIT
   resources `encryptor` / `decryptor` (constructor, `write(chunk)`,
