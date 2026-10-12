@@ -13,6 +13,9 @@ use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interface
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::state::{
     GetError, StateItem,
 };
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::workflow::{
+    GetError as WorkflowGetError, RuntimeStatus,
+};
 use dapr_wasm_components_e2e::load_provider;
 use dapr_wasm_components_e2e::mock::MockSidecar;
 
@@ -323,6 +326,60 @@ async fn workflow_start() {
         .unwrap()
         .unwrap();
     assert_eq!(instance_id, "wf-123");
+}
+
+/// `get` lifts daprd's flat `dapr.workflow.*` properties into the typed
+/// `workflow-instance` fields and keeps only the rest in `properties`.
+#[tokio::test]
+async fn workflow_get_is_typed() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    let workflow = provider.dapr_wasm_components_interfaces_workflow();
+
+    let failed = workflow
+        .call_get(&mut store, "wf-failed")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(failed.instance_id, "wf-failed");
+    assert_eq!(failed.workflow_name, "order-processing");
+    assert_eq!(failed.runtime_status, RuntimeStatus::Failed);
+    assert_eq!(failed.input.as_deref(), Some(br#"{"id":1}"#.as_slice()));
+    assert_eq!(failed.output, None);
+    let failure = failed.failure.expect("failed instance has failure details");
+    assert_eq!(failure.error_type, "PaymentDeclined");
+    assert_eq!(failure.message, "card declined");
+    assert_eq!(failure.stack_trace.as_deref(), Some("at charge()"));
+    assert_eq!(
+        failed.properties,
+        vec![(
+            "dapr.workflow.custom_status".to_string(),
+            r#""charging""#.to_string()
+        )]
+    );
+
+    // An unrecognised status is `unknown`, with the raw string kept.
+    let stalled = workflow
+        .call_get(&mut store, "wf-stalled")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stalled.runtime_status, RuntimeStatus::Unknown);
+    assert_eq!(stalled.output.as_deref(), Some(b"42".as_slice()));
+    assert!(stalled.failure.is_none());
+    assert_eq!(
+        stalled.properties,
+        vec![(
+            "dapr.workflow.runtime_status".to_string(),
+            "UNKNOWN".to_string()
+        )]
+    );
+
+    let missing = workflow.call_get(&mut store, "nope").await.unwrap();
+    assert!(
+        matches!(missing, Err(WorkflowGetError::NotFound(_))),
+        "missing instance should be not-found, got {missing:?}"
+    );
 }
 
 #[tokio::test]

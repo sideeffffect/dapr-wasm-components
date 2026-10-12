@@ -5,18 +5,90 @@
 //! proto bytes (no JSON content-type involved), and `GetWorkflow` returns
 //! proto timestamps, rendered here as RFC 3339 to match the HTTP shape.
 
+use std::collections::BTreeMap;
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::exports::workflow::{
-    GetError, Guest, InstanceError, StartError, WorkflowError, WorkflowInstance,
+    FailureDetails, GetError, Guest, InstanceError, RuntimeStatus, StartError, WorkflowError,
+    WorkflowInstance,
 };
 use crate::proto::runtime as pb;
-use crate::sidecar::{metadata_pairs, DaprFailure, Sidecar};
+use crate::sidecar::{DaprFailure, Sidecar};
 use crate::Component;
 
 /// Dapr's only workflow engine is the built-in workflow component `dapr`;
 /// the WIT functions take no component name and always target it.
 const WORKFLOW_COMPONENT: &str = "dapr";
+
+/// daprd's property keys for the values `workflow-instance` carries as typed
+/// fields (dapr/dapr `pkg/api/universal/workflow.go`, `GetWorkflow`).
+const PROP_INPUT: &str = "dapr.workflow.input";
+const PROP_OUTPUT: &str = "dapr.workflow.output";
+const PROP_FAILURE_TYPE: &str = "dapr.workflow.failure.error_type";
+const PROP_FAILURE_MESSAGE: &str = "dapr.workflow.failure.error_message";
+const PROP_FAILURE_STACK_TRACE: &str = "dapr.workflow.failure.stack_trace";
+/// Where the raw status string goes when it maps to `runtime-status.unknown`.
+const PROP_RUNTIME_STATUS: &str = "dapr.workflow.runtime_status";
+
+/// Map daprd's status string to the WIT enum. daprd renders durabletask's
+/// `OrchestrationStatus` through a fixed table (`RUNNING`, `COMPLETED`,
+/// `CONTINUED_AS_NEW`, `FAILED`, `CANCELED`, `TERMINATED`, `PENDING`,
+/// `SUSPENDED`) and falls back to `UNKNOWN`. The match is ASCII
+/// case-insensitive; anything else is `unknown` (the caller keeps the raw
+/// string in the properties).
+fn runtime_status(raw: &str) -> RuntimeStatus {
+    match raw.to_ascii_uppercase().as_str() {
+        "RUNNING" => RuntimeStatus::Running,
+        "COMPLETED" => RuntimeStatus::Completed,
+        "CONTINUED_AS_NEW" => RuntimeStatus::ContinuedAsNew,
+        "FAILED" => RuntimeStatus::Failed,
+        "CANCELED" => RuntimeStatus::Canceled,
+        "TERMINATED" => RuntimeStatus::Terminated,
+        "PENDING" => RuntimeStatus::Pending,
+        "SUSPENDED" => RuntimeStatus::Suspended,
+        _ => RuntimeStatus::Unknown,
+    }
+}
+
+/// Build the typed `workflow-instance` from daprd's flat response: the
+/// input/output/failure properties move into typed fields, the rest stay in
+/// `properties` (sorted by key, for determinism).
+fn workflow_instance(
+    instance_id: String,
+    workflow_name: String,
+    created_at: String,
+    last_updated_at: String,
+    raw_status: String,
+    mut properties: BTreeMap<String, String>,
+) -> WorkflowInstance {
+    let status = runtime_status(&raw_status);
+    if status == RuntimeStatus::Unknown {
+        properties.insert(PROP_RUNTIME_STATUS.to_string(), raw_status);
+    }
+    let input = properties.remove(PROP_INPUT).map(String::into_bytes);
+    let output = properties.remove(PROP_OUTPUT).map(String::into_bytes);
+    let error_type = properties.remove(PROP_FAILURE_TYPE);
+    let message = properties.remove(PROP_FAILURE_MESSAGE);
+    let stack_trace = properties.remove(PROP_FAILURE_STACK_TRACE);
+    // daprd sets type and message together, whenever the instance has
+    // failure details; either one alone still means "failed".
+    let failure = (error_type.is_some() || message.is_some()).then(|| FailureDetails {
+        error_type: error_type.unwrap_or_default(),
+        message: message.unwrap_or_default(),
+        stack_trace,
+    });
+    WorkflowInstance {
+        instance_id,
+        workflow_name,
+        created_at,
+        last_updated_at,
+        runtime_status: status,
+        input,
+        output,
+        failure,
+        properties: properties.into_iter().collect(),
+    }
+}
 
 fn workflow_error(f: DaprFailure) -> WorkflowError {
     if f.is_permission() {
@@ -107,13 +179,14 @@ impl Guest for Component {
                 |mut client, request| async move { client.get_workflow_beta1(request).await },
             )
             .map_err(get_error)?;
-        Ok(WorkflowInstance {
-            instance_id: response.instance_id,
-            created_at: rfc3339(response.created_at),
-            last_updated_at: rfc3339(response.last_updated_at),
-            runtime_status: response.runtime_status,
-            properties: metadata_pairs(response.properties),
-        })
+        Ok(workflow_instance(
+            response.instance_id,
+            response.workflow_name,
+            rfc3339(response.created_at),
+            rfc3339(response.last_updated_at),
+            response.runtime_status,
+            response.properties.into_iter().collect(),
+        ))
     }
 
     fn terminate(instance_id: String) -> Result<(), InstanceError> {

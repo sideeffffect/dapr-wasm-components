@@ -43,14 +43,53 @@ interface workflow {
     workflow(workflow-error),
   }
 
+  /// The runtime status of a workflow instance. These are the status
+  /// strings daprd reports (`RUNNING`, `COMPLETED`, …), which are the
+  /// durabletask `OrchestrationStatus` values daprd knows by name.
+  enum runtime-status {
+    running,
+    completed,
+    continued-as-new,
+    failed,
+    canceled,
+    terminated,
+    pending,
+    suspended,
+    /// Any status string this package does not know: daprd's own
+    /// `UNKNOWN` (which it reports for durabletask statuses it has no name
+    /// for, e.g. `STALLED`) or a value added by a newer daprd. The provider
+    /// then keeps the raw string in `properties` under
+    /// `dapr.workflow.runtime_status`.
+    unknown,
+  }
+
+  /// Why a workflow instance failed (daprd's
+  /// `dapr.workflow.failure.*` properties).
+  record failure-details {
+    error-type: string,
+    message: string,
+    stack-trace: option<string>,
+  }
+
   record workflow-instance {
     instance-id: string,
+    /// The name the workflow was started with.
+    workflow-name: string,
     created-at: string,
     last-updated-at: string,
-    /// e.g. RUNNING, COMPLETED, CONTINUED_AS_NEW, FAILED, CANCELED,
-    /// TERMINATED, PENDING, SUSPENDED
-    runtime-status: string,
-    /// Additional runtime properties (e.g. dapr.workflow.input/output).
+    runtime-status: runtime-status,
+    /// The instance input as daprd stores it (the serialized input,
+    /// usually JSON); absent when the instance has no input.
+    input: option<list<u8>>,
+    /// The instance output (usually JSON); absent until the instance
+    /// completes with an output.
+    output: option<list<u8>>,
+    /// Set when the instance failed.
+    failure: option<failure-details>,
+    /// The remaining runtime properties daprd reports (e.g.
+    /// `dapr.workflow.custom_status`). The keys the typed fields above
+    /// carry (`dapr.workflow.input`, `dapr.workflow.output`,
+    /// `dapr.workflow.failure.*`) are not repeated here.
     properties: list<tuple<string, string>>,
   }
 

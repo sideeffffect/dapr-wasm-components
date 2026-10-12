@@ -101,6 +101,7 @@ impl MockSidecar {
                 "/v1.0/workflows/dapr/{name}/start",
                 post(|| async { (StatusCode::ACCEPTED, Json(json!({"instanceID": "wf-123"}))) }),
             )
+            .route("/v1.0/workflows/dapr/{instance}", get(get_workflow))
             .route(
                 "/v1.0/jobs/{name}",
                 post(schedule_job).get(get_job).delete(delete_job),
@@ -333,6 +334,48 @@ async fn get_job(State(recorded): State<Shared>, Path(name): Path<String>) -> Re
     match recorded.scheduled_jobs.get(&name) {
         Some(job) => Json(job.clone()).into_response(),
         None => StatusCode::BAD_REQUEST.into_response(),
+    }
+}
+
+/// `GET /v1.0/workflows/dapr/{instance}` in daprd's shape: the typed
+/// values arrive as flat `dapr.workflow.*` properties. `wf-failed` is a failed
+/// instance with input, failure details and a custom status; `wf-stalled`
+/// has a status string daprd falls back to (`UNKNOWN`); anything else is
+/// daprd's 404 `ERR_INSTANCE_ID_NOT_FOUND`.
+async fn get_workflow(Path(instance): Path<String>) -> Response {
+    match instance.as_str() {
+        "wf-failed" => Json(json!({
+            "instanceID": "wf-failed",
+            "workflowName": "order-processing",
+            "createdAt": "2026-10-12T10:00:00Z",
+            "lastUpdatedAt": "2026-10-12T10:00:05Z",
+            "runtimeStatus": "FAILED",
+            "properties": {
+                "dapr.workflow.input": "{\"id\":1}",
+                "dapr.workflow.custom_status": "\"charging\"",
+                "dapr.workflow.failure.error_type": "PaymentDeclined",
+                "dapr.workflow.failure.error_message": "card declined",
+                "dapr.workflow.failure.stack_trace": "at charge()",
+            },
+        }))
+        .into_response(),
+        "wf-stalled" => Json(json!({
+            "instanceID": "wf-stalled",
+            "workflowName": "order-processing",
+            "createdAt": "2026-10-12T10:00:00Z",
+            "lastUpdatedAt": "2026-10-12T10:00:00Z",
+            "runtimeStatus": "UNKNOWN",
+            "properties": { "dapr.workflow.output": "42" },
+        }))
+        .into_response(),
+        _ => (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "errorCode": "ERR_INSTANCE_ID_NOT_FOUND",
+                "message": format!("unable to find workflow with the provided instance ID: {instance}"),
+            })),
+        )
+            .into_response(),
     }
 }
 
