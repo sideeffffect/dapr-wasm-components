@@ -1,7 +1,8 @@
 //! Configuration over gRPC — the stable `GetConfiguration` (not the `Alpha1`
 //! variant) for the read side.
 //!
-//! `subscribe`/`unsubscribe` are unsupported here: gRPC delivers configuration
+//! `subscribe` is unsupported here (it traps, so a `subscription` handle never
+//! exists and there is nothing to unsubscribe): gRPC delivers configuration
 //! updates over a *server stream* on the `Dapr` service itself (the first
 //! message carries the subscription id, subsequent ones carry updates), not
 //! through the `AppCallback` app channel. That streaming-delivery model does
@@ -10,7 +11,7 @@
 //! wasi-http provider for configuration subscriptions.
 
 use crate::exports::configuration::{
-    ConfigurationError, ConfigurationItem, Guest, UnsubscribeError,
+    ConfigurationError, ConfigurationItem, Guest, GuestSubscription, Subscription,
 };
 use crate::proto::common as pbc;
 use crate::proto::runtime as pb;
@@ -26,12 +27,14 @@ fn configuration_error(f: DaprFailure) -> ConfigurationError {
     }
 }
 
-#[allow(dead_code)]
-fn unsubscribe_error(f: DaprFailure) -> UnsubscribeError {
-    if f.status == 404 {
-        UnsubscribeError::NoSuchSubscription(f.message)
-    } else {
-        UnsubscribeError::Configuration(configuration_error(f))
+/// The `subscription` resource of this provider. It has no values: `subscribe`
+/// traps before it could create one, and the empty enum states that in the
+/// type (no `id`, no drop to implement).
+pub enum NoSubscription {}
+
+impl GuestSubscription for NoSubscription {
+    fn id(&self) -> String {
+        match *self {}
     }
 }
 
@@ -44,6 +47,8 @@ fn item(item: pbc::ConfigurationItem) -> ConfigurationItem {
 }
 
 impl Guest for Component {
+    type Subscription = NoSubscription;
+
     fn get(
         store_name: String,
         keys: Vec<String>,
@@ -75,17 +80,10 @@ impl Guest for Component {
         _store_name: String,
         _keys: Vec<String>,
         _metadata: Metadata,
-    ) -> Result<String, ConfigurationError> {
+    ) -> Result<Subscription, ConfigurationError> {
         panic!(
             "configuration subscribe is not supported by the wasi-grpc provider: gRPC delivers \
              updates over a server stream on the Dapr service, not the AppCallback app channel; \
-             use the wasi-http provider"
-        );
-    }
-
-    fn unsubscribe(_store_name: String, _id: String) -> Result<(), UnsubscribeError> {
-        panic!(
-            "configuration unsubscribe is not supported by the wasi-grpc provider; \
              use the wasi-http provider"
         );
     }

@@ -17,7 +17,7 @@ use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interface
     GetError as WorkflowGetError, RuntimeStatus,
 };
 use dapr_wasm_components_e2e::load_provider;
-use dapr_wasm_components_e2e::mock::MockSidecar;
+use dapr_wasm_components_e2e::mock::{MockSidecar, MOCK_BROKEN_CONFIG_STORE};
 
 #[tokio::test]
 async fn state_roundtrip() {
@@ -326,6 +326,58 @@ async fn workflow_start() {
         .unwrap()
         .unwrap();
     assert_eq!(instance_id, "wf-123");
+}
+
+/// `subscribe` returns a `subscription` handle; dropping it unsubscribes.
+/// A failed unsubscribe is logged, not trapped: the drop still returns.
+#[tokio::test]
+async fn configuration_subscription_drop_unsubscribes() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    let configuration = provider.dapr_wasm_components_interfaces_configuration();
+
+    let subscription = configuration
+        .call_subscribe(
+            &mut store,
+            "configstore",
+            &["flag".to_string()],
+            &Vec::new(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let id = configuration
+        .subscription()
+        .call_id(&mut store, subscription)
+        .await
+        .unwrap();
+    assert_eq!(id, "sub-1");
+    assert!(sidecar
+        .recorded
+        .lock()
+        .unwrap()
+        .configuration_unsubscribes
+        .is_empty());
+
+    subscription.resource_drop_async(&mut store).await.unwrap();
+    assert_eq!(
+        sidecar.recorded.lock().unwrap().configuration_unsubscribes,
+        vec![("configstore".to_string(), "sub-1".to_string())]
+    );
+
+    let broken = configuration
+        .call_subscribe(&mut store, MOCK_BROKEN_CONFIG_STORE, &[], &Vec::new())
+        .await
+        .unwrap()
+        .unwrap();
+    broken
+        .resource_drop_async(&mut store)
+        .await
+        .expect("a failed unsubscribe must not trap");
+    assert_eq!(
+        sidecar.recorded.lock().unwrap().configuration_unsubscribes[1],
+        (MOCK_BROKEN_CONFIG_STORE.to_string(), "sub-2".to_string())
+    );
 }
 
 /// `get` lifts daprd's flat `dapr.workflow.*` properties into the typed

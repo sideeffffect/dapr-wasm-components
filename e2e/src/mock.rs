@@ -44,6 +44,10 @@ pub struct Recorded {
     pub converse_requests: Vec<serde_json::Value>,
     /// Crypto requests, in order.
     pub crypto_requests: Vec<CryptoRequest>,
+    /// Configuration subscriptions handed out, as (store, id).
+    pub configuration_subscriptions: Vec<(String, String)>,
+    /// Configuration unsubscribe requests received, as (store, id).
+    pub configuration_unsubscribes: Vec<(String, String)>,
 }
 
 pub struct MockSidecar {
@@ -100,6 +104,14 @@ impl MockSidecar {
                 // providers must always target it (the WIT takes no component).
                 "/v1.0/workflows/dapr/{name}/start",
                 post(|| async { (StatusCode::ACCEPTED, Json(json!({"instanceID": "wf-123"}))) }),
+            )
+            .route(
+                "/v1.0/configuration/{store}/subscribe",
+                get(subscribe_configuration),
+            )
+            .route(
+                "/v1.0/configuration/{store}/{id}/unsubscribe",
+                get(unsubscribe_configuration),
             )
             .route("/v1.0/workflows/dapr/{instance}", get(get_workflow))
             .route(
@@ -334,6 +346,48 @@ async fn get_job(State(recorded): State<Shared>, Path(name): Path<String>) -> Re
     match recorded.scheduled_jobs.get(&name) {
         Some(job) => Json(job.clone()).into_response(),
         None => StatusCode::BAD_REQUEST.into_response(),
+    }
+}
+
+/// The configuration store whose unsubscribe always fails with HTTP 500.
+pub const MOCK_BROKEN_CONFIG_STORE: &str = "broken-config";
+
+/// `GET /v1.0/configuration/{store}/subscribe`: hands out `sub-<n>`.
+async fn subscribe_configuration(
+    State(recorded): State<Shared>,
+    Path(store): Path<String>,
+) -> Response {
+    let mut recorded = recorded.lock().unwrap();
+    let id = format!("sub-{}", recorded.configuration_subscriptions.len() + 1);
+    recorded
+        .configuration_subscriptions
+        .push((store, id.clone()));
+    Json(json!({ "id": id })).into_response()
+}
+
+/// `GET /v1.0/configuration/{store}/{id}/unsubscribe`: records the request;
+/// daprd's `{"ok": true}` on success, a 500 for [`MOCK_BROKEN_CONFIG_STORE`].
+async fn unsubscribe_configuration(
+    State(recorded): State<Shared>,
+    Path((store, id)): Path<(String, String)>,
+) -> Response {
+    let broken = store == MOCK_BROKEN_CONFIG_STORE;
+    recorded
+        .lock()
+        .unwrap()
+        .configuration_unsubscribes
+        .push((store, id));
+    if broken {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "errorCode": "ERR_CONFIGURATION_UNSUBSCRIBE",
+                "message": "store is down",
+            })),
+        )
+            .into_response()
+    } else {
+        Json(json!({ "ok": true })).into_response()
     }
 }
 

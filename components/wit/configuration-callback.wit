@@ -8,7 +8,8 @@ interface configuration-callback {
   /// A batch of changed configuration items for one subscription.
   record configuration-update {
     store-name: string,
-    /// The subscription id returned by `configuration.subscribe`.
+    /// The id of the subscription handle returned by
+    /// `configuration.subscribe` (`subscription.id`).
     id: string,
     /// Changed items as (key, item) pairs.
     items: list<tuple<string, configuration-item>>,

@@ -107,6 +107,20 @@ impl Sidecar {
         headers: &[(String, String)],
         body: Vec<u8>,
     ) -> HttpResult {
+        self.try_request(method, path_and_query, headers, body)
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Like [`request`](Self::request), but returns the unrecoverable
+    /// failure as an `Err` message instead of panicking — for the few callers
+    /// that must not trap, e.g. a resource destructor.
+    pub fn try_request(
+        &self,
+        method: Method,
+        path_and_query: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> Result<HttpResult, String> {
         const MAX_ATTEMPTS: u32 = 4;
         const BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -122,23 +136,23 @@ impl Sidecar {
             }
             builder
                 .body(Body::from(body.clone()))
-                .unwrap_or_else(|e| panic!("invalid request for {url}: {e}"))
+                .map_err(|e| format!("invalid request for {url}: {e}"))
         };
 
         block_on(async {
             let mut attempt = 0;
             let response = loop {
                 attempt += 1;
-                match Client::new().send(build_request()).await {
+                match Client::new().send(build_request()?).await {
                     Ok(response) => break response,
                     Err(_) if attempt < MAX_ATTEMPTS => {
                         wstd::task::sleep((BACKOFF * attempt).into()).await;
                     }
                     Err(e) => {
-                        panic!(
+                        return Err(format!(
                             "cannot reach the Dapr sidecar at {} after {attempt} attempts: {e}",
                             self.base
-                        );
+                        ));
                     }
                 }
             };
@@ -158,14 +172,14 @@ impl Sidecar {
             let bytes = body
                 .contents()
                 .await
-                .unwrap_or_else(|e| panic!("failed to read sidecar response body: {e}"))
+                .map_err(|e| format!("failed to read sidecar response body: {e}"))?
                 .to_vec();
 
-            HttpResult {
+            Ok(HttpResult {
                 status,
                 headers,
                 body: bytes,
-            }
+            })
         })
     }
 
