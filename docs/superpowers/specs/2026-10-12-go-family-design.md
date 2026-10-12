@@ -86,6 +86,9 @@ sequenceDiagram
 
 - No instance is ever re-entered: when the pump calls the app, `go-outbound`
   is not on the stack.
+- **The composed app contains exactly one Go runtime and one Dapr runtime**
+  (inside `go-outbound`). `go-inbound` holds no Dapr state and must not be
+  written in Go — a Go pump would add a second Go runtime.
 
 ### `go-events` WIT (private)
 
