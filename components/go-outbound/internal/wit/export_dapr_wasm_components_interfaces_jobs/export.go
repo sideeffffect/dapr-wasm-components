@@ -1,7 +1,8 @@
-// Jobs / distributed scheduler, served by the embedded runtime's API —
-// ScheduleJob, GetJob, DeleteJob (the stable RPCs). Job data is JSON in the
-// WIT contract but google.protobuf.Any in the proto — packed as
-// google.protobuf.Value via anyjson. Mirrors wasi-grpc-outbound's jobs.rs.
+// Jobs / distributed scheduler writes, served by the embedded runtime's API
+// — ScheduleJob, DeleteJob (the stable RPCs). Job data is JSON in the WIT
+// contract but google.protobuf.Any in the proto — packed as
+// google.protobuf.Value via anyjson. The reads live in jobs-read. Mirrors
+// wasi-grpc-outbound's jobs.rs (the jobs half).
 package export_dapr_wasm_components_interfaces_jobs
 
 import (
@@ -17,13 +18,11 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/anyjson"
+	jbblk "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/blocks/jobs"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/call"
 	jb "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/dapr_wasm_components_interfaces_jobs"
+	jr "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/dapr_wasm_components_interfaces_jobs_read"
 )
-
-func jobsError(f *call.Failure) jb.JobsError {
-	return jb.MakeJobsErrorPermissionDenied(f.Message)
-}
 
 func scheduleError(f *call.Failure) jb.ScheduleError {
 	if f.Status == 409 || strings.Contains(f.ErrorCode, "ALREADY_EXISTS") {
@@ -32,7 +31,7 @@ func scheduleError(f *call.Failure) jb.ScheduleError {
 	if f.Status == 400 {
 		return jb.MakeScheduleErrorInvalidSchedule(f.Message)
 	}
-	return jb.MakeScheduleErrorJobs(jobsError(f))
+	return jb.MakeScheduleErrorJobs(jbblk.Error(f))
 }
 
 // intervalPb parses the WIT retry interval, a Go duration string ("10s").
@@ -46,19 +45,8 @@ func intervalPb(interval string) *durationpb.Duration {
 	return durationpb.New(d)
 }
 
-// intervalWit renders "90s" / "1.5s" like the strings the HTTP API returns.
-// Retry intervals are never negative; clamp rather than panic.
-func intervalWit(d *durationpb.Duration) string {
-	seconds := max(d.GetSeconds(), 0)
-	nanos := max(d.GetNanos(), 0)
-	if nanos == 0 {
-		return fmt.Sprintf("%ds", seconds)
-	}
-	return fmt.Sprintf("%d.%ss", seconds, strings.TrimRight(fmt.Sprintf("%09d", nanos), "0"))
-}
-
-func failurePolicyPb(p jb.JobFailurePolicy) *commonv1pb.JobFailurePolicy {
-	if p.Tag() == jb.JobFailurePolicyTagConstant {
+func failurePolicyPb(p jr.JobFailurePolicy) *commonv1pb.JobFailurePolicy {
+	if p.Tag() == jr.JobFailurePolicyTagConstant {
 		c := p.Constant()
 		constant := &commonv1pb.JobFailurePolicyConstant{MaxRetries: call.OptPtr(c.MaxRetries)}
 		if c.Interval.IsSome() {
@@ -69,28 +57,7 @@ func failurePolicyPb(p jb.JobFailurePolicy) *commonv1pb.JobFailurePolicy {
 	return &commonv1pb.JobFailurePolicy{Policy: &commonv1pb.JobFailurePolicy_Drop{Drop: &commonv1pb.JobFailurePolicyDrop{}}}
 }
 
-func failurePolicyWit(p *commonv1pb.JobFailurePolicy) witTypes.Option[jb.JobFailurePolicy] {
-	switch x := p.GetPolicy().(type) {
-	case *commonv1pb.JobFailurePolicy_Drop:
-		return witTypes.Some(jb.MakeJobFailurePolicyDrop())
-	case *commonv1pb.JobFailurePolicy_Constant:
-		c := jb.JobFailurePolicyConstant{MaxRetries: optFromPtr(x.Constant.MaxRetries), Interval: witTypes.None[string]()}
-		if x.Constant.GetInterval() != nil {
-			c.Interval = witTypes.Some(intervalWit(x.Constant.GetInterval()))
-		}
-		return witTypes.Some(jb.MakeJobFailurePolicyConstant(c))
-	}
-	return witTypes.None[jb.JobFailurePolicy]()
-}
-
-func optFromPtr[T any](p *T) witTypes.Option[T] {
-	if p == nil {
-		return witTypes.None[T]()
-	}
-	return witTypes.Some(*p)
-}
-
-func jobPb(name string, job jb.Job) *runtimev1pb.Job {
+func jobPb(name string, job jr.Job) *runtimev1pb.Job {
 	pb := &runtimev1pb.Job{
 		Name:     name,
 		Schedule: call.OptPtr(job.Schedule),
@@ -113,26 +80,7 @@ func jobPb(name string, job jb.Job) *runtimev1pb.Job {
 	return pb
 }
 
-func jobWit(job *runtimev1pb.Job) jb.Job {
-	data := witTypes.None[string]()
-	if job.GetData() != nil {
-		data = witTypes.Some(anyjson.UnpackJSON(job.GetData()))
-	}
-	policy := witTypes.None[jb.JobFailurePolicy]()
-	if job.GetFailurePolicy() != nil {
-		policy = failurePolicyWit(job.GetFailurePolicy())
-	}
-	return jb.Job{
-		Schedule:      optFromPtr(job.Schedule),
-		Repeats:       optFromPtr(job.Repeats),
-		DueTime:       optFromPtr(job.DueTime),
-		Ttl:           optFromPtr(job.Ttl),
-		Data:          data,
-		FailurePolicy: policy,
-	}
-}
-
-func Schedule(name string, job jb.Job, overwrite bool) witTypes.Result[witTypes.Unit, jb.ScheduleError] {
+func Schedule(name string, job jr.Job, overwrite bool) witTypes.Result[witTypes.Unit, jb.ScheduleError] {
 	req := &runtimev1pb.ScheduleJobRequest{Job: jobPb(name, job), Overwrite: overwrite}
 	_, f := call.Do(func(ctx context.Context, api daprgrpc.API) (any, error) {
 		return api.ScheduleJob(ctx, req)
@@ -143,29 +91,12 @@ func Schedule(name string, job jb.Job, overwrite bool) witTypes.Result[witTypes.
 	return witTypes.Ok[witTypes.Unit, jb.ScheduleError](witTypes.Unit{})
 }
 
-func Get(name string) witTypes.Result[jb.Job, jb.GetJobError] {
-	r, f := call.Do(func(ctx context.Context, api daprgrpc.API) (*runtimev1pb.GetJobResponse, error) {
-		return api.GetJob(ctx, &runtimev1pb.GetJobRequest{Name: name})
-	})
-	if f != nil {
-		if f.Status == 404 {
-			return witTypes.Err[jb.Job](jb.MakeGetJobErrorJobNotFound())
-		}
-		return witTypes.Err[jb.Job](jb.MakeGetJobErrorJobs(jobsError(f)))
-	}
-	// A successful GetJob with no job also means the job is absent.
-	if r.GetJob() == nil {
-		return witTypes.Err[jb.Job](jb.MakeGetJobErrorJobNotFound())
-	}
-	return witTypes.Ok[jb.Job, jb.GetJobError](jobWit(r.GetJob()))
-}
-
-func Delete(name string) witTypes.Result[witTypes.Unit, jb.JobsError] {
+func Delete(name string) witTypes.Result[witTypes.Unit, jr.JobsError] {
 	_, f := call.Do(func(ctx context.Context, api daprgrpc.API) (any, error) {
 		return api.DeleteJob(ctx, &runtimev1pb.DeleteJobRequest{Name: name})
 	})
 	if f != nil {
-		return witTypes.Err[witTypes.Unit](jobsError(f))
+		return witTypes.Err[witTypes.Unit](jbblk.Error(f))
 	}
-	return witTypes.Ok[witTypes.Unit, jb.JobsError](witTypes.Unit{})
+	return witTypes.Ok[witTypes.Unit, jr.JobsError](witTypes.Unit{})
 }

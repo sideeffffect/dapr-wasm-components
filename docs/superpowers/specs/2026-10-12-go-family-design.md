@@ -1,6 +1,6 @@
 # Go provider family (`dapr-wasm-components-go-outbound` / `-go-inbound`) — design
 
-Status: approved in brainstorming 2026-10-12, pending spec review.
+Status: approved 2026-10-12; **implemented** (PR https://github.com/sideeffffect/dapr-wasm-components/pull/12). See "As built" at the end for where the build differs from this design.
 
 ## Goal
 
@@ -218,3 +218,17 @@ wasmtime run -S inherit-network -S tcp -S allow-ip-name-lookup \
 - Spin support for the go family (Spin has no general `wasi:sockets` TCP
   listen).
 - Kubernetes mode, mTLS / Sentry, the Dapr operator.
+
+## As built (2026-10-12)
+
+Where the implementation differs from the design above:
+
+- **API accessor:** `go build -overlay` cannot replace files under GOMODCACHE, so the runtime's API object is read from the unexported `DaprRuntime.daprGRPCAPI` / `initComplete` fields by reflection (checked against the pinned Dapr at start), not through an added accessor file.
+- **Configuration:** daprd's own flag parser on the component's program arguments (`wasmtime run composed.wasm --app-id …`), not `DAPR_*` env vars; `DAPR_HOST_IP` is still needed for name-resolver self-registration.
+- **App channel:** Dapr's HTTP app protocol over in-memory `net.Pipe`s to an in-process `http.Handler` (a virtual endpoint in `wasisock`), not a custom `channel.AppChannel`.
+- **Name resolution in the E2E:** Consul (testcontainer), because the sqlite resolver (modernc libc) does not build for wasip1.
+- **Std patches:** besides `net`, `runtime/netpoll_wasip1.go` is patched: a GC inside `cabi_realloc` must not call `poll_oneoff`.
+- **In-process calls** run Dapr's metadata interceptor with non-empty incoming metadata; without it Dapr panics on a nil map.
+- **Single app instance:** self-invocation from a callback can never be served; it fails fast with `app-unreachable` and the shared scenario asserts that (`Endpoints::self_invocation`).
+- **Interfaces 0.7.0** (merged from main during the work): the go family follows the authority split.
+

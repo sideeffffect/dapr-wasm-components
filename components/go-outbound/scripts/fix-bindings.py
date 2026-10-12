@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Work around two wit-bindgen (Go) issues in the generated bindings.
 
-1. `jobs.job-failure-policy` has a case `constant(job-failure-policy-constant)`:
+1. `jobs-read.job-failure-policy` has a case `constant(job-failure-policy-constant)`:
    the generator names the case's tag constant `JobFailurePolicyConstant`, the
    same identifier as the record type, which does not compile. Rename the tag
    constant to `JobFailurePolicyTagConstant`.
@@ -15,7 +15,7 @@ here instead of silently.
 """
 import sys
 
-JOBS = "internal/wit/dapr_wasm_components_interfaces_jobs/wit_bindings.go"
+JOBS = "internal/wit/dapr_wasm_components_interfaces_jobs_read/wit_bindings.go"
 EXPORTS = "internal/wit/wit_exports/wit_exports.go"
 CRYPTO = "internal/wit/export_dapr_wasm_components_interfaces_crypto/wit_bindings.go"
 
@@ -37,8 +37,8 @@ FIXES = {
     ],
     CRYPTO: [from_own("Encryptor"), from_own("Decryptor"), from_own("CryptoOutput")],
     EXPORTS: [
-        ("case dapr_wasm_components_interfaces_jobs.JobFailurePolicyConstant:",
-         "case dapr_wasm_components_interfaces_jobs.JobFailurePolicyTagConstant:", None),
+        ("case dapr_wasm_components_interfaces_jobs_read.JobFailurePolicyConstant:",
+         "case dapr_wasm_components_interfaces_jobs_read.JobFailurePolicyTagConstant:", None),
     ],
 }
 

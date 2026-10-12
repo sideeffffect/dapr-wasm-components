@@ -59,6 +59,22 @@ for the inbound spec.
   channel). The 0.7.0 resource shape would let a provider hold that stream
   per handle once WASI 0.3 allows it.
 
+## go family (Dapr embedded)
+
+- **Slimmer component set.** go-outbound is ~264 MB (Dapr runtime ~138 MB + all
+  wasip1-buildable component SDKs). Offer a slim build (e.g. Redis, Postgres,
+  Kafka, in-memory, local file/env secrets, Consul) via a second
+  `gen-components.py` list.
+- **Actors / workflow / jobs E2E.** Implemented and compiled, but the shared
+  scenario does not run placement/scheduler; add them as testcontainers.
+- **Upstream fixes** to drop local workarounds: wit-bindgen-go variant-case vs
+  record name clash and `FromOwnHandle` not recording the handle
+  (`scripts/fix-bindings.py`); componentize-go / Go `netpoll(0)` calling
+  `poll_oneoff` from a GC inside `cabi_realloc` (`overlay/`); a Go wasip1 `net`
+  backed by `wasi:sockets` instead of the std overlay.
+- **Event-driven socket waits** (fold wasi:io pollables into Go's netpoll)
+  instead of sleep-backoff polling, if latency matters.
+
 ## Packaging / DX
 
 - **Publish the `dapr-app` SDK.** It is consumed today as a git/path dependency;
@@ -196,6 +212,11 @@ Additive Dapr 1.19 surface we could adopt (1.19 is still an RC): actor timer rea
   `SubscribeActorEventsAlpha1` (an app-initiated bidi stream, `actors.proto`
   ~line 172), was rejected: it needs a long-lived bidi stream that request-scoped
   wasm/Spin HTTP triggers cannot hold, and it is alpha.
+- **go family: one long-lived app instance.** A delivery cannot reach the app
+  while it runs a callback, so self-invocation fails fast (`app-unreachable`)
+  and A → B → A cycles hang without a resiliency timeout. Inherent to a single
+  instance plus a sync WIT; per-request instances (the sidecar families) don't
+  have it.
 - **Outbound and inbound are separate components** because a single bidirectional
   provider forms an `app ↔ provider` instantiation cycle the component model
   forbids. This is by design, not a limitation to remove.

@@ -1,73 +1,34 @@
-// Configuration, served by the embedded runtime's API — the stable
-// GetConfiguration, SubscribeConfiguration and UnsubscribeConfiguration
-// (not the Alpha1 variants). Mirrors wasi-grpc-outbound's configuration.rs
-// for get.
+// Configuration subscriptions, served by the embedded runtime's API — the
+// stable SubscribeConfiguration and UnsubscribeConfiguration (not the Alpha1
+// variants). The reads live in configuration-read.
 //
-// Unlike the network provider, subscribe is supported: SubscribeConfiguration
-// is a server-streaming call, and in-process it runs in a goroutine against
-// a fake server stream. Its first message carries the subscription id;
-// every later one is an update, delivered to the app as a
-// configuration-update event through the events queue.
+// Unlike wasi-grpc-outbound (whose subscribe traps), subscribe is
+// supported: SubscribeConfiguration is a server-streaming call, and
+// in-process it runs in a goroutine against a fake server stream. Its first
+// message carries the subscription id; every later one is an update,
+// delivered to the app as a configuration-update event through the events
+// queue. Dropping the subscription handle unsubscribes, like
+// wasi-http-outbound: a failed unsubscribe is logged to stderr and ignored.
 package export_dapr_wasm_components_interfaces_configuration
 
 import (
 	"context"
 	"errors"
-	"sort"
+	"fmt"
+	"os"
+	"runtime"
 	"sync"
 
-	daprgrpc "github.com/dapr/dapr/pkg/api/grpc"
-	commonv1pb "github.com/dapr/dapr/pkg/proto/common/v1"
 	runtimev1pb "github.com/dapr/dapr/pkg/proto/runtime/v1"
 	witTypes "go.bytecodealliance.org/pkg/wit/types"
 	"google.golang.org/grpc/metadata"
 
+	cfblk "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/blocks/configuration"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/call"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/events"
 	ev "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/dapr_wasm_components_go_events"
 	cf "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/dapr_wasm_components_interfaces_configuration"
 )
-
-type items = []witTypes.Tuple2[string, cf.ConfigurationItem]
-
-func configurationError(f *call.Failure) cf.ConfigurationError {
-	if f.IsPermission() {
-		return cf.MakeConfigurationErrorPermissionDenied(f.Message)
-	}
-	return cf.MakeConfigurationErrorStoreNotFound(f.Message)
-}
-
-func unsubscribeError(f *call.Failure) cf.UnsubscribeError {
-	if f.Status == 404 {
-		return cf.MakeUnsubscribeErrorNoSuchSubscription(f.Message)
-	}
-	return cf.MakeUnsubscribeErrorConfiguration(configurationError(f))
-}
-
-// itemsWit converts the proto map, sorted by key for determinism (proto
-// maps have no order).
-func itemsWit(m map[string]*commonv1pb.ConfigurationItem) items {
-	out := make(items, 0, len(m))
-	for k, v := range m {
-		out = append(out, witTypes.Tuple2[string, cf.ConfigurationItem]{F0: k, F1: cf.ConfigurationItem{
-			Value: v.GetValue(), Version: v.GetVersion(), Metadata: call.MetadataPairs(v.GetMetadata()),
-		}})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].F0 < out[j].F0 })
-	return out
-}
-
-func Get(storeName string, keys []string, md []witTypes.Tuple2[string, string]) witTypes.Result[items, cf.ConfigurationError] {
-	r, f := call.Do(func(ctx context.Context, api daprgrpc.API) (*runtimev1pb.GetConfigurationResponse, error) {
-		return api.GetConfiguration(ctx, &runtimev1pb.GetConfigurationRequest{
-			StoreName: storeName, Keys: keys, Metadata: call.MetadataMap(md),
-		})
-	})
-	if f != nil {
-		return witTypes.Err[items](configurationError(f))
-	}
-	return witTypes.Ok[items, cf.ConfigurationError](itemsWit(r.GetItems()))
-}
 
 // stream is the server side of one in-process SubscribeConfiguration call.
 // The API serializes its Send calls.
@@ -88,7 +49,7 @@ func (s *stream) Send(m *runtimev1pb.SubscribeConfigurationResponse) error {
 		return err // unsubscribed: stop delivering
 	}
 	_, err := events.Deliver(ev.MakeEventConfigurationUpdate(ev.ConfigurationUpdate{
-		StoreName: s.storeName, Id: m.GetId(), Items: itemsWit(m.GetItems()),
+		StoreName: s.storeName, Id: m.GetId(), Items: cfblk.ItemsWit(m.GetItems()),
 	}))
 	if errors.Is(err, events.ErrNotAttached) {
 		return nil // no app to deliver to: drop the update
@@ -107,13 +68,43 @@ func (*stream) RecvMsg(any) error {
 	return errors.New("SubscribeConfiguration: client sends no messages")
 }
 
-// subscriptions maps a subscription id to the cancel of its stream context.
-var (
-	mu            sync.Mutex
-	subscriptions = map[string]context.CancelFunc{}
-)
+// Subscription is one active SubscribeConfiguration stream.
+type Subscription struct {
+	pinner    runtime.Pinner
+	handle    int32
+	storeName string
+	id        string
+	cancel    context.CancelFunc
+	dropped   sync.Once
+}
 
-func Subscribe(storeName string, keys []string, md []witTypes.Tuple2[string, string]) witTypes.Result[string, cf.ConfigurationError] {
+// Id is the subscription id the runtime assigned.
+func (self *Subscription) Id() string { return self.id }
+
+// OnDrop unsubscribes. It may run twice (generated Drop and the dtor), so
+// it is idempotent. It cannot report a failure, and panicking would trap
+// the app while it only cleans up, so a failed unsubscribe is logged and
+// ignored.
+func (self *Subscription) OnDrop() {
+	self.dropped.Do(func() {
+		// Cancelling the stream context ends the SubscribeConfiguration
+		// call, which unsubscribes from the store, even if the API call
+		// below fails.
+		defer self.cancel()
+		r, err := call.API().UnsubscribeConfiguration(call.Context(), &runtimev1pb.UnsubscribeConfigurationRequest{
+			StoreName: self.storeName, Id: self.id,
+		})
+		switch {
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "configuration: unsubscribing %q from store %q failed: %v\n", self.id, self.storeName, err)
+		case !r.GetOk():
+			// The API reports an unknown id as ok=false, not as an error.
+			fmt.Fprintf(os.Stderr, "configuration: unsubscribing %q from store %q failed: %s\n", self.id, self.storeName, r.GetMessage())
+		}
+	})
+}
+
+func Subscribe(storeName string, keys []string, md []witTypes.Tuple2[string, string]) witTypes.Result[*Subscription, cf.ConfigurationError] {
 	ctx, cancel := context.WithCancel(call.Context())
 	s := &stream{ctx: ctx, storeName: storeName, id: make(chan string, 1)}
 	req := &runtimev1pb.SubscribeConfigurationRequest{StoreName: storeName, Keys: keys, Metadata: call.MetadataMap(md)}
@@ -125,44 +116,12 @@ func Subscribe(storeName string, keys []string, md []witTypes.Tuple2[string, str
 	}()
 	select {
 	case id := <-s.id:
-		mu.Lock()
-		subscriptions[id] = cancel
-		mu.Unlock()
-		// Forget the subscription once its stream ends, however it ends.
-		go func() {
-			<-ctx.Done()
-			mu.Lock()
-			delete(subscriptions, id)
-			mu.Unlock()
-		}()
-		return witTypes.Ok[string, cf.ConfigurationError](id)
+		return witTypes.Ok[*Subscription, cf.ConfigurationError](&Subscription{storeName: storeName, id: id, cancel: cancel})
 	case err := <-done:
 		cancel()
 		if err == nil {
 			panic("SubscribeConfiguration ended without sending a subscription id")
 		}
-		return witTypes.Err[string](configurationError(call.Classify(err)))
+		return witTypes.Err[*Subscription](cfblk.Error(call.Classify(err)))
 	}
-}
-
-func Unsubscribe(storeName string, id string) witTypes.Result[witTypes.Unit, cf.UnsubscribeError] {
-	// Cancelling the stream context ends the SubscribeConfiguration call,
-	// which unsubscribes from the store, even if the API call below fails.
-	mu.Lock()
-	cancel, ok := subscriptions[id]
-	mu.Unlock()
-	if ok {
-		defer cancel()
-	}
-	r, f := call.Do(func(ctx context.Context, api daprgrpc.API) (*runtimev1pb.UnsubscribeConfigurationResponse, error) {
-		return api.UnsubscribeConfiguration(ctx, &runtimev1pb.UnsubscribeConfigurationRequest{StoreName: storeName, Id: id})
-	})
-	if f != nil {
-		return witTypes.Err[witTypes.Unit](unsubscribeError(f))
-	}
-	// The API reports an unknown id as ok=false, not as a NotFound error.
-	if !r.GetOk() {
-		return witTypes.Err[witTypes.Unit](cf.MakeUnsubscribeErrorNoSuchSubscription(r.GetMessage()))
-	}
-	return witTypes.Ok[witTypes.Unit, cf.UnsubscribeError](witTypes.Unit{})
 }

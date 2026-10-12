@@ -1,18 +1,20 @@
 # dapr-wasm-components — Architecture & Decisions
 
-> Sources: this repository (components/wit/, components/, e2e/, .github/), 2026-06-11 (v2 redesign, same day as v1); wasi-grpc provider added 2026-06-12; repository restructure + world rename 2026-06-13; error-model redesign (0.4.0 → 0.5.0) 2026-06-15; lint refresh against the code (split providers, paths, OCI names, tool pins, gRPC error semantics) 2026-10-10; pub/sub CEL routing rules (0.5.0 → 0.6.0) 2026-10-10; streaming crypto (0.6.0) 2026-10-10; dapr/dapr v1.18.0 source (`pkg/api/http/crypto.go`, `pkg/api/grpc/crypto.go`); interfaces 0.7.0 (authority split, subscription resource, typed workflow-instance) 2026-10-12; dapr/dapr release-1.18/1.19 + durabletask-go v0.12.6 workflow status/properties source 2026-10-12
-> Raw: [daprd workflow GetWorkflow properties](../../raw/dapr/daprd-workflow-get-properties-v1-18.md)
+> Sources: this repository (components/wit/, components/, e2e/, .github/), 2026-06-11 (v2 redesign, same day as v1); wasi-grpc provider added 2026-06-12; repository restructure + world rename 2026-06-13; error-model redesign (0.4.0 → 0.5.0) 2026-06-15; lint refresh against the code (split providers, paths, OCI names, tool pins, gRPC error semantics) 2026-10-10; pub/sub CEL routing rules (0.5.0 → 0.6.0) 2026-10-10; streaming crypto (0.6.0) 2026-10-10; dapr/dapr v1.18.0 source (`pkg/api/http/crypto.go`, `pkg/api/grpc/crypto.go`); interfaces 0.7.0 (authority split, subscription resource, typed workflow-instance) 2026-10-12; dapr/dapr release-1.18/1.19 + durabletask-go v0.12.6 workflow status/properties source 2026-10-12; go family (Dapr embedded) 2026-10-12
+> Raw: [daprd workflow GetWorkflow properties](../../raw/dapr/daprd-workflow-get-properties-v1-18.md); [go family findings](../../raw/dapr/2026-10-12-go-family-embedded-dapr-findings.md)
 
 ## Overview
 
-Pure-wasm modules: the **interface** WIT package `dapr-wasm-components:interfaces@0.7.0` (`components/wit/`, published to OCI as `dapr-wasm-components-interfaces`; worlds `app`, `outbound`, `inbound`) and four **provider** components, split per transport into an outbound and an inbound half:
+Pure-wasm modules: the **interface** WIT package `dapr-wasm-components:interfaces@0.7.0` (`components/wit/`, published to OCI as `dapr-wasm-components-interfaces`; worlds `app`, `outbound`, `inbound`) and six **provider** components, split per family into an outbound and an inbound half:
 
 - `dapr-wasm-components-wasi-http-outbound` (`components/wasi-http-outbound/`) — exports the building blocks over the Dapr HTTP API via `wasi:http` outgoing requests; portable to any WASI 0.2 runtime.
 - `dapr-wasm-components-wasi-http-inbound` (`components/wasi-http-inbound/`) — exports `wasi:http/incoming-handler`, parses the HTTP app channel, calls the app's `*-callback` exports.
 - `dapr-wasm-components-wasi-grpc-outbound` (`components/wasi-grpc-outbound/`) — the building blocks over the Dapr gRPC API via tonic over Spin's outbound HTTP/2 (Spin ≥ 3.4 only, see below).
 - `dapr-wasm-components-wasi-grpc-inbound` (`components/wasi-grpc-inbound/`) — serves Dapr's `AppCallback` gRPC service over `wasi:http/incoming-handler` (Spin inbound h2c).
+- `dapr-wasm-components-go-outbound` (`components/go-outbound/`, Go) — **Dapr itself embedded** (`github.com/dapr/dapr` v1.18 via `componentize-go`): the building blocks in-process, no sidecar; plus a private pull-based `go-events` queue.
+- `dapr-wasm-components-go-inbound` (`components/go-inbound/`, Rust) — the pump that delivers go-outbound's events to the app's callbacks (`wasi:cli/run`). The go pair is one engine + one connector, not two independent providers — see [go Family](dapr-wasm-components-go-family.md).
 
-Apps target the `app` world through the `dapr-app` SDK (`app-sdk/dapr-app/`), get composed `outbound → app → inbound` (`wac compose` with `compose.wac`, or the `compose.sh` wrapper; transports can be mixed), and run next to a Dapr sidecar.
+Apps target the `app` world through the `dapr-app` SDK (`app-sdk/dapr-app/`), get composed `outbound → app → inbound` (`wac compose` with `compose.wac`, or the `compose.sh` wrapper; transports can be mixed), and run next to a Dapr sidecar (or, for the go family, alone).
 
 ## v1 → v2: why the redesign
 
@@ -118,6 +120,7 @@ Built on Fermyon's `wasi-grpc` 0.1.0 crate, accepting the Spin-only constraint d
 
 ## See Also
 
+- [dapr-wasm-components go Family](dapr-wasm-components-go-family.md) — Dapr embedded in the component, pull-based inbound, limits
 - [gRPC to Dapr from Wasm](dapr-grpc-from-wasm.md) — feasibility of a pure-wasm `*-grpc` sibling implementation
 - [Dapr HTTP API](dapr-http-api.md)
 - [Wasmtime Host Embedding](../wasm-tooling/wasmtime-host-embedding.md)
