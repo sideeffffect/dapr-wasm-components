@@ -7,18 +7,21 @@ must match exactly once, so a Go upgrade that changes the patched code fails
 loudly instead of silently.
 
 - net: real TCP via wasi:sockets instead of wasip1's in-process fake network
-  (calls the hooks in net/zz_wasisock.go, which is added to the package).
+  (calls the hooks in _net/zz_wasisock.go, which is added to the package;
+  the leading underscore keeps the go tool from treating it as a package of
+  this module).
 - runtime/netpoll_wasip1.go: a zero-timeout poll of no file descriptors
   returns without calling poll_oneoff. The GC's start-the-world does such a
   poll, and a GC can start inside cabi_realloc, where the component model
   forbids import calls ("cannot leave component instance").
 
-Writes <out>/overlay.json (default: ../target/overlay).
+Writes <out>/overlay.json (default: components/target/go-overlay — outside
+the Go module, so `go ... ./...` never sees the patched std files).
 """
 import json, os, subprocess, sys
 
 here = os.path.dirname(os.path.abspath(__file__))
-out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "..", "target", "overlay"))
+out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "..", "..", "target", "go-overlay"))
 goroot = subprocess.check_output(["go", "env", "GOROOT"], text=True).strip()
 src = os.path.join(goroot, "src")
 
@@ -87,6 +90,6 @@ for name, patches in PATCHES.items():
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     open(dst, "w").write(text)
     replace[os.path.join(src, name)] = dst
-replace[os.path.join(src, "net", "zz_wasisock.go")] = os.path.join(here, "net", "zz_wasisock.go")
+replace[os.path.join(src, "net", "zz_wasisock.go")] = os.path.join(here, "_net", "zz_wasisock.go")
 json.dump({"Replace": replace}, open(os.path.join(out, "overlay.json"), "w"), indent=1)
 print(os.path.join(out, "overlay.json"))

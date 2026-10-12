@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=../target/wasm32-wasip2/release/dapr_wasm_components_go_outbound.wasm
 mkdir -p "$(dirname "$out")"
-python3 overlay/gen-overlay.py target/overlay >/dev/null
-GOFLAGS="-overlay=$PWD/target/overlay/overlay.json -trimpath" \
+python3 overlay/gen-overlay.py ../target/go-overlay >/dev/null
+GOFLAGS="-overlay=$PWD/../target/go-overlay/overlay.json -trimpath" \
   componentize-go -d wit --world go-outbound build -o "$out"
 echo "$out"

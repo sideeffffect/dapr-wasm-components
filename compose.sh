@@ -3,18 +3,24 @@
 # one-liner. Composes your app with a dapr-wasm-components outbound + inbound
 # provider into one runnable server component (`outbound → app → inbound`).
 #
-# The two directions are independent, so the transports are chosen separately
-# (gRPC out + HTTP in is valid). Providers are resolved automatically: a local
-# release build under components/target/ is used when present, otherwise the
-# published modules are pulled from the OCI registry with `wkg`.
+# For the sidecar transports the two directions are independent, so they are
+# chosen separately (gRPC out + HTTP in is valid). The `go` family embeds Dapr
+# itself and comes as a pair (`--out go` implies `--in go`). Providers are
+# resolved automatically: a local release build under components/target/ is
+# used when present, otherwise the published modules are pulled from the OCI
+# registry with `wkg`.
 #
 #   ./compose.sh my_app.wasm                       # http out + http in -> composed.wasm
 #   ./compose.sh my_app.wasm --out grpc --in http  # mixed transports
+#   ./compose.sh my_app.wasm --out go              # Dapr embedded, no sidecar
 #   ./compose.sh my_app.wasm -o server.wasm --tag 0.6.0
 #   ./compose.sh my_app.wasm --outbound out.wasm --inbound in.wasm   # explicit paths
 #
 # Run the result next to a Dapr sidecar:
 #   dapr run --app-id my-app -- wasmtime serve -S cli composed.wasm
+# or, for `--out go`, on its own (the arguments are daprd's flags):
+#   wasmtime run -S inherit-network -S tcp -S allow-ip-name-lookup \
+#     --dir ./resources::/resources composed.wasm --app-id my-app --resources-path /resources
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -58,8 +64,11 @@ done
 [[ -f "$app" ]] || die "app component not found: $app"
 in_transport="${in_transport:-$out_transport}"
 for t in "$out_transport" "$in_transport"; do
-  [[ "$t" == "http" || "$t" == "grpc" ]] || die "transport must be 'http' or 'grpc', got '$t'"
+  [[ "$t" == "http" || "$t" == "grpc" || "$t" == "go" ]] || die "transport must be 'http', 'grpc' or 'go', got '$t'"
 done
+if [[ "$out_transport" == "go" || "$in_transport" == "go" ]] && [[ "$out_transport" != "$in_transport" ]]; then
+  die "the go family is a pair (one embedded Dapr runtime): use --out go --in go"
+fi
 command -v wac >/dev/null || die "wac not found on PATH (see https://github.com/bytecodealliance/wac)"
 
 tmp=""
@@ -74,13 +83,16 @@ resolve() {
     [[ -f "$explicit" ]] || die "provider not found: $explicit"
     echo "$explicit"; return
   fi
-  local file="dapr_wasm_components_wasi_${transport}_${direction}.wasm"
+  # go-* are named without the wasi- prefix: they are not a sidecar transport.
+  local family="wasi_${transport}" package="wasi-${transport}"
+  if [[ "$transport" == "go" ]]; then family="go"; package="go"; fi
+  local file="dapr_wasm_components_${family}_${direction}.wasm"
   if [[ -f "$local_dir/$file" ]]; then
     echo "$local_dir/$file"; return
   fi
   command -v wkg >/dev/null || die "wkg not found and no local $direction build at $local_dir/$file (see https://github.com/bytecodealliance/wasm-pkg-tools)"
   [[ -n "$tmp" ]] || tmp="$(mktemp -d)"
-  local ref="$org/dapr-wasm-components-wasi-${transport}-${direction}:${tag}"
+  local ref="$org/dapr-wasm-components-${package}-${direction}:${tag}"
   echo "compose.sh: pulling $ref" >&2
   wkg oci pull "$ref" -o "$tmp/$file" >&2
   echo "$tmp/$file"

@@ -65,16 +65,16 @@ fn dispatch(event: ev::Event) -> ev::EventResult {
         }
         ev::Event::ActorConfig => ev::EventResult::ActorConfig(actor_config(actors::config())),
         ev::Event::HealthCheck => ev::EventResult::HealthCheck(health::health_check()),
-        ev::Event::Invoke(r) => ev::EventResult::Invoke(invocation::on_invoke(
-            &invocation::InvokeRequest {
+        ev::Event::Invoke(r) => {
+            ev::EventResult::Invoke(invocation::on_invoke(&invocation::InvokeRequest {
                 method: r.method,
                 verb: r.verb,
                 headers: r.headers,
                 query: r.query,
                 content_type: r.content_type,
                 data: r.data,
-            },
-        )),
+            }))
+        }
         ev::Event::Topic(e) => {
             ev::EventResult::Topic(topic_status(pubsub::on_topic_event(&topic_event(e))))
         }
