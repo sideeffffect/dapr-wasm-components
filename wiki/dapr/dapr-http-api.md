@@ -1,7 +1,7 @@
 # Dapr HTTP API (sidecar REST)
 
-> Sources: docs.dapr.io API reference (v1.18), 2026-06-11 survey; dapr/dapr v1.18.0 source `pkg/api/http/crypto.go` (2026-10-10)
-> Raw: [dapr-http-api-reference-v1-18](../../raw/dapr/dapr-http-api-reference-v1-18.md), [daprd-input-binding-reply-v1-18](../../raw/dapr/daprd-input-binding-reply-v1-18.md)
+> Sources: docs.dapr.io API reference (v1.18), 2026-06-11 survey; dapr/dapr v1.18.0 source `pkg/api/http/crypto.go` (2026-10-10); dapr/dapr release-1.18/1.19 workflow get source (2026-10-12)
+> Raw: [dapr-http-api-reference-v1-18](../../raw/dapr/dapr-http-api-reference-v1-18.md), [daprd-input-binding-reply-v1-18](../../raw/dapr/daprd-input-binding-reply-v1-18.md), [daprd-workflow-get-properties-v1-18](../../raw/dapr/daprd-workflow-get-properties-v1-18.md)
 
 ## Overview
 
@@ -36,6 +36,7 @@ The changes are additive only. The `AppCallback` proto is byte-identical to 1.18
 - Bulk publish entry id is **`entryId`**; partial failure = HTTP 500 + `failedEntries` array.
 - Jobs schedule body is flat (no `{"job":...}` wrapper) and uses **snake_case** for `failure_policy`/`max_retries` while everything else is camelCase.
 - Workflow start's query param is **`instanceID`** (capital ID); workflow component name must be `dapr`.
+- Workflow get (`GET /v1.0/workflows/dapr/{instanceID}`) returns `instanceID`, `workflowName`, `createdAt`, `lastUpdatedAt`, `runtimeStatus` (one of `RUNNING, COMPLETED, CONTINUED_AS_NEW, FAILED, CANCELED, TERMINATED, PENDING, SUSPENDED`, else `UNKNOWN`) and a string map `properties` with `dapr.workflow.input`, `dapr.workflow.output`, `dapr.workflow.custom_status`, `dapr.workflow.failure.*` (each only when set). Source: [daprd workflow GetWorkflow properties](../../raw/dapr/daprd-workflow-get-properties-v1-18.md).
 - Conversation alpha2 wraps messages in role keys (`ofUser`, `ofSystem`, …) with `content: [{"text": ...}]`; alpha1 used flat `{content, role, scrubPII}`.
 - Crypto uses **PUT** with `dapr-key-name`/`dapr-key-wrap-algorithm` headers and raw octet-stream bodies.
 - **Crypto streams in, not out** (v1.18.0 source, [`pkg/api/http/crypto.go`](https://github.com/dapr/dapr/blob/v1.18.0/pkg/api/http/crypto.go)): the request body is piped into the encryption, but the handler `io.ReadAll`s the whole output before it answers, and `MaxBodySizeMiddleware` caps the input at `--max-body-size` (default 4Mi). An unknown component is a **400 `ERR_CRYPTO_PROVIDER_NOT_FOUND`**, sent *before* the body is read. A missing key (`ERR_CRYPTO_KEY`) and a failed operation (`ERR_CRYPTO`) are **500**. The gRPC `EncryptAlpha1`/`DecryptAlpha1` stream both ways.

@@ -14,7 +14,7 @@
 use std::io::{Read, Write};
 
 use dapr_app::crypto_io::{DecryptWriter, EncryptWriter};
-use dapr_app::dapr::{crypto, lock, pubsub, runtime, state};
+use dapr_app::dapr::{crypto, lock, pubsub, runtime, state, state_read};
 use dapr_app::DaprApp;
 
 /// kv-demo is an outbound-only client, so it overrides no callbacks — the
@@ -96,7 +96,7 @@ fn run() -> Result<(), String> {
 
     state::save(
         STATE_STORE,
-        &[state::StateItem {
+        &[state_read::StateItem {
             key: key.to_string(),
             value: value.to_vec(),
             etag: None,
@@ -108,8 +108,8 @@ fn run() -> Result<(), String> {
     .map_err(|e| format!("state save failed: {e:?}"))?;
     println!("saved {key}");
 
-    let got = state::get(STATE_STORE, key, None, &[]).map_err(|e| match e {
-        state::GetError::KeyNotFound => format!("state key {key} unexpectedly missing"),
+    let got = state_read::get(STATE_STORE, key, None, &[]).map_err(|e| match e {
+        state_read::GetError::KeyNotFound => format!("state key {key} unexpectedly missing"),
         other => format!("state get failed: {other:?}"),
     })?;
     if got.data != value {

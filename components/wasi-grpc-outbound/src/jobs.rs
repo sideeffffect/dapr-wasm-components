@@ -5,8 +5,9 @@
 //! wire — packed as `google.protobuf.Value` via `anyjson`.
 
 use crate::anyjson::{pack_json, unpack_json};
-use crate::exports::jobs::{
-    GetJobError, Guest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError, ScheduleError,
+use crate::exports::jobs::{Guest, ScheduleError};
+use crate::exports::jobs_read::{
+    GetJobError, Guest as ReadGuest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError,
 };
 use crate::proto::common as pbc;
 use crate::proto::runtime as pb;
@@ -121,21 +122,7 @@ fn job_wit(job: pb::Job) -> Job {
     }
 }
 
-impl Guest for Component {
-    fn schedule(name: String, job: Job, overwrite: bool) -> Result<(), ScheduleError> {
-        let sidecar = Sidecar::from_env();
-        sidecar
-            .unary(
-                pb::ScheduleJobRequest {
-                    job: Some(job_pb(name, &job)),
-                    overwrite,
-                },
-                |mut client, request| async move { client.schedule_job(request).await },
-            )
-            .map_err(schedule_error)?;
-        Ok(())
-    }
-
+impl ReadGuest for Component {
     fn get(name: String) -> Result<Job, GetJobError> {
         let sidecar = Sidecar::from_env();
         let response = match sidecar.unary(
@@ -152,6 +139,22 @@ impl Guest for Component {
             Some(job) => Ok(job_wit(job)),
             None => Err(GetJobError::JobNotFound),
         }
+    }
+}
+
+impl Guest for Component {
+    fn schedule(name: String, job: Job, overwrite: bool) -> Result<(), ScheduleError> {
+        let sidecar = Sidecar::from_env();
+        sidecar
+            .unary(
+                pb::ScheduleJobRequest {
+                    job: Some(job_pb(name, &job)),
+                    overwrite,
+                },
+                |mut client, request| async move { client.schedule_job(request).await },
+            )
+            .map_err(schedule_error)?;
+        Ok(())
     }
 
     fn delete(name: String) -> Result<(), JobsError> {

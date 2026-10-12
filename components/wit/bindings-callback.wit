@@ -7,7 +7,7 @@
 /// https://docs.dapr.io/reference/api/bindings_api/
 interface bindings-callback {
   use types.{metadata, app-error};
-  use state.{state-item};
+  use state-read.{state-item};
 
   /// An event delivered from an input binding component. Dispatch on `name`.
   record binding-event {

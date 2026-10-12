@@ -5,9 +5,11 @@ use serde_json::json;
 use wstd::http::Method;
 
 use crate::exports::state::{
-    BulkStateItem, Concurrency, Consistency, GetError, GetStateResponse, Guest, QueryError,
-    QueryResponse, QueryStateItem, StateError, StateItem, StateOptions, TransactionError,
-    TransactionOperation, TransactionRequest, WriteError,
+    Guest, TransactionError, TransactionOperation, TransactionRequest, WriteError,
+};
+use crate::exports::state_read::{
+    BulkStateItem, Concurrency, Consistency, GetError, GetStateResponse, Guest as ReadGuest,
+    QueryError, QueryResponse, QueryStateItem, StateError, StateItem, StateOptions,
 };
 use crate::sidecar::{push_metadata_query, seg, with_query, DaprFailure, Sidecar};
 use crate::types::Metadata;
@@ -191,7 +193,7 @@ impl From<StateItemJson> for QueryStateItem {
     }
 }
 
-impl Guest for Component {
+impl ReadGuest for Component {
     fn get(
         store_name: String,
         key: String,
@@ -250,6 +252,45 @@ impl Guest for Component {
         Ok(items.into_iter().map(Into::into).collect())
     }
 
+    fn query(
+        store_name: String,
+        query: String,
+        metadata: Metadata,
+    ) -> Result<QueryResponse, QueryError> {
+        let sidecar = Sidecar::from_env();
+        let mut query_params = Vec::new();
+        push_metadata_query(&mut query_params, &metadata);
+        let path = with_query(
+            format!("/v1.0-alpha1/state/{}/query", seg(&store_name)),
+            query_params,
+        );
+
+        let response = sidecar
+            .expect_success(
+                Method::POST,
+                &path,
+                &[("content-type".to_string(), "application/json".to_string())],
+                query.into_bytes(),
+            )
+            .map_err(query_error)?;
+
+        #[derive(Deserialize)]
+        struct QueryJson {
+            #[serde(default)]
+            results: Vec<StateItemJson>,
+            #[serde(default)]
+            token: Option<String>,
+        }
+        let parsed: QueryJson = serde_json::from_slice(&response.body)
+            .unwrap_or_else(|e| panic!("unexpected query response: {e}"));
+        Ok(QueryResponse {
+            items: parsed.results.into_iter().map(Into::into).collect(),
+            token: parsed.token,
+        })
+    }
+}
+
+impl Guest for Component {
     fn save(
         store_name: String,
         items: Vec<StateItem>,
@@ -328,42 +369,5 @@ impl Guest for Component {
             .json(Method::POST, &path, &body)
             .map_err(transaction_error)?;
         Ok(())
-    }
-
-    fn query(
-        store_name: String,
-        query: String,
-        metadata: Metadata,
-    ) -> Result<QueryResponse, QueryError> {
-        let sidecar = Sidecar::from_env();
-        let mut query_params = Vec::new();
-        push_metadata_query(&mut query_params, &metadata);
-        let path = with_query(
-            format!("/v1.0-alpha1/state/{}/query", seg(&store_name)),
-            query_params,
-        );
-
-        let response = sidecar
-            .expect_success(
-                Method::POST,
-                &path,
-                &[("content-type".to_string(), "application/json".to_string())],
-                query.into_bytes(),
-            )
-            .map_err(query_error)?;
-
-        #[derive(Deserialize)]
-        struct QueryJson {
-            #[serde(default)]
-            results: Vec<StateItemJson>,
-            #[serde(default)]
-            token: Option<String>,
-        }
-        let parsed: QueryJson = serde_json::from_slice(&response.body)
-            .unwrap_or_else(|e| panic!("unexpected query response: {e}"));
-        Ok(QueryResponse {
-            items: parsed.results.into_iter().map(Into::into).collect(),
-            token: parsed.token,
-        })
     }
 }

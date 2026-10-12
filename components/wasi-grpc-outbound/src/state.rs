@@ -4,9 +4,11 @@
 //! roundtrip byte-exact.
 
 use crate::exports::state::{
-    BulkStateItem, Concurrency, Consistency, GetError, GetStateResponse, Guest, QueryError,
-    QueryResponse, QueryStateItem, StateError, StateItem, StateOptions, TransactionError,
-    TransactionOperation, TransactionRequest, WriteError,
+    Guest, TransactionError, TransactionOperation, TransactionRequest, WriteError,
+};
+use crate::exports::state_read::{
+    BulkStateItem, Concurrency, Consistency, GetError, GetStateResponse, Guest as ReadGuest,
+    QueryError, QueryResponse, QueryStateItem, StateError, StateItem, StateOptions,
 };
 use crate::proto::common::{self, state_options};
 use crate::proto::runtime as pb;
@@ -120,7 +122,7 @@ fn transaction_item_pb(op: &TransactionRequest) -> common::StateItem {
     }
 }
 
-impl Guest for Component {
+impl ReadGuest for Component {
     fn get(
         store_name: String,
         key: String,
@@ -169,6 +171,38 @@ impl Guest for Component {
         Ok(response.items.into_iter().map(bulk_item).collect())
     }
 
+    fn query(
+        store_name: String,
+        query: String,
+        metadata: Metadata,
+    ) -> Result<QueryResponse, QueryError> {
+        let sidecar = Sidecar::from_env();
+        let response = sidecar
+            .unary(
+                pb::QueryStateRequest {
+                    store_name,
+                    query,
+                    metadata: metadata_map(&metadata),
+                },
+                |mut client, request| async move { client.query_state_alpha1(request).await },
+            )
+            .map_err(query_error)?;
+        Ok(QueryResponse {
+            items: response
+                .results
+                .into_iter()
+                .map(|item| QueryStateItem {
+                    key: item.key,
+                    data: item.data,
+                    etag: opt_string(item.etag),
+                })
+                .collect(),
+            token: opt_string(response.token),
+        })
+    }
+}
+
+impl Guest for Component {
     fn save(
         store_name: String,
         items: Vec<StateItem>,
@@ -238,35 +272,5 @@ impl Guest for Component {
             )
             .map_err(transaction_error)?;
         Ok(())
-    }
-
-    fn query(
-        store_name: String,
-        query: String,
-        metadata: Metadata,
-    ) -> Result<QueryResponse, QueryError> {
-        let sidecar = Sidecar::from_env();
-        let response = sidecar
-            .unary(
-                pb::QueryStateRequest {
-                    store_name,
-                    query,
-                    metadata: metadata_map(&metadata),
-                },
-                |mut client, request| async move { client.query_state_alpha1(request).await },
-            )
-            .map_err(query_error)?;
-        Ok(QueryResponse {
-            items: response
-                .results
-                .into_iter()
-                .map(|item| QueryStateItem {
-                    key: item.key,
-                    data: item.data,
-                    etag: opt_string(item.etag),
-                })
-                .collect(),
-            token: opt_string(response.token),
-        })
     }
 }

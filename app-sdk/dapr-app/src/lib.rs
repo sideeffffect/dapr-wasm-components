@@ -54,6 +54,14 @@ wit_bindgen::generate!({
 });
 
 /// The Dapr building-block interfaces an application calls (outbound).
+///
+/// Blocks with a read-only subset come in two modules: `state_read` /
+/// `state`, `secrets_read` / `secrets`, `configuration_read` /
+/// `configuration`, `jobs_read` / `jobs` and `workflow_read` / `workflow`.
+/// The `*_read` module holds the reads and the shared types. Call only what
+/// you need: the built component then imports only those functions, so its
+/// import list shows its authority (e.g. a read-only app has no `state`
+/// import).
 pub use dapr_wasm_components::interfaces as dapr;
 
 /// The callback interfaces an application serves (inbound): types and the

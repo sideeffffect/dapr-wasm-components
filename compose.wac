@@ -28,8 +28,9 @@ let outbound = new dapr:outbound { ... };
 let app = new dapr:app { ...outbound, ... };
 
 // The inbound provider takes the app's callback exports, plus the type-only
-// building-block interfaces (state/invocation/types, referenced by the
-// callback interfaces) from the outbound provider; wasi:* from the top level.
+// building-block interfaces (state-read/configuration-read/invocation/types,
+// referenced by the callback interfaces) from the outbound provider; wasi:*
+// from the top level.
 let inbound = new dapr:inbound { ...app, ...outbound, ... };
 
 // The composed server exposes the inbound provider's app-channel entry point
