@@ -1,0 +1,113 @@
+/// Dapr state management building block — the **read** side: `get`,
+/// `get-bulk` and `query`. It owns the types the read functions use, the
+/// types shared with the write side (`state`), and the types a callback
+/// refers to (`bindings-callback` uses `state-item`). An app that only
+/// imports `state-read` cannot change state.
+/// https://docs.dapr.io/reference/api/state_api/
+interface state-read {
+  use types.{metadata, json};
+
+  /// Setup/config failures common to every state operation.
+  variant state-error {
+    /// No state store named `store-name` is configured in the sidecar.
+    store-not-found(string),
+    /// This app is not allowed to use the store (API token / component
+    /// scoping / access control).
+    permission-denied(string),
+  }
+
+  /// Failure of `get`.
+  variant get-error {
+    /// No value is stored under `key`.
+    key-not-found,
+    state(state-error),
+  }
+
+  /// Failure of `query`.
+  variant query-error {
+    /// The store does not support the query API.
+    not-queryable,
+    /// The query document was rejected as malformed.
+    invalid-query(string),
+    state(state-error),
+  }
+
+  /// Concurrency mode for write operations.
+  enum concurrency {
+    unspecified,
+    first-write,
+    last-write,
+  }
+
+  /// Consistency mode for read/write operations.
+  enum consistency {
+    unspecified,
+    eventual,
+    strong,
+  }
+
+  record state-options {
+    concurrency: concurrency,
+    consistency: consistency,
+  }
+
+  /// A single key/value entry for save and transaction operations.
+  record state-item {
+    key: string,
+    value: list<u8>,
+    /// Entity tag for optimistic concurrency control.
+    etag: option<string>,
+    metadata: metadata,
+    options: option<state-options>,
+  }
+
+  record get-state-response {
+    data: list<u8>,
+    etag: option<string>,
+  }
+
+  /// One entry of a bulk-get result. The value is carried under `value`,
+  /// matching the bulk-get wire field (Dapr HTTP `value`).
+  record bulk-state-item {
+    key: string,
+    value: list<u8>,
+    etag: option<string>,
+    /// Per-key error, if this key failed.
+    error: option<string>,
+  }
+
+  /// One entry of a query result. The value is carried under `data`,
+  /// matching the query wire field (Dapr HTTP `data`) — note the
+  /// asymmetry with bulk-get's `value`.
+  record query-state-item {
+    key: string,
+    data: list<u8>,
+    etag: option<string>,
+  }
+
+  record query-response {
+    items: list<query-state-item>,
+    /// Pagination token, when the store returns one.
+    token: option<string>,
+  }
+
+  /// Get the value of `key`. Fails with `key-not-found` when the key does
+  /// not exist.
+  get: func(
+    store-name: string,
+    key: string,
+    consistency: option<consistency>,
+    metadata: metadata,
+  ) -> result<get-state-response, get-error>;
+
+  /// Get several keys in one request.
+  get-bulk: func(
+    store-name: string,
+    keys: list<string>,
+    parallelism: option<u32>,
+    metadata: metadata,
+  ) -> result<list<bulk-state-item>, state-error>;
+
+  /// Query state (alpha). `query` is the JSON query document.
+  query: func(store-name: string, query: json, metadata: metadata) -> result<query-response, query-error>;
+}

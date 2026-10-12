@@ -9,18 +9,20 @@ use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interface
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::lock::{
     TryLockError, UnlockError,
 };
-use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::secrets::GetSecretError;
-use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::state::{
-    GetError, StateItem,
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::secrets_read::GetSecretError;
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::state_read::{GetError, StateItem};
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::workflow_read::{
+    GetError as WorkflowGetError, RuntimeStatus,
 };
 use dapr_wasm_components_e2e::load_provider;
-use dapr_wasm_components_e2e::mock::MockSidecar;
+use dapr_wasm_components_e2e::mock::{MockSidecar, MOCK_BROKEN_CONFIG_STORE};
 
 #[tokio::test]
 async fn state_roundtrip() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     let state = provider.dapr_wasm_components_interfaces_state();
+    let state_read = provider.dapr_wasm_components_interfaces_state_read();
 
     let value = br#"{"message":"hello"}"#.to_vec();
     state
@@ -40,7 +42,7 @@ async fn state_roundtrip() {
         .unwrap()
         .unwrap();
 
-    let got = state
+    let got = state_read
         .call_get(&mut store, "statestore", "k1", None, &Vec::new())
         .await
         .unwrap()
@@ -48,7 +50,7 @@ async fn state_roundtrip() {
     assert_eq!(got.data, value);
     assert_eq!(got.etag.as_deref(), Some("42"));
 
-    let missing = state
+    let missing = state_read
         .call_get(&mut store, "statestore", "nope", None, &Vec::new())
         .await
         .unwrap();
@@ -57,7 +59,7 @@ async fn state_roundtrip() {
         "missing key should be key-not-found, got {missing:?}"
     );
 
-    let bulk = state
+    let bulk = state_read
         .call_get_bulk(
             &mut store,
             "statestore",
@@ -114,7 +116,7 @@ async fn pubsub_publish_records_content_type() {
 async fn secrets() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
-    let secrets = provider.dapr_wasm_components_interfaces_secrets();
+    let secrets = provider.dapr_wasm_components_interfaces_secrets_read();
 
     let secret = secrets
         .call_get_secret(&mut store, "vault", "db", &Vec::new())
@@ -152,7 +154,7 @@ async fn secret_store_failure_traps() {
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     // Any other ERR_SECRET_GET is a store backend failure: unrecoverable.
     let call = provider
-        .dapr_wasm_components_interfaces_secrets()
+        .dapr_wasm_components_interfaces_secrets_read()
         .call_get_secret(&mut store, "vault", "store-down", &Vec::new())
         .await;
     assert!(
@@ -318,11 +320,117 @@ async fn workflow_start() {
 
     let instance_id = provider
         .dapr_wasm_components_interfaces_workflow()
-        .call_start(&mut store, "dapr", "order-processing", None, br#"{"id":1}"#)
+        .call_start(&mut store, "order-processing", None, br#"{"id":1}"#)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(instance_id, "wf-123");
+}
+
+/// `subscribe` returns a `subscription` handle; dropping it unsubscribes.
+/// A failed unsubscribe is logged, not trapped: the drop still returns.
+#[tokio::test]
+async fn configuration_subscription_drop_unsubscribes() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    let configuration = provider.dapr_wasm_components_interfaces_configuration();
+
+    let subscription = configuration
+        .call_subscribe(
+            &mut store,
+            "configstore",
+            &["flag".to_string()],
+            &Vec::new(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let id = configuration
+        .subscription()
+        .call_id(&mut store, subscription)
+        .await
+        .unwrap();
+    assert_eq!(id, "sub-1");
+    assert!(sidecar
+        .recorded
+        .lock()
+        .unwrap()
+        .configuration_unsubscribes
+        .is_empty());
+
+    subscription.resource_drop_async(&mut store).await.unwrap();
+    assert_eq!(
+        sidecar.recorded.lock().unwrap().configuration_unsubscribes,
+        vec![("configstore".to_string(), "sub-1".to_string())]
+    );
+
+    let broken = configuration
+        .call_subscribe(&mut store, MOCK_BROKEN_CONFIG_STORE, &[], &Vec::new())
+        .await
+        .unwrap()
+        .unwrap();
+    broken
+        .resource_drop_async(&mut store)
+        .await
+        .expect("a failed unsubscribe must not trap");
+    assert_eq!(
+        sidecar.recorded.lock().unwrap().configuration_unsubscribes[1],
+        (MOCK_BROKEN_CONFIG_STORE.to_string(), "sub-2".to_string())
+    );
+}
+
+/// `get` lifts daprd's flat `dapr.workflow.*` properties into the typed
+/// `workflow-instance` fields and keeps only the rest in `properties`.
+#[tokio::test]
+async fn workflow_get_is_typed() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    let workflow = provider.dapr_wasm_components_interfaces_workflow_read();
+
+    let failed = workflow
+        .call_get(&mut store, "wf-failed")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(failed.instance_id, "wf-failed");
+    assert_eq!(failed.workflow_name, "order-processing");
+    assert_eq!(failed.runtime_status, RuntimeStatus::Failed);
+    assert_eq!(failed.input.as_deref(), Some(br#"{"id":1}"#.as_slice()));
+    assert_eq!(failed.output, None);
+    let failure = failed.failure.expect("failed instance has failure details");
+    assert_eq!(failure.error_type, "PaymentDeclined");
+    assert_eq!(failure.message, "card declined");
+    assert_eq!(failure.stack_trace.as_deref(), Some("at charge()"));
+    assert_eq!(
+        failed.properties,
+        vec![(
+            "dapr.workflow.custom_status".to_string(),
+            r#""charging""#.to_string()
+        )]
+    );
+
+    // An unrecognised status is `unknown`, with the raw string kept.
+    let stalled = workflow
+        .call_get(&mut store, "wf-stalled")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stalled.runtime_status, RuntimeStatus::Unknown);
+    assert_eq!(stalled.output.as_deref(), Some(b"42".as_slice()));
+    assert!(stalled.failure.is_none());
+    assert_eq!(
+        stalled.properties,
+        vec![(
+            "dapr.workflow.runtime_status".to_string(),
+            "UNKNOWN".to_string()
+        )]
+    );
+
+    let missing = workflow.call_get(&mut store, "nope").await.unwrap();
+    assert!(
+        matches!(missing, Err(WorkflowGetError::NotFound(_))),
+        "missing instance should be not-found, got {missing:?}"
+    );
 }
 
 #[tokio::test]
@@ -348,7 +456,8 @@ async fn jobs_roundtrip() {
     .unwrap()
     .unwrap();
 
-    let job = jobs
+    let job = provider
+        .dapr_wasm_components_interfaces_jobs_read()
         .call_get(&mut store, "nightly")
         .await
         .unwrap()
@@ -398,7 +507,7 @@ async fn unreachable_sidecar_traps() {
     let (mut store, provider) = load_provider("http://127.0.0.1:9").await.unwrap();
 
     let call = provider
-        .dapr_wasm_components_interfaces_state()
+        .dapr_wasm_components_interfaces_state_read()
         .call_get(&mut store, "statestore", "k", None, &Vec::new())
         .await;
     assert!(

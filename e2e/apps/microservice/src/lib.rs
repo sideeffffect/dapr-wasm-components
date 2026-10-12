@@ -41,7 +41,7 @@ use dapr_app::callback::pubsub_callback::{
     BulkTopicEvent, BulkTopicEventEntryResponse, TopicEvent, TopicEventResponse, TopicSubscription,
 };
 use dapr_app::dapr::types::AppError;
-use dapr_app::dapr::{invocation, runtime, secrets, state};
+use dapr_app::dapr::{invocation, runtime, secrets_read, state, state_read};
 use dapr_app::DaprApp;
 use serde_json::json;
 
@@ -154,7 +154,7 @@ impl DaprApp for Microservice {
         // Then ask the sidecar to persist one more item for us.
         Ok(BindingEventResponse {
             store_name: Some(STATE_STORE.to_string()),
-            states: vec![state::StateItem {
+            states: vec![state_read::StateItem {
                 key: BINDING_RESPONSE_KEY.to_string(),
                 value: BINDING_RESPONSE_VALUE.as_bytes().to_vec(),
                 etag: None,
@@ -173,7 +173,7 @@ impl DaprApp for Microservice {
         for (key, item) in &update.items {
             if let Err(error) = state::save(
                 STATE_STORE,
-                &[state::StateItem {
+                &[state_read::StateItem {
                     key: format!("config-{key}"),
                     value: item.value.clone().into_bytes(),
                     etag: None,
@@ -346,14 +346,14 @@ fn read_route(order_id: u64) -> Result<serde_json::Value, String> {
 
 /// The route stored under `<prefix>-<order_id>` (`null` if not delivered yet).
 fn read_route_at(prefix: &str, order_id: u64) -> Result<serde_json::Value, String> {
-    match state::get(STATE_STORE, &format!("{prefix}-{order_id}"), None, &[]) {
+    match state_read::get(STATE_STORE, &format!("{prefix}-{order_id}"), None, &[]) {
         Ok(response) if response.data.is_empty() => Ok(json!({ "route": null })),
         Ok(response) => {
             let route: serde_json::Value = serde_json::from_slice(&response.data)
                 .map_err(|e| format!("stored route is not JSON: {e}"))?;
             Ok(json!({ "route": route }))
         }
-        Err(state::GetError::KeyNotFound) => Ok(json!({ "route": null })),
+        Err(state_read::GetError::KeyNotFound) => Ok(json!({ "route": null })),
         Err(other) => Err(format!("reading route failed: {other:?}")),
     }
 }
@@ -394,7 +394,7 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
 
     state::save(
         STATE_STORE,
-        &[state::StateItem {
+        &[state_read::StateItem {
             key: key.into(),
             value: value.clone(),
             etag: None,
@@ -405,8 +405,8 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
     )
     .map_err(|e| format!("save failed: {e:?}"))?;
 
-    let read = state::get(STATE_STORE, key, None, &[]).map_err(|e| match e {
-        state::GetError::KeyNotFound => "get returned not-found after save".to_string(),
+    let read = state_read::get(STATE_STORE, key, None, &[]).map_err(|e| match e {
+        state_read::GetError::KeyNotFound => "get returned not-found after save".to_string(),
         other => format!("get failed: {other:?}"),
     })?;
     if read.data != value {
@@ -428,10 +428,10 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
 
     state::delete(STATE_STORE, key, None, None, &[])
         .map_err(|e| format!("delete failed: {e:?}"))?;
-    match state::get(STATE_STORE, key, None, &[]) {
+    match state_read::get(STATE_STORE, key, None, &[]) {
         // HTTP surfaces a deleted key as not-found; the gRPC API has no 204
         // analogue, so absence shows up as an empty (Ok) value instead.
-        Err(state::GetError::KeyNotFound) => {}
+        Err(state_read::GetError::KeyNotFound) => {}
         Ok(read) if read.data.is_empty() => {}
         Ok(_) => return Err("key still present after delete".to_string()),
         Err(other) => return Err(format!("get after delete failed: {other:?}")),
@@ -448,15 +448,15 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
     Ok(json!({ "ok": true, "appId": id }))
 }
 
-fn cas_item(key: &str, value: &[u8], etag: String) -> state::StateItem {
-    state::StateItem {
+fn cas_item(key: &str, value: &[u8], etag: String) -> state_read::StateItem {
+    state_read::StateItem {
         key: key.into(),
         value: value.to_vec(),
         etag: Some(etag),
         metadata: Vec::new(),
-        options: Some(state::StateOptions {
-            concurrency: state::Concurrency::FirstWrite,
-            consistency: state::Consistency::Strong,
+        options: Some(state_read::StateOptions {
+            concurrency: state_read::Concurrency::FirstWrite,
+            consistency: state_read::Consistency::Strong,
         }),
     }
 }
@@ -466,13 +466,13 @@ fn cas_item(key: &str, value: &[u8], etag: String) -> state::StateItem {
 /// Read the `local.file` secret store: `db` exists, `missing` must be the
 /// typed `secret-not-found` (daprd reports it as a generic ERR_SECRET_GET).
 fn check_secrets() -> Result<serde_json::Value, String> {
-    let secret = secrets::get_secret(SECRET_STORE, "db", &[])
+    let secret = secrets_read::get_secret(SECRET_STORE, "db", &[])
         .map_err(|e| format!("get-secret db failed: {e:?}"))?;
     if secret != [("db".to_string(), "s3cret".to_string())] {
         return Err(format!("unexpected secret db: {secret:?}"));
     }
-    match secrets::get_secret(SECRET_STORE, "missing", &[]) {
-        Err(secrets::GetSecretError::SecretNotFound) => Ok(json!({ "ok": true })),
+    match secrets_read::get_secret(SECRET_STORE, "missing", &[]) {
+        Err(secrets_read::GetSecretError::SecretNotFound) => Ok(json!({ "ok": true })),
         other => Err(format!(
             "missing secret: expected secret-not-found, got {other:?}"
         )),
@@ -541,7 +541,7 @@ fn process_order(
     state::save(
         STATE_STORE,
         &[
-            state::StateItem {
+            state_read::StateItem {
                 key: format!("{key_prefix}-{order_id}"),
                 value: order.to_string().into_bytes(),
                 etag: None,
@@ -549,7 +549,7 @@ fn process_order(
                 options: None,
             },
             // The route the sidecar's CEL routing picked for this order.
-            state::StateItem {
+            state_read::StateItem {
                 key: format!("{route_prefix}-{order_id}"),
                 value: json!(path).to_string().into_bytes(),
                 etag: None,
@@ -570,27 +570,27 @@ fn process_order(
 /// value + etag, write back first-write, retry on conflict.
 fn increment(key: &str) -> Result<(), String> {
     for _ in 0..16 {
-        let (count, etag) = match state::get(STATE_STORE, key, None, &[]) {
+        let (count, etag) = match state_read::get(STATE_STORE, key, None, &[]) {
             Ok(response) => (
                 String::from_utf8_lossy(&response.data)
                     .parse::<u64>()
                     .unwrap_or(0),
                 response.etag,
             ),
-            Err(state::GetError::KeyNotFound) => (0, None),
+            Err(state_read::GetError::KeyNotFound) => (0, None),
             Err(other) => return Err(format!("reading counter failed: {other:?}")),
         };
 
         let result = state::save(
             STATE_STORE,
-            &[state::StateItem {
+            &[state_read::StateItem {
                 key: key.to_string(),
                 value: (count + 1).to_string().into_bytes(),
                 etag,
                 metadata: Vec::new(),
-                options: Some(state::StateOptions {
-                    concurrency: state::Concurrency::FirstWrite,
-                    consistency: state::Consistency::Strong,
+                options: Some(state_read::StateOptions {
+                    concurrency: state_read::Concurrency::FirstWrite,
+                    consistency: state_read::Consistency::Strong,
                 }),
             }],
             &[],
@@ -605,11 +605,11 @@ fn increment(key: &str) -> Result<(), String> {
 }
 
 fn read_counter(key: &str) -> Result<u64, String> {
-    match state::get(STATE_STORE, key, None, &[]) {
+    match state_read::get(STATE_STORE, key, None, &[]) {
         Ok(response) => Ok(String::from_utf8_lossy(&response.data)
             .parse::<u64>()
             .unwrap_or(0)),
-        Err(state::GetError::KeyNotFound) => Ok(0),
+        Err(state_read::GetError::KeyNotFound) => Ok(0),
         Err(other) => Err(format!("reading counter failed: {other:?}")),
     }
 }
@@ -618,11 +618,11 @@ fn read_counter(key: &str) -> Result<u64, String> {
 /// sidecar persisted from our binding responses (`null` if nothing).
 fn binding_status() -> Result<serde_json::Value, String> {
     let ticks = read_counter(TICKS_KEY)?;
-    let persisted = match state::get(STATE_STORE, BINDING_RESPONSE_KEY, None, &[]) {
+    let persisted = match state_read::get(STATE_STORE, BINDING_RESPONSE_KEY, None, &[]) {
         Ok(response) if !response.data.is_empty() => {
             Some(String::from_utf8_lossy(&response.data).into_owned())
         }
-        Ok(_) | Err(state::GetError::KeyNotFound) => None,
+        Ok(_) | Err(state_read::GetError::KeyNotFound) => None,
         Err(other) => return Err(format!("reading {BINDING_RESPONSE_KEY} failed: {other:?}")),
     };
     Ok(json!({ "ticks": ticks, "responseState": persisted }))

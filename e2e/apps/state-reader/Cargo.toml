@@ -1,0 +1,13 @@
+[package]
+name = "state-reader"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "E2E fixture: an app that only reads state, to check that its component imports only the read side (`state-read`) — the import list is the authority manifest"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dapr-app = { path = "../../../app-sdk/dapr-app" }

@@ -10,21 +10,26 @@
 
 Write your app against the interfaces, [compose](#composing) it with an outbound + an inbound provider (`wac`), and run it next to a Dapr sidecar. The single diagram in [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr--both-typed) below shows the whole picture.
 
-## Interfaces (`dapr-wasm-components:interfaces@0.6.0`)
+## Interfaces (`dapr-wasm-components:interfaces@0.7.0`)
 
 **Outbound** — interfaces your app *imports* to call Dapr:
 
 | Interface | Building block | Dapr API status |
 |---|---|---|
-| `state` | State: get, get-bulk, save, delete, **transactions**, **query** | stable (query: alpha) |
+| `state-read` | State, read side: get, get-bulk, **query** | stable (query: alpha) |
+| `state` | State, write side: save, delete, **transactions** | stable |
 | `pubsub` | Pub/sub: publish, **bulk publish** | stable |
 | `bindings` | Output bindings | stable |
-| `secrets` | Secrets: get, get-bulk | stable |
-| `configuration` | Configuration: get, **subscribe**, unsubscribe | stable |
+| `secrets-read` | Secrets: get one named secret | stable |
+| `secrets` | Secrets: get-bulk (enumerate the whole store — the wider authority) | stable |
+| `configuration-read` | Configuration: get | stable |
+| `configuration` | Configuration: **subscribe**, returning a `subscription` resource (drop it to unsubscribe) | stable |
 | `invocation` | Service invocation with full HTTP semantics (verb, headers, status passthrough) | stable |
 | `lock` | Distributed lock: try-lock, unlock | alpha |
-| `workflow` | Workflow management: start, get, terminate, raise-event, pause, resume, purge | HTTP: `/v1.0`, deprecated but served; gRPC: `*WorkflowBeta1`, not deprecated |
-| `jobs` | Jobs/scheduler: schedule (incl. failure policy), get, delete | stable since 1.16 |
+| `workflow-read` | Workflow management, read side: get a **typed** `workflow-instance` (name, `runtime-status` enum, input, output, failure details) | HTTP: `/v1.0`, deprecated but served; gRPC: `*WorkflowBeta1`, not deprecated |
+| `workflow` | Workflow management, control side: start, terminate, raise-event, pause, resume, purge (always the built-in `dapr` workflow component) | same as `workflow-read` |
+| `jobs-read` | Jobs/scheduler: get | stable since 1.16 |
+| `jobs` | Jobs/scheduler: schedule (incl. failure policy), delete | stable since 1.16 |
 | `crypto` | Cryptography: encrypt, decrypt (one-shot), and **streaming** `encryptor` / `decryptor` / `crypto-output` resources (write chunks, finish, read chunks) | alpha |
 | `conversation` | Conversation (LLM): converse | alpha2 |
 | `actors` | Actors (client side): invoke, state, transactions, reminders, timers | stable |
@@ -43,6 +48,17 @@ Write your app against the interfaces, [compose](#composing) it with an outbound
 | `health-callback` | App health checks | `health-check` |
 
 Worlds: **`app`** (an application — imports the building blocks, exports the callbacks), **`outbound`** (a provider that exports the building blocks) and **`inbound`** (a provider that imports the callbacks). The two provider directions are *separate components* so the composition graph stays acyclic — see below.
+
+### The import list is the authority manifest
+
+Blocks with a read-only subset are split in two: `<x>-read` (the reads, plus the types both halves share) and `<x>` (the rest). The `app` world imports both halves, but `wit-component` keeps **only the functions an app actually calls**. So a built component's imports say what it may do, and a deployer can check that with `wasm-tools component wit app.wasm` before composing it. For example, an app that only reads state imports `state-read` with just `get`, and no `state` at all (the `state-reader` fixture in `e2e/apps/` is checked like this by `e2e/tests/authority.rs`):
+
+```wit
+import dapr-wasm-components:interfaces/state-read@0.7.0;   // get only
+import dapr-wasm-components:interfaces/configuration-read@0.7.0;   // types only
+```
+
+One caveat: an interface can also appear **with types only**. Every app exports all the callbacks, and `bindings-callback` uses `state-read.{state-item}` and `configuration-callback` uses `configuration-read.{configuration-item}`, so every app imports those two interfaces. Such an import has no functions, so it gives no authority.
 
 ### Error model
 
@@ -169,7 +185,7 @@ A composed component is `outbound → app → inbound` (acyclic — see [Two dir
 ```sh
 ./compose.sh my_app.wasm                       # http out + http in -> composed.wasm
 ./compose.sh my_app.wasm --out grpc --in http  # mixed transports
-./compose.sh my_app.wasm -o server.wasm --tag 0.6.0   # explicit output + OCI tag
+./compose.sh my_app.wasm -o server.wasm --tag 0.7.0   # explicit output + OCI tag
 
 dapr run --app-id my-app -- wasmtime serve -S cli composed.wasm   # reactor (app channel)
 # outbound-only command apps: `wac plug app.wasm --plug http-outbound.wasm` + `wasmtime run -S http`
@@ -229,6 +245,7 @@ Divergences from the wasi-http provider (inherent to the gRPC API): service invo
 | `e2e/apps/` | Demo/fixture app components the E2Es compose and drive (their own wasm-only workspace) |
 | `e2e/apps/kv-demo/` | Outbound-only example (`wasi:cli` command), used by the mock composition test |
 | `e2e/apps/microservice/` | The real-Dapr E2E app (a typed reactor): run as two instances (publisher + consumer) by **both** suites to exercise state, pub/sub, service invocation and streaming crypto |
+| `e2e/apps/state-reader/` | A read-only app (calls only `state-read.get`); `e2e/tests/authority.rs` checks that its imports show exactly that |
 | `wiki/`, `raw/` | LLM-maintained knowledge base with the research behind the design |
 
 ## Development

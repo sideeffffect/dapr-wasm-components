@@ -117,6 +117,11 @@ pub fn microservice_path() -> PathBuf {
     app_path("MICROSERVICE_COMPONENT", "microservice.wasm")
 }
 
+/// The state-reader fixture app: it only reads state (authority test).
+pub fn state_reader_path() -> PathBuf {
+    app_path("STATE_READER_COMPONENT", "state_reader.wasm")
+}
+
 pub fn engine() -> wasmtime::Result<Engine> {
     Engine::new(&Config::new())
 }

@@ -17,6 +17,19 @@
 /// exports); apps that don't use a block implement a trivial default — the
 /// Rust helper crate provides those, so an app overrides only what it uses.
 ///
+/// ## Authority split
+///
+/// Where a building block has a read-only subset, it comes as two
+/// interfaces: `<x>-read` (the reads, plus the types the two halves share)
+/// and `<x>` (the rest): `state-read`/`state`, `secrets-read`/`secrets`,
+/// `configuration-read`/`configuration`, `jobs-read`/`jobs`,
+/// `workflow-read`/`workflow`. The world imports both halves, but
+/// `wit-component` keeps only the functions a component actually calls, so a
+/// component's import list states its authority: an app that only reads
+/// state imports no `state` function. (An interface can still appear with
+/// types only: every app imports `state-read` and `configuration-read`
+/// because the callbacks it exports use their types.)
+///
 /// ## Error contract
 ///
 /// The building-block functions return `result<_, <error>>` only for
@@ -31,14 +44,19 @@
 world app {
   // outbound — call Dapr
   import types;
+  import state-read;
   import state;
   import pubsub;
+  import secrets-read;
   import secrets;
   import bindings;
   import invocation;
+  import configuration-read;
   import configuration;
   import lock;
+  import workflow-read;
   import workflow;
+  import jobs-read;
   import jobs;
   import crypto;
   import conversation;
@@ -69,14 +87,19 @@ world app {
 /// the graph acyclic — `outbound` → `app` → `inbound`.
 world outbound {
   export types;
+  export state-read;
   export state;
   export pubsub;
+  export secrets-read;
   export secrets;
   export bindings;
   export invocation;
+  export configuration-read;
   export configuration;
   export lock;
+  export workflow-read;
   export workflow;
+  export jobs-read;
   export jobs;
   export crypto;
   export conversation;

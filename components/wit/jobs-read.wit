@@ -1,0 +1,53 @@
+/// Dapr jobs (distributed scheduler) building block — the **read** side:
+/// `get` a job's definition. It owns the types shared with `jobs`.
+/// Job trigger callbacks reach the app through `jobs-callback`.
+/// https://docs.dapr.io/reference/api/jobs_api/
+interface jobs-read {
+  use types.{json};
+
+  /// Setup/config failures common to every jobs operation.
+  variant jobs-error {
+    /// This app is not allowed to use the scheduler (API token / scoping).
+    permission-denied(string),
+  }
+
+  /// Failure of `get`.
+  variant get-job-error {
+    /// No job with that name exists.
+    job-not-found,
+    jobs(jobs-error),
+  }
+
+  /// What the scheduler does when a job trigger fails to be delivered.
+  variant job-failure-policy {
+    /// Drop the trigger.
+    drop,
+    /// Retry with a constant backoff.
+    constant(job-failure-policy-constant),
+  }
+
+  record job-failure-policy-constant {
+    /// Maximum retries; absent = retry indefinitely, 0 = never retry.
+    max-retries: option<u32>,
+    /// Interval between retries, e.g. "10s".
+    interval: option<string>,
+  }
+
+  record job {
+    /// Schedule in systemd-timer / cron format or `@every 5m` shorthand.
+    schedule: option<string>,
+    /// Number of times the job should fire (unlimited when absent).
+    repeats: option<u32>,
+    /// RFC3339 timestamp, Go duration, or ISO8601 — when the job first fires.
+    due-time: option<string>,
+    /// Time-to-live; the job is garbage-collected afterwards.
+    ttl: option<string>,
+    /// JSON payload delivered with each trigger.
+    data: option<json>,
+    failure-policy: option<job-failure-policy>,
+  }
+
+  /// Get the named job's definition. Fails with `job-not-found` when no
+  /// such job exists.
+  get: func(name: string) -> result<job, get-job-error>;
+}

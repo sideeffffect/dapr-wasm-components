@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 
 use wstd::http::Method;
 
-use crate::exports::secrets::{GetSecretError, Guest, Secret, SecretsError};
+use crate::exports::secrets::Guest;
+use crate::exports::secrets_read::{GetSecretError, Guest as ReadGuest, Secret, SecretsError};
 use crate::sidecar::{check_status, push_metadata_query, seg, with_query, DaprFailure, Sidecar};
 use crate::types::Metadata;
 use crate::Component;
@@ -58,7 +59,7 @@ fn store_error_is_not_found(message: &str, store_name: &str) -> bool {
     })
 }
 
-impl Guest for Component {
+impl ReadGuest for Component {
     fn get_secret(
         store_name: String,
         key: String,
@@ -85,7 +86,9 @@ impl Guest for Component {
             .unwrap_or_else(|e| panic!("unexpected secret response: {e}"));
         Ok(secret.into_iter().collect())
     }
+}
 
+impl Guest for Component {
     fn get_bulk_secret(
         store_name: String,
         metadata: Metadata,

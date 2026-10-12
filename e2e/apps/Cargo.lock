@@ -193,6 +193,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "state-reader"
+version = "0.1.0"
+dependencies = [
+ "dapr-app",
+]
+
+[[package]]
 name = "syn"
 version = "3.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

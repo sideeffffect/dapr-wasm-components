@@ -1,0 +1,24 @@
+/// Dapr configuration building block — the **read** side: `get`. It owns
+/// the types shared with `configuration` and `configuration-callback`.
+/// https://docs.dapr.io/reference/api/configuration_api/
+interface configuration-read {
+  use types.{metadata};
+
+  record configuration-item {
+    value: string,
+    version: string,
+    metadata: metadata,
+  }
+
+  /// Setup/config failures common to every configuration operation.
+  variant configuration-error {
+    /// No configuration store named `store-name` is configured.
+    store-not-found(string),
+    /// This app is not allowed to use the store (API token / scoping).
+    permission-denied(string),
+  }
+
+  /// Get the configuration items named `keys` (all items when empty)
+  /// from the configuration store `store-name`, as (key, item) pairs.
+  get: func(store-name: string, keys: list<string>, metadata: metadata) -> result<list<tuple<string, configuration-item>>, configuration-error>;
+}

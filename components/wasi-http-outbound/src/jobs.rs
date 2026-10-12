@@ -4,8 +4,9 @@ use serde::Deserialize;
 use serde_json::json;
 use wstd::http::Method;
 
-use crate::exports::jobs::{
-    GetJobError, Guest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError, ScheduleError,
+use crate::exports::jobs::{Guest, ScheduleError};
+use crate::exports::jobs_read::{
+    GetJobError, Guest as ReadGuest, Job, JobFailurePolicy, JobFailurePolicyConstant, JobsError,
 };
 use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::Component;
@@ -36,53 +37,7 @@ fn schedule_error(f: DaprFailure) -> ScheduleError {
     ScheduleError::Jobs(jobs_error(f))
 }
 
-impl Guest for Component {
-    fn schedule(name: String, job: Job, overwrite: bool) -> Result<(), ScheduleError> {
-        let sidecar = Sidecar::from_env();
-        let path = format!("/v1.0/jobs/{}", seg(&name));
-
-        let mut body = json!({});
-        if let Some(schedule) = &job.schedule {
-            body["schedule"] = json!(schedule);
-        }
-        if let Some(repeats) = job.repeats {
-            body["repeats"] = json!(repeats);
-        }
-        if let Some(due_time) = &job.due_time {
-            body["dueTime"] = json!(due_time);
-        }
-        if let Some(ttl) = &job.ttl {
-            body["ttl"] = json!(ttl);
-        }
-        if let Some(data) = &job.data {
-            body["data"] = serde_json::from_str(data)
-                .unwrap_or_else(|e| panic!("job data is not valid JSON: {e}"));
-        }
-        if overwrite {
-            body["overwrite"] = json!(true);
-        }
-        if let Some(policy) = &job.failure_policy {
-            body["failure_policy"] = match policy {
-                JobFailurePolicy::Drop => json!({ "drop": {} }),
-                JobFailurePolicy::Constant(constant) => {
-                    let mut object = json!({});
-                    if let Some(max_retries) = constant.max_retries {
-                        object["max_retries"] = json!(max_retries);
-                    }
-                    if let Some(interval) = &constant.interval {
-                        object["interval"] = json!(interval);
-                    }
-                    json!({ "constant": object })
-                }
-            };
-        }
-
-        sidecar
-            .json(Method::POST, &path, &body)
-            .map_err(schedule_error)?;
-        Ok(())
-    }
-
+impl ReadGuest for Component {
     fn get(name: String) -> Result<Job, GetJobError> {
         let sidecar = Sidecar::from_env();
         let path = format!("/v1.0/jobs/{}", seg(&name));
@@ -142,6 +97,54 @@ impl Guest for Component {
                 }
             }),
         })
+    }
+}
+
+impl Guest for Component {
+    fn schedule(name: String, job: Job, overwrite: bool) -> Result<(), ScheduleError> {
+        let sidecar = Sidecar::from_env();
+        let path = format!("/v1.0/jobs/{}", seg(&name));
+
+        let mut body = json!({});
+        if let Some(schedule) = &job.schedule {
+            body["schedule"] = json!(schedule);
+        }
+        if let Some(repeats) = job.repeats {
+            body["repeats"] = json!(repeats);
+        }
+        if let Some(due_time) = &job.due_time {
+            body["dueTime"] = json!(due_time);
+        }
+        if let Some(ttl) = &job.ttl {
+            body["ttl"] = json!(ttl);
+        }
+        if let Some(data) = &job.data {
+            body["data"] = serde_json::from_str(data)
+                .unwrap_or_else(|e| panic!("job data is not valid JSON: {e}"));
+        }
+        if overwrite {
+            body["overwrite"] = json!(true);
+        }
+        if let Some(policy) = &job.failure_policy {
+            body["failure_policy"] = match policy {
+                JobFailurePolicy::Drop => json!({ "drop": {} }),
+                JobFailurePolicy::Constant(constant) => {
+                    let mut object = json!({});
+                    if let Some(max_retries) = constant.max_retries {
+                        object["max_retries"] = json!(max_retries);
+                    }
+                    if let Some(interval) = &constant.interval {
+                        object["interval"] = json!(interval);
+                    }
+                    json!({ "constant": object })
+                }
+            };
+        }
+
+        sidecar
+            .json(Method::POST, &path, &body)
+            .map_err(schedule_error)?;
+        Ok(())
     }
 
     fn delete(name: String) -> Result<(), JobsError> {
