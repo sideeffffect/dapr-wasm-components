@@ -1,0 +1,6 @@
+# Checked-in generated code (regenerated + drift-checked in CI): collapse it in GitHub diffs.
+components/go-outbound/internal/wit/**/wit_bindings.go linguist-generated=true
+components/go-outbound/internal/wit/**/empty.s linguist-generated=true
+components/go-outbound/internal/wit/wit_exports/** linguist-generated=true
+components/go-outbound/internal/components/** linguist-generated=true
+components/wasi-grpc-outbound/src/proto/** linguist-generated=true
