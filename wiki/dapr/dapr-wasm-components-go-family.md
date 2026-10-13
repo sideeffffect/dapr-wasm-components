@@ -41,7 +41,7 @@ flowchart LR
 - Go goroutines run only while go-outbound is on the stack; a long callback that never calls Dapr pauses subscribers and heartbeats.
 - No UDP multicast → no mDNS; `nameformat` cannot give per-app ports on one host. Use Consul (set `DAPR_HOST_IP`), Kubernetes, or another resolver. Dapr resolves even its own app id before short-circuiting to a local call.
 - Size ~264 MB (Dapr runtime ~138 MB + component SDKs); first wasmtime compile ~30 s.
-- Toolchain bugs worked around in `scripts/fix-bindings.py`: a wit-bindgen-go name clash (variant case vs record type) and `FromOwnHandle` not recording the incoming handle.
+- Toolchain bugs worked around in `scripts/fix-bindings.py`: a wit-bindgen-go name clash (variant case vs record type) `FromOwnHandle` not recording the incoming handle, and a header line that is not Go's `// Code generated ... DO NOT EDIT.` marker. The generated Go is checked in (Go tools do not run generators); CI regenerates it and fails on drift, and `.gitattributes` marks it `linguist-generated`.
 
 ## See Also
 

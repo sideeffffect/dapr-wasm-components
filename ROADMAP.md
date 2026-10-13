@@ -68,7 +68,8 @@ for the inbound spec.
 - **Actors / workflow / jobs E2E.** Implemented and compiled, but the shared
   scenario does not run placement/scheduler; add them as testcontainers.
 - **Upstream fixes** to drop local workarounds: wit-bindgen-go variant-case vs
-  record name clash and `FromOwnHandle` not recording the handle
+  record name clash, `FromOwnHandle` not recording the handle, and the
+  non-standard generated-code header
   (`scripts/fix-bindings.py`); componentize-go / Go `netpoll(0)` calling
   `poll_oneoff` from a GC inside `cabi_realloc` (`overlay/`); a Go wasip1 `net`
   backed by `wasi:sockets` instead of the std overlay.

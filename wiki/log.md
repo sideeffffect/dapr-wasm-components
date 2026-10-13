@@ -105,3 +105,6 @@
 ## [2026-10-12] ingest | dapr-wasm-components go Family (Dapr embedded)
 - Updated: dapr-wasm-components Architecture (six providers, go family)
 - Updated: dapr-wasm-components Inbound Design (See Also: pull-based inbound)
+
+## [2026-10-13] update | go Family generated code
+- Updated: dapr-wasm-components go Family (checked-in generated Go, Go generated-code header fix)
