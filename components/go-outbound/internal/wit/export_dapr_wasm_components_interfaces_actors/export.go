@@ -20,6 +20,7 @@ import (
 
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/anyjson"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/call"
+	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/daprerr"
 	ac "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/dapr_wasm_components_interfaces_actors"
 )
 
@@ -171,17 +172,26 @@ func UnregisterReminder(actorType string, actorID string, name string) witTypes.
 	})
 }
 
+// RegisterTimer maps a timer for an actor type this app does not host to
+// permission-denied (see daprerr.TimerActorTypeNotHosted) instead of letting
+// call.Classify panic on its Internal code; any other failure is classified
+// as usual.
 func RegisterTimer(actorType string, actorID string, name string, timer ac.Timer) witTypes.Result[witTypes.Unit, ac.ActorsError] {
-	return unitCall(func(ctx context.Context, api daprgrpc.API) (any, error) {
-		return api.RegisterActorTimer(ctx, &runtimev1pb.RegisterActorTimerRequest{
-			ActorType: actorType, ActorId: actorID, Name: name,
-			DueTime:  call.OrEmpty(timer.DueTime),
-			Period:   call.OrEmpty(timer.Period),
-			Callback: call.OrEmpty(timer.Callback),
-			Data:     optBytes(timer.Data),
-			Ttl:      call.OrEmpty(timer.Ttl),
-		})
+	_, err := call.API().RegisterActorTimer(call.Context(), &runtimev1pb.RegisterActorTimerRequest{
+		ActorType: actorType, ActorId: actorID, Name: name,
+		DueTime:  call.OrEmpty(timer.DueTime),
+		Period:   call.OrEmpty(timer.Period),
+		Callback: call.OrEmpty(timer.Callback),
+		Data:     optBytes(timer.Data),
+		Ttl:      call.OrEmpty(timer.Ttl),
 	})
+	if err == nil {
+		return witTypes.Ok[witTypes.Unit, ac.ActorsError](witTypes.Unit{})
+	}
+	if message, ok := daprerr.TimerActorTypeNotHosted(err); ok {
+		return witTypes.Err[witTypes.Unit](ac.MakeActorsErrorPermissionDenied(message))
+	}
+	return witTypes.Err[witTypes.Unit](actorsError(call.Classify(err)))
 }
 
 func UnregisterTimer(actorType string, actorID string, name string) witTypes.Result[witTypes.Unit, ac.ActorsError] {

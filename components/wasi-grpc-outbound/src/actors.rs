@@ -18,7 +18,7 @@ use crate::exports::actors::{
     Guest, InvokeActorError, Reminder, Timer,
 };
 use crate::proto::runtime as pb;
-use crate::sidecar::{DaprFailure, Sidecar};
+use crate::sidecar::{classify, DaprFailure, Sidecar};
 use crate::Component;
 
 fn actors_error(f: DaprFailure) -> ActorsError {
@@ -40,6 +40,24 @@ fn get_state_error(f: DaprFailure) -> GetStateError {
 /// (The `reminder-not-found` case is produced from the 404 branch.)
 fn get_reminder_error(f: DaprFailure) -> GetReminderError {
     GetReminderError::Actors(actors_error(f))
+}
+
+/// Map a failed `register-timer` call. daprd reports a timer for an actor
+/// type this app does not host as a generic `ERR_ACTOR_TIMER_CREATE`
+/// (`internal`, HTTP 500) whose message ends in `actor type not registered`
+/// — the caller's mistake, not a sidecar fault, and the very condition daprd
+/// itself reports for reminders as `ERR_ACTOR_REMINDER_NON_HOSTED`
+/// (`permission-denied`). So it maps to `permission-denied` with daprd's
+/// message; anything else goes through [`classify`] (tier-3 codes, e.g. the
+/// timer storage failing, still trap).
+fn register_timer_error(status: tonic::Status) -> ActorsError {
+    if status.code() == tonic::Code::Internal
+        && status.message().ends_with("actor type not registered")
+    {
+        ActorsError::PermissionDenied(status.message().to_string())
+    } else {
+        actors_error(classify(status))
+    }
 }
 
 fn operation_pb(op: &ActorStateOperation) -> pb::TransactionalActorStateOperation {
@@ -244,7 +262,7 @@ impl Guest for Component {
     ) -> Result<(), ActorsError> {
         let sidecar = Sidecar::from_env();
         sidecar
-            .unary(
+            .unary_status(
                 pb::RegisterActorTimerRequest {
                     actor_type,
                     actor_id,
@@ -257,7 +275,7 @@ impl Guest for Component {
                 },
                 |mut client, request| async move { client.register_actor_timer(request).await },
             )
-            .map_err(actors_error)?;
+            .map_err(register_timer_error)?;
         Ok(())
     }
 
@@ -278,5 +296,28 @@ impl Guest for Component {
             )
             .map_err(actors_error)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::register_timer_error;
+    use crate::exports::actors::ActorsError;
+
+    #[test]
+    fn timer_for_an_unhosted_actor_type_is_permission_denied() {
+        // daprd's ERR_ACTOR_TIMER_CREATE over gRPC (same message as the
+        // HTTP API's, code `internal`).
+        let message = "error creating actor timer: can't create timer for actor ProbeActor||probe-1: actor type not registered";
+        match register_timer_error(tonic::Status::internal(message)) {
+            ActorsError::PermissionDenied(m) => assert_eq!(m, message),
+        }
+    }
+
+    #[test]
+    fn other_recoverable_timer_failures_are_permission_denied() {
+        match register_timer_error(tonic::Status::permission_denied("reserved")) {
+            ActorsError::PermissionDenied(m) => assert!(m.contains("reserved"), "{m}"),
+        }
     }
 }

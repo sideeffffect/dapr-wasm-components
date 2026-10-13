@@ -132,7 +132,7 @@ jobs:
       - name: Provider unit tests (wasm32-wasip2 under wasmtime)
         env:
           CARGO_TARGET_WASM32_WASIP2_RUNNER: wasmtime run -S http
-        run: cargo test --target wasm32-wasip2 --manifest-path components/Cargo.toml -p dapr-wasm-components-wasi-http-outbound
+        run: cargo test --target wasm32-wasip2 --manifest-path components/Cargo.toml -p dapr-wasm-components-wasi-http-outbound -p dapr-wasm-components-wasi-grpc-outbound
 
       - name: Build components (providers)
         run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
@@ -238,7 +238,7 @@ jobs:
             go vet -unsafeptr=false ./...
 
       - name: Unit tests (native)
-        run: go test ./internal/anyjson/ ./internal/streams/
+        run: go test ./internal/anyjson/ ./internal/streams/ ./internal/daprerr/
 
       - name: Build and validate
         run: |

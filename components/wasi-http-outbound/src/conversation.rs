@@ -195,9 +195,52 @@ impl Guest for Component {
         let response = sidecar
             .json(Method::POST, &path, &body)
             .map_err(converse_error)?;
-        let parsed: ResponseJson = serde_json::from_slice(&response.body)
-            .unwrap_or_else(|e| panic!("unexpected converse response: {e}"));
-        Ok(parsed.into())
+        Ok(parse_response(&response.body))
+    }
+}
+
+/// Parse daprd's converse response body. A body that does not parse is a
+/// malformed response (tier 3) and panics.
+fn parse_response(body: &[u8]) -> ConversationResponse {
+    let parsed: ResponseJson = serde_json::from_slice(body)
+        .unwrap_or_else(|e| panic!("unexpected converse response: {e}"));
+    parsed.into()
+}
+
+/// Deserializers for proto `int64`/`uint64` fields. daprd renders the converse
+/// response with protojson, which writes 64-bit integers as JSON *strings*
+/// (`"totalTokens":"4"`) — see
+/// https://protobuf.dev/programming-guides/json/. Strings are what daprd
+/// sends; plain JSON numbers are accepted too (protojson parsers accept both).
+mod proto_int {
+    use serde::de::Error;
+    use serde::{Deserialize, Deserializer};
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumberOrString<T> {
+        Number(T),
+        String(String),
+    }
+
+    fn parse<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + std::str::FromStr,
+        T::Err: std::fmt::Display,
+    {
+        match NumberOrString::<T>::deserialize(deserializer)? {
+            NumberOrString::Number(n) => Ok(n),
+            NumberOrString::String(s) => s.parse().map_err(D::Error::custom),
+        }
+    }
+
+    pub fn u64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+        parse(deserializer)
+    }
+
+    pub fn i64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+        parse(deserializer)
     }
 }
 
@@ -223,7 +266,7 @@ struct OutputJson {
 struct ChoiceJson {
     #[serde(default, rename = "finishReason")]
     finish_reason: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "proto_int::i64")]
     index: i64,
     #[serde(default)]
     message: Option<MessageJson>,
@@ -255,11 +298,15 @@ struct ToolCallFunctionJson {
 
 #[derive(Deserialize)]
 struct UsageJson {
-    #[serde(default, rename = "completionTokens")]
+    #[serde(
+        default,
+        rename = "completionTokens",
+        deserialize_with = "proto_int::u64"
+    )]
     completion_tokens: u64,
-    #[serde(default, rename = "promptTokens")]
+    #[serde(default, rename = "promptTokens", deserialize_with = "proto_int::u64")]
     prompt_tokens: u64,
-    #[serde(default, rename = "totalTokens")]
+    #[serde(default, rename = "totalTokens", deserialize_with = "proto_int::u64")]
     total_tokens: u64,
     #[serde(default, rename = "completionTokensDetails")]
     completion_tokens_details: Option<CompletionDetailsJson>,
@@ -269,21 +316,33 @@ struct UsageJson {
 
 #[derive(Deserialize)]
 struct PromptDetailsJson {
-    #[serde(default, rename = "audioTokens")]
+    #[serde(default, rename = "audioTokens", deserialize_with = "proto_int::u64")]
     audio_tokens: u64,
-    #[serde(default, rename = "cachedTokens")]
+    #[serde(default, rename = "cachedTokens", deserialize_with = "proto_int::u64")]
     cached_tokens: u64,
 }
 
 #[derive(Deserialize)]
 struct CompletionDetailsJson {
-    #[serde(default, rename = "acceptedPredictionTokens")]
+    #[serde(
+        default,
+        rename = "acceptedPredictionTokens",
+        deserialize_with = "proto_int::u64"
+    )]
     accepted_prediction_tokens: u64,
-    #[serde(default, rename = "audioTokens")]
+    #[serde(default, rename = "audioTokens", deserialize_with = "proto_int::u64")]
     audio_tokens: u64,
-    #[serde(default, rename = "reasoningTokens")]
+    #[serde(
+        default,
+        rename = "reasoningTokens",
+        deserialize_with = "proto_int::u64"
+    )]
     reasoning_tokens: u64,
-    #[serde(default, rename = "rejectedPredictionTokens")]
+    #[serde(
+        default,
+        rename = "rejectedPredictionTokens",
+        deserialize_with = "proto_int::u64"
+    )]
     rejected_prediction_tokens: u64,
 }
 
@@ -355,5 +414,76 @@ impl From<UsageJson> for Usage {
                 cached_tokens: d.cached_tokens,
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_response;
+
+    /// daprd 1.17.7's answer for the `conversation.echo` component, verbatim.
+    /// daprd renders the response with protojson, which writes the proto
+    /// `uint64`/`int64` fields (token counts, the choice index) as JSON
+    /// strings.
+    const ECHO_RESPONSE: &str = r#"{"outputs":[{"choices":[{"finishReason":"stop", "message":{"content":"hello world"}}], "usage":{"completionTokens":"2", "promptTokens":"2", "totalTokens":"4"}}]}"#;
+
+    #[test]
+    fn accepts_protojson_string_integers() {
+        let response = parse_response(ECHO_RESPONSE.as_bytes());
+        let output = &response.outputs[0];
+        assert_eq!(output.choices[0].message.content, "hello world");
+        let usage = output.usage.as_ref().expect("usage present");
+        assert_eq!(usage.completion_tokens, 2);
+        assert_eq!(usage.prompt_tokens, 2);
+        assert_eq!(usage.total_tokens, 4);
+    }
+
+    #[test]
+    fn accepts_string_integers_in_details_and_index() {
+        let response = parse_response(
+            br#"{"outputs":[{"choices":[{"finishReason":"stop","index":"1"}],"usage":{
+                "promptTokensDetails":{"audioTokens":"1","cachedTokens":"2"},
+                "completionTokensDetails":{"acceptedPredictionTokens":"3","audioTokens":"4",
+                    "reasoningTokens":"5","rejectedPredictionTokens":"6"}}}]}"#,
+        );
+        let output = &response.outputs[0];
+        assert_eq!(output.choices[0].index, 1);
+        let usage = output.usage.as_ref().expect("usage present");
+        let prompt = usage
+            .prompt_tokens_details
+            .as_ref()
+            .expect("prompt details");
+        assert_eq!((prompt.audio_tokens, prompt.cached_tokens), (1, 2));
+        let completion = usage
+            .completion_tokens_details
+            .as_ref()
+            .expect("completion details");
+        assert_eq!(
+            (
+                completion.accepted_prediction_tokens,
+                completion.audio_tokens,
+                completion.reasoning_tokens,
+                completion.rejected_prediction_tokens
+            ),
+            (3, 4, 5, 6)
+        );
+    }
+
+    #[test]
+    fn still_accepts_json_numbers() {
+        let response = parse_response(
+            br#"{"outputs":[{"choices":[{"index":2}],"usage":{"completionTokens":5,"promptTokens":3,"totalTokens":8}}]}"#,
+        );
+        let output = &response.outputs[0];
+        assert_eq!(output.choices[0].index, 2);
+        let usage = output.usage.as_ref().expect("usage present");
+        assert_eq!(
+            (
+                usage.completion_tokens,
+                usage.prompt_tokens,
+                usage.total_tokens
+            ),
+            (5, 3, 8)
+        );
     }
 }
