@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-10-13] update | who-is-who: fermyon/wasi-grpc + wstd (guest libs, alternatives) vs Spin + wasmCloud v2 (hosts, alternatives); gRPC both-ways matrix per host.
+- Updated: gRPC to Dapr from Wasm
+
 ## [2026-10-13] update | opened draft upstream PR fermyon/wasi-grpc#18 (tonic 0.14, spin-executor 5, pluggable PollableRegistry).
 - Updated: gRPC to Dapr from Wasm
 
