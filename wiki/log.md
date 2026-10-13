@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-10-13] update | opened draft upstream PR fermyon/wasi-grpc#18 (tonic 0.14, spin-executor 5, pluggable PollableRegistry).
+- Updated: gRPC to Dapr from Wasm
+
 ## [2026-10-13] update | outbound fixes for daprd 1.17 (found by dapr4s's imports probe): protojson 64-bit ints are JSON strings (converse usage/index — wasi-http now accepts number or string); jobs is `/v1.0-alpha1` only on daprd ≤ 1.17 (`/v1.0` + stable gRPC `ScheduleJob` arrive in 1.18) — wasi-http and wasi-grpc now use the alpha1 path/RPCs; a timer on an unhosted actor type is a 500 `ERR_ACTOR_TIMER_CREATE` — all three outbound providers map it to `permission-denied` like daprd's 403 for reminders
 - Updated: Dapr HTTP API (jobs version map corrected; two new traps)
 - Updated: dapr-wasm-components Architecture (timer mapping next to the ERR_SECRET_GET precedent)

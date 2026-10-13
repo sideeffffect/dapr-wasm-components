@@ -151,6 +151,8 @@ Implication for `wasi-grpc-outbound`: rebuilding it on `wstd` + tonic codegen (d
 
 What the `wasi-grpc` crate actually is (source read 2026-10-12): `wasi-grpc-client` is **~60 lines** — a `tower::Service` that rewrites the URI authority and calls `wasi_hyperium::hyperium1::send_outbound_request` with a `spin_executor` waker registry. `wasi-hyperium` (~1.7k lines, `wasi =0.13.1`) uses only plain `wasi:http`; no Spin imports. **HTTP/2 is entirely the host's job**, so no change to the crate can lift the Spin-only / single-authority limit. "Improving" it means: bump tonic 0.14 + spin-executor 5 (fork, ~1–2 h; upstream unmaintained), or replace it with a `wstd`-based shim of the same size (the wasmCloud example) and drop `wasi-hyperium` + `spin-executor`. The limit itself is fixed in the host (a Spin PR to choose h2c per request, e.g. on `content-type: application/grpc` like wasmCloud) or in the guest (tokio+hyper h2 over `wasi:sockets`).
 
+**Upstream PR (2026-10-13):** [fermyon/wasi-grpc#18](https://github.com/fermyon/wasi-grpc/pull/18) (draft) — tonic/prost 0.14, spin-executor 5, `WasiGrpcEndpoint<Registry = SpinExecutorPoller>` + `with_registry` (any `wasi_hyperium::poll::PollableRegistry`; `spin-executor` behind default `spin` feature), CI Rust 1.88 + protoc + failing examples script. Verified on Spin 4.0.1: unary + server-streaming, and unary via `wasi_hyperium::poll::Poller`. Traps found: `spin-sdk` 5 ↔ `spin-executor` 5 must match (two executors = lost wakers); `spin-sdk` 6/7 dropped `spin-executor` entirely; prost 0.14 derives `Hash` itself (remove `type_attribute(… derive(Hash))`); tonic 0.14 MSRV 1.88.
+
 ## See Also
 
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md)
