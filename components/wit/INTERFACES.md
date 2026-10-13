@@ -72,7 +72,7 @@ Legend: blue = read half, orange = full half, green = callback.
 
 ## 3. Outbound building blocks
 
-The functions an app imports. Arguments and most return types are left out. Most functions return `result<…, E>`, where `E` is a per-function or per-interface error variant. Infrastructure failures (sidecar not reachable, timeout) trap; they are not error values. See the README [error model](../../README.md#error-model).
+The functions an app imports. Arguments and most return types are left out. Most functions return `result<…, E>`, where `E` is a per-function or per-interface error variant. Infrastructure failures (sidecar not reachable, timeout) trap; they are not error values. The `string` in a setup error case (`store-not-found`, `permission-denied`, …) is the sidecar's message, for logs only. See the README [error model](../../README.md#error-model).
 
 ```mermaid
 classDiagram

@@ -77,6 +77,9 @@ acts on them*:
   rejections (`state.save` → `write-error` with `etag-mismatch`; `lock.try-lock`
   → `try-lock-error` with `not-acquired`). Function errors embed the
   building-block error as a fallback case.
+  The `string` in a setup case (`store-not-found(string)`, …) is the
+  sidecar's human-readable message, the same on the HTTP and gRPC providers.
+  Log it; don't parse it — the component name is the one you passed in.
 - **Unrecoverable failures** (sidecar unreachable/not ready, an internal sidecar
   error, a timeout, an I/O fault) are **not in any type** — the provider **traps**
   (the component-model equivalent of a Rust `panic!`). Use Dapr resiliency
