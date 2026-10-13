@@ -2,9 +2,9 @@
 //! async-tonic bridge, and classification of `tonic::Status`.
 //!
 //! Each WIT export runs one unary call: build the tonic request, drive the
-//! future to completion with `spin_executor::run` (pure `wasi:io` polling —
-//! the blocking-sync trick this project also uses in the wasi-http
-//! provider, just with Spin's executor instead of wstd's).
+//! future to completion with `wstd`'s `block_on` (the same blocking-sync
+//! trick the wasi-http provider uses), over the [`WasiGrpcService`]
+//! transport.
 //!
 //! Error model: unrecoverable failures (transport, internal sidecar errors,
 //! timeouts, serialization) `panic!` — they are not in any WIT return type
@@ -14,12 +14,13 @@
 use std::future::Future;
 
 use tonic::metadata::MetadataValue;
-use wasi_grpc::WasiGrpcEndpoint;
+use wstd::runtime::block_on;
 
 use crate::proto::runtime::dapr_client::DaprClient;
+use crate::transport::WasiGrpcService;
 
-/// The tonic Dapr client over the wasi-grpc (wasi:http outgoing) transport.
-pub type Client = DaprClient<WasiGrpcEndpoint>;
+/// The tonic Dapr client over the `wasi:http` outgoing transport.
+pub type Client = DaprClient<WasiGrpcService>;
 
 /// A recoverable sidecar failure. `status` carries the equivalent HTTP status
 /// so the per-block mapping can be shared with the wasi-http provider; the
@@ -116,12 +117,12 @@ impl Sidecar {
     {
         let request = self.request(message);
         let client = self.client();
-        spin_executor::run(call(client, request)).map(tonic::Response::into_inner)
+        block_on(call(client, request)).map(tonic::Response::into_inner)
     }
 
     /// A bare client, for call shapes `unary` does not fit (streaming).
     pub fn client(&self) -> Client {
-        DaprClient::new(WasiGrpcEndpoint::new(self.endpoint.clone()))
+        DaprClient::new(WasiGrpcService::new(self.endpoint.clone()))
     }
 
     /// Wrap a message in a `tonic::Request`, attaching `dapr-api-token`
