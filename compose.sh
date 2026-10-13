@@ -71,8 +71,13 @@ if [[ "$out_transport" == "go" || "$in_transport" == "go" ]] && [[ "$out_transpo
 fi
 command -v wac >/dev/null || die "wac not found on PATH (see https://github.com/bytecodealliance/wac)"
 
-tmp=""
-cleanup() { [[ -n "$tmp" ]] && rm -rf "$tmp"; }
+# Created here, in the main shell: `resolve` runs inside `$(...)` subshells,
+# so a temp dir created (or a variable set) there would be invisible to this
+# shell and its EXIT trap — the dirs would leak. `cleanup` must also end with
+# status 0: when the script falls off its end, the EXIT trap's last status
+# becomes the script's exit status.
+tmp="$(mktemp -d)"
+cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
 
 # Resolve a provider wasm: explicit path wins, then a local release build,
@@ -91,7 +96,6 @@ resolve() {
     echo "$local_dir/$file"; return
   fi
   command -v wkg >/dev/null || die "wkg not found and no local $direction build at $local_dir/$file (see https://github.com/bytecodealliance/wasm-pkg-tools)"
-  [[ -n "$tmp" ]] || tmp="$(mktemp -d)"
   local ref="$org/dapr-wasm-components-${package}-${direction}:${tag}"
   echo "compose.sh: pulling $ref" >&2
   wkg oci pull "$ref" -o "$tmp/$file" >&2

@@ -234,19 +234,32 @@ pub fn check_status(result: HttpResult) -> Result<HttpResult, DaprFailure> {
 /// Build a [`DaprFailure`] from a non-2xx response, parsing the `errorCode`
 /// field from the JSON body when present (best-effort).
 pub fn dapr_failure(status: u16, body: &[u8]) -> DaprFailure {
-    let text = body_text(body);
-    let message = if text.is_empty() {
-        format!("HTTP {status}")
-    } else {
-        format!("HTTP {status}: {text}")
+    let json = serde_json::from_slice::<serde_json::Value>(body).ok();
+    // The payload of a recoverable error is daprd's human-readable `message`
+    // (`{"errorCode": ..., "message": ...}`), the same text the gRPC provider
+    // passes on from the gRPC status, so both transports give apps the same
+    // string. Only a body that is not daprd's error JSON falls back to the
+    // raw text.
+    let message = match json
+        .as_ref()
+        .and_then(|v| v.get("message"))
+        .and_then(serde_json::Value::as_str)
+    {
+        Some(m) if !m.trim().is_empty() => m.trim().to_string(),
+        _ => {
+            let text = body_text(body);
+            if text.is_empty() {
+                format!("HTTP {status}")
+            } else {
+                format!("HTTP {status}: {text}")
+            }
+        }
     };
-    let error_code = serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| {
-            v.get("errorCode")
-                .and_then(|c| c.as_str())
-                .map(str::to_string)
-        });
+    let error_code = json.as_ref().and_then(|v| {
+        v.get("errorCode")
+            .and_then(|c| c.as_str())
+            .map(str::to_string)
+    });
     DaprFailure {
         status,
         message,
@@ -282,4 +295,28 @@ pub fn with_query(path: String, parts: Vec<String>) -> String {
 /// Percent-encode a path segment.
 pub fn seg(value: &str) -> String {
     urlencoding::encode(value).into_owned()
+}
+
+#[cfg(test)]
+mod dapr_failure_tests {
+    use super::dapr_failure;
+
+    #[test]
+    fn uses_daprds_message_field() {
+        let f = dapr_failure(
+            400,
+            br#"{"errorCode":"ERR_STATE_STORE_NOT_FOUND","message":"state store no-such-store is not found"}"#,
+        );
+        assert_eq!(f.message, "state store no-such-store is not found");
+        assert_eq!(f.error_code.as_deref(), Some("ERR_STATE_STORE_NOT_FOUND"));
+    }
+
+    #[test]
+    fn falls_back_to_raw_text() {
+        assert_eq!(
+            dapr_failure(502, b"bad gateway").message,
+            "HTTP 502: bad gateway"
+        );
+        assert_eq!(dapr_failure(500, b"").message, "HTTP 500");
+    }
 }

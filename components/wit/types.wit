@@ -17,6 +17,10 @@ package dapr-wasm-components:interfaces@0.7.0;
 ///    conflict, a missing key, or a lock that is already held) are modelled
 ///    as per-interface and per-function `variant` error types, so each
 ///    function advertises only the failures it can actually produce.
+///    A `string` payload on a setup case (`store-not-found`,
+///    `permission-denied`, ...) is the sidecar's human-readable message, the
+///    same on every provider. It is for logs and diagnostics, not for
+///    parsing: the component name is the one the caller passed in.
 ///  - **Unrecoverable failures** (the sidecar is unreachable or not ready, an
 ///    internal sidecar/component error, a timeout, an I/O fault) are *not*
 ///    represented in any type. A provider signals them by **trapping** — the
