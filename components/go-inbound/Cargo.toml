@@ -1,0 +1,14 @@
+[package]
+name = "dapr-wasm-components-go-inbound"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pump of the go provider family: pulls Dapr deliveries from dapr-wasm-components-go-outbound (the embedded Dapr runtime) and calls the app's typed dapr-wasm-components callbacks"
+repository = "https://github.com/sideeffffect/dapr-wasm-components"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.62"

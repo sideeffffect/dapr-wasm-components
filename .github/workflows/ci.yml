@@ -14,6 +14,9 @@ env:
   # below, so the happy path never hits the network to install them.
   WKG_VERSION: "0.16.1"
   WASM_TOOLS_VERSION: "1.261.0"
+  # The go provider family: big Go (componentize-go needs >= 1.27.1).
+  GO_VERSION: "1.27.2"
+  COMPONENTIZE_GO_VERSION: "v0.5.0"
 
 jobs:
   test:
@@ -78,6 +81,7 @@ jobs:
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_inbound.wasm
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_outbound.wasm
           wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_inbound.wasm
+          wasm-tools validate components/target/wasm32-wasip2/release/dapr_wasm_components_go_inbound.wasm
           wasm-tools validate e2e/apps/target/wasm32-wasip2/release/kv-demo.wasm
           wasm-tools validate e2e/apps/target/wasm32-wasip2/release/microservice.wasm
           wasm-tools validate e2e/apps/target/wasm32-wasip2/release/state_reader.wasm
@@ -178,13 +182,126 @@ jobs:
       - name: Run real-Dapr E2E (wasm microservice through daprd's gRPC API on Spin)
         run: cargo test --test spin -- --ignored --nocapture
 
+  go:
+    # The go provider family's Go side: go-outbound embeds the Dapr runtime
+    # (github.com/dapr/dapr) and is built with componentize-go (big Go).
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: components/go-outbound
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: components/go-outbound/go.sum
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache wasm-tools
+        id: cache-tools
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/wasm-tools
+          key: bintools-${{ runner.os }}-wasm-tools-${{ env.WASM_TOOLS_VERSION }}
+
+      - name: Install cargo-binstall
+        if: steps.cache-tools.outputs.cache-hit != 'true'
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install wasm-tools
+        if: steps.cache-tools.outputs.cache-hit != 'true'
+        run: cargo binstall -y --force "wasm-tools@${WASM_TOOLS_VERSION}"
+
+      - name: Install componentize-go
+        run: go install "github.com/bytecodealliance/componentize-go@${COMPONENTIZE_GO_VERSION}"
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+
+      - name: Check go.mod and generated code are up to date
+        run: |
+          go mod tidy
+          python3 scripts/gen-components.py
+          scripts/gen-bindings.sh
+          git status --porcelain .
+          test -z "$(git status --porcelain .)"
+
+      - name: Validate WIT
+        run: wasm-tools component wit wit/ > /dev/null
+
+      - name: Vet
+        run: |
+          python3 overlay/gen-overlay.py ../target/go-overlay
+          GOOS=wasip1 GOARCH=wasm GOFLAGS="-overlay=$PWD/../target/go-overlay/overlay.json" \
+            go vet -unsafeptr=false ./...
+
+      - name: Unit tests (native)
+        run: go test ./internal/anyjson/ ./internal/streams/
+
+      - name: Build and validate
+        run: |
+          scripts/build.sh
+          wasm-tools validate ../target/wasm32-wasip2/release/dapr_wasm_components_go_outbound.wasm
+
+  go-e2e:
+    # Real end-to-end for the go family: two wasm microservices, each with Dapr
+    # embedded (no sidecar), under `wasmtime run`; Redis pub/sub and Consul
+    # name resolution are testcontainers started by the test itself.
+    runs-on: ubuntu-latest
+    env:
+      WASMTIME_VERSION: "49.0.2"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: components/go-outbound/go.sum
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            components -> components/target
+            app-sdk -> app-sdk/target
+            e2e/apps -> e2e/apps/target
+
+      - name: Install wasmtime CLI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sL "https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/wasmtime-v${WASMTIME_VERSION}-x86_64-linux.tar.xz" \
+            | tar xJ -C /tmp
+          mv "/tmp/wasmtime-v${WASMTIME_VERSION}-x86_64-linux/wasmtime" "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install componentize-go
+        run: go install "github.com/bytecodealliance/componentize-go@${COMPONENTIZE_GO_VERSION}"
+
+      - name: Build go-outbound
+        run: components/go-outbound/scripts/build.sh
+
+      - name: Build components (providers, incl. go-inbound)
+        run: cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+
+      - name: Build e2e demo apps
+        run: cargo build --release --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml
+
+      - name: Run go-family E2E (wasm microservices with embedded Dapr)
+        run: cargo test --test go -- --ignored --nocapture
+
   publish:
     # Push the modules to this repository's OCI registry (ghcr.io) with wkg:
     # tag `latest` on pushes to main, the release version on GitHub releases.
-    # Only the three modules below are published — the interface package and
-    # the two provider implementations. The e2e demo apps are test fixtures
-    # and are never published.
-    needs: [test, dapr-e2e, spin-e2e]
+    # Only the modules below are published — the interface package and the
+    # provider implementations. The e2e demo apps are test fixtures and are
+    # never published.
+    needs: [test, dapr-e2e, spin-e2e, go, go-e2e]
     if: github.event_name == 'push' || github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
@@ -201,6 +318,14 @@ jobs:
         with:
           workspaces: |
             components -> components/target
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: components/go-outbound/go.sum
+
+      - name: Install componentize-go
+        run: go install "github.com/bytecodealliance/componentize-go@${COMPONENTIZE_GO_VERSION}"
 
       - name: Cache wkg
         id: cache-wkg
@@ -243,6 +368,7 @@ jobs:
         run: |
           wkg build --wit-dir components/wit -o dapr-wasm-components-interfaces.wasm
           cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
+          components/go-outbound/scripts/build.sh
 
       - name: Publish interface module
         run: |
@@ -284,11 +410,27 @@ jobs:
             --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (inbound): serves Dapr's AppCallback gRPC service over wasi:http/incoming-handler and dispatches to typed dapr-wasm-components callbacks (requires a Spin host that accepts inbound h2c)" \
             --annotation "org.opencontainers.image.licenses=Apache-2.0"
 
+      - name: Publish go outbound module
+        run: |
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-go-outbound:${{ steps.tag.outputs.tag }}" \
+            components/target/wasm32-wasip2/release/dapr_wasm_components_go_outbound.wasm \
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "org.opencontainers.image.description=Dapr itself (github.com/dapr/dapr) embedded in a wasm component: serves the dapr-wasm-components building blocks in-process, no sidecar (pair with dapr-wasm-components-go-inbound)" \
+            --annotation "org.opencontainers.image.licenses=Apache-2.0"
+
+      - name: Publish go inbound module
+        run: |
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-go-inbound:${{ steps.tag.outputs.tag }}" \
+            components/target/wasm32-wasip2/release/dapr_wasm_components_go_inbound.wasm \
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --annotation "org.opencontainers.image.description=Pump of the go provider family: delivers the embedded Dapr runtime's events to the app's typed dapr-wasm-components callbacks (wasi:cli/run; pair with dapr-wasm-components-go-outbound)" \
+            --annotation "org.opencontainers.image.licenses=Apache-2.0"
+
   publish-wit:
     # The WIT package under wkg's own naming scheme, for `wkg wit fetch`.
     # Releases only: a versioned WIT package must never be overwritten by an
     # unreleased main build.
-    needs: [test, dapr-e2e, spin-e2e]
+    needs: [test, dapr-e2e, spin-e2e, go, go-e2e]
     if: github.event_name == 'release'
     permissions:
       contents: read

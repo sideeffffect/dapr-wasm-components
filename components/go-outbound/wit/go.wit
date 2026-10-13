@@ -1,0 +1,260 @@
+/// Private WIT for the **go** provider family — not part of the published
+/// `dapr-wasm-components:interfaces` package.
+///
+/// `dapr-wasm-components-go-outbound` embeds the one Dapr runtime of a
+/// composed app. It serves the building blocks (the public `outbound` world)
+/// and queues every Dapr → app delivery as an `event`.
+/// `dapr-wasm-components-go-inbound` is a small pump: it pulls events with
+/// `next-event`, calls the app's matching `*-callback` export, and hands the
+/// result back with `complete-event`.
+///
+/// Pull instead of push keeps the composition acyclic
+/// (`go-outbound → app → go-inbound`, plus `go-outbound → go-inbound`) and
+/// never re-enters an instance: when the pump calls the app, go-outbound is
+/// not on the stack, so the app may freely call the building blocks.
+///
+/// The records below are structural copies of the `*-callback` records:
+/// `events` must not `use` the callback interfaces, or go-outbound would have
+/// to import them from the app (a cycle). Types from interfaces go-outbound
+/// exports itself (`types`, `state-read`, `invocation`, `configuration-read`) are used
+/// directly.
+package dapr-wasm-components:go@0.1.0;
+
+interface events {
+  use dapr-wasm-components:interfaces/types@0.7.0.{metadata, app-error};
+  use dapr-wasm-components:interfaces/state-read@0.7.0.{state-item};
+  use dapr-wasm-components:interfaces/invocation@0.7.0.{http-verb, http-response};
+  use dapr-wasm-components:interfaces/configuration-read@0.7.0.{configuration-item};
+
+  // ---- copies of invocation-callback records ----
+  record invoke-request {
+    method: string,
+    verb: http-verb,
+    headers: metadata,
+    query: option<string>,
+    content-type: string,
+    data: list<u8>,
+  }
+
+  // ---- copies of pubsub-callback records ----
+  record bulk-subscribe-config {
+    enabled: bool,
+    max-messages-count: option<s32>,
+    max-await-duration-ms: option<s32>,
+  }
+  record topic-rule {
+    match: string,
+    path: string,
+  }
+  record topic-routes {
+    rules: list<topic-rule>,
+    default: option<string>,
+  }
+  record topic-subscription {
+    pubsub-name: string,
+    topic: string,
+    metadata: metadata,
+    dead-letter-topic: option<string>,
+    routes: option<topic-routes>,
+    bulk-subscribe: option<bulk-subscribe-config>,
+  }
+  record topic-event {
+    id: string,
+    source: string,
+    %type: string,
+    spec-version: string,
+    data-content-type: option<string>,
+    data: list<u8>,
+    topic: string,
+    pubsub-name: string,
+    path: option<string>,
+    extensions: metadata,
+  }
+  enum topic-event-response {
+    success,
+    retry,
+    drop,
+  }
+  variant bulk-event {
+    cloud-event(topic-event),
+    raw(list<u8>),
+  }
+  record bulk-topic-event-entry {
+    entry-id: string,
+    event: bulk-event,
+    content-type: option<string>,
+    metadata: metadata,
+  }
+  record bulk-topic-event {
+    id: string,
+    entries: list<bulk-topic-event-entry>,
+    metadata: metadata,
+    topic: string,
+    pubsub-name: string,
+    %type: string,
+    path: option<string>,
+  }
+  record bulk-topic-event-entry-response {
+    entry-id: string,
+    status: topic-event-response,
+  }
+
+  // ---- copies of bindings-callback records ----
+  record binding-event {
+    name: string,
+    data: list<u8>,
+    metadata: metadata,
+  }
+  enum binding-concurrency {
+    sequential,
+    parallel,
+  }
+  record binding-event-response {
+    store-name: option<string>,
+    states: list<state-item>,
+    to: list<string>,
+    data: option<list<u8>>,
+    concurrency: binding-concurrency,
+  }
+
+  // ---- copies of jobs-callback records ----
+  record job-event {
+    name: string,
+    data: list<u8>,
+    content-type: option<string>,
+  }
+
+  // ---- copies of actors-callback records ----
+  record actor-config {
+    entities: list<string>,
+    actor-idle-timeout: option<string>,
+    actor-scan-interval: option<string>,
+    drain-ongoing-call-timeout: option<string>,
+    drain-rebalanced-actors: option<bool>,
+    reentrancy-enabled: option<bool>,
+    reentrancy-max-stack-depth: option<u32>,
+    reminders-storage-partitions: option<u32>,
+  }
+  record actor-timer-event {
+    actor-type: string,
+    actor-id: string,
+    name: string,
+    due-time: option<string>,
+    period: option<string>,
+    data: list<u8>,
+    callback: option<string>,
+  }
+  record actor-reminder-event {
+    actor-type: string,
+    actor-id: string,
+    name: string,
+    due-time: option<string>,
+    period: option<string>,
+    data: list<u8>,
+  }
+  /// Arguments of `actors-callback.on-invoke`.
+  record actor-invoke {
+    actor-type: string,
+    actor-id: string,
+    method: string,
+    data: list<u8>,
+  }
+  /// Arguments of `actors-callback.deactivate`.
+  record actor-ref {
+    actor-type: string,
+    actor-id: string,
+  }
+
+  // ---- copies of configuration-callback records ----
+  record configuration-update {
+    store-name: string,
+    id: string,
+    items: list<tuple<string, configuration-item>>,
+  }
+
+  /// One Dapr → app delivery: each case is one `*-callback` function.
+  variant event {
+    /// `pubsub-callback.list-topic-subscriptions`
+    list-topic-subscriptions,
+    /// `bindings-callback.list-input-bindings`
+    list-input-bindings,
+    /// `actors-callback.config`
+    actor-config,
+    /// `health-callback.health-check`
+    health-check,
+    /// `invocation-callback.on-invoke`
+    invoke(invoke-request),
+    /// `pubsub-callback.on-topic-event`
+    topic(topic-event),
+    /// `pubsub-callback.on-bulk-topic-event`
+    bulk-topic(bulk-topic-event),
+    /// `bindings-callback.on-binding-event`
+    binding(binding-event),
+    /// `jobs-callback.on-job-event`
+    job(job-event),
+    /// `actors-callback.on-invoke`
+    actor-invoke(actor-invoke),
+    /// `actors-callback.on-timer`
+    actor-timer(actor-timer-event),
+    /// `actors-callback.on-reminder`
+    actor-reminder(actor-reminder-event),
+    /// `actors-callback.deactivate`
+    actor-deactivate(actor-ref),
+    /// `configuration-callback.on-configuration-event`
+    configuration-update(configuration-update),
+  }
+
+  /// The callback's return value, in the case matching the `event`.
+  variant event-result {
+    list-topic-subscriptions(list<topic-subscription>),
+    list-input-bindings(list<string>),
+    actor-config(actor-config),
+    health-check(result<_, app-error>),
+    invoke(http-response),
+    topic(topic-event-response),
+    bulk-topic(list<bulk-topic-event-entry-response>),
+    binding(result<binding-event-response, app-error>),
+    job(result<_, app-error>),
+    actor-invoke(result<list<u8>, app-error>),
+    actor-timer(result<_, app-error>),
+    actor-reminder(result<_, app-error>),
+    actor-deactivate(result<_, app-error>),
+    configuration-update,
+  }
+
+  /// Enables the app channel and starts the embedded runtime (if not yet
+  /// started). Called once by the pump before its loop. Without it the
+  /// runtime runs like daprd without `--app-port` (outbound only).
+  attach: func();
+
+  /// Blocks — running Dapr's goroutines (subscribers, timers, servers) —
+  /// until a delivery for the app is queued, and returns it with its id.
+  next-event: func() -> tuple<u64, event>;
+
+  /// Hands back the app's answer for event `id`. A result case that does not
+  /// match the event's case is a bug in the pump and traps.
+  complete-event: func(id: u64, outcome: event-result);
+}
+
+/// `dapr-wasm-components-go-outbound`: every building block, served by the
+/// embedded Dapr runtime, plus the `events` queue. Needs `wasi:sockets` for
+/// Dapr's own network (brokers, stores, placement, scheduler, peers).
+world go-outbound {
+  include dapr-wasm-components:interfaces/outbound@0.7.0;
+  export events;
+
+  import wasi:sockets/network@0.2.6;
+  import wasi:sockets/instance-network@0.2.6;
+  import wasi:sockets/tcp@0.2.6;
+  import wasi:sockets/tcp-create-socket@0.2.6;
+  import wasi:sockets/ip-name-lookup@0.2.6;
+}
+
+/// `dapr-wasm-components-go-inbound`: the pump. Runs as the composition's
+/// `wasi:cli/run`.
+world go-inbound {
+  include dapr-wasm-components:interfaces/inbound@0.7.0;
+  import events;
+
+  export wasi:cli/run@0.2.6;
+}

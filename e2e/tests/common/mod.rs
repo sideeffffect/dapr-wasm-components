@@ -142,6 +142,24 @@ pub fn get_json(url: &str) -> serde_json::Value {
         .unwrap_or_else(|e| panic!("GET {url} returned non-JSON: {e}"))
 }
 
+/// GET `url` and return its status and JSON body without treating a non-2xx
+/// status as an error.
+pub fn get_status_json(url: &str) -> (u16, serde_json::Value) {
+    let mut response = ureq::get(url)
+        .config()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .http_status_as_error(false)
+        .build()
+        .call()
+        .unwrap_or_else(|e| panic!("GET {url} failed: {e}"));
+    let status = response.status().as_u16();
+    let body = response
+        .body_mut()
+        .read_json()
+        .unwrap_or_else(|e| panic!("GET {url} returned non-JSON: {e}"));
+    (status, body)
+}
+
 /// The API/internal-gRPC/HTTP ports a daprd sidecar listens on.
 pub struct DaprdPorts {
     pub http: u16,
@@ -358,12 +376,36 @@ pub fn start_redis() -> RedisBroker {
 pub const CONFIG_FILE: &str = "config.yaml";
 
 /// Write the resources + config that the two-sidecar scenario needs, shared by
-/// both real-Dapr suites: an in-memory statestore (per sidecar), a
-/// `local.file` secret store, a Redis
-/// pub/sub broker (so events cross sidecars), and a sqlite name-resolution
+/// both real-Dapr suites: the shared components (see
+/// [`write_cross_sidecar_components`]) and a sqlite name-resolution
 /// `Configuration` (deterministic cross-sidecar invocation, unlike mDNS) whose
 /// db both sidecars share via the bind mount.
 pub fn write_cross_sidecar_resources(dir: &Path, redis_host: &str) {
+    write_cross_sidecar_components(dir, redis_host);
+    std::fs::write(
+        dir.join(CONFIG_FILE),
+        format!(
+            r#"apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: e2e-config
+spec:
+  nameResolution:
+    component: "sqlite"
+    version: "v1"
+    configuration:
+      connectionString: "{DAPRD_MOUNT}/nameresolution.db"
+"#
+        ),
+    )
+    .unwrap();
+    relax_permissions(dir);
+}
+
+/// The components every real-Dapr suite loads: an in-memory statestore (per
+/// runtime), a `local.file` secret store, a Redis pub/sub broker (so events
+/// cross runtimes), a crypto component and a cron input binding.
+pub fn write_cross_sidecar_components(dir: &Path, redis_host: &str) {
     write_resource(dir, "statestore.yaml", STATESTORE_IN_MEMORY);
     write_secret_store(dir);
     write_resource(
@@ -387,24 +429,6 @@ spec:
     );
     write_crypto_resources(dir);
     write_resource(dir, "ticks.yaml", BINDING_CRON_TICKS);
-    std::fs::write(
-        dir.join(CONFIG_FILE),
-        format!(
-            r#"apiVersion: dapr.io/v1alpha1
-kind: Configuration
-metadata:
-  name: e2e-config
-spec:
-  nameResolution:
-    component: "sqlite"
-    version: "v1"
-    configuration:
-      connectionString: "{DAPRD_MOUNT}/nameresolution.db"
-"#
-        ),
-    )
-    .unwrap();
-    relax_permissions(dir);
 }
 
 /// Name of the crypto component both real-Dapr suites load.
@@ -460,6 +484,12 @@ pub struct Endpoints<'a> {
     /// gRPC provider can do that (raw protobuf bytes), so only the wasi-grpc
     /// suite sets this; the HTTP provider's JSON envelope can't.
     pub binary_state_exact: bool,
+    /// Whether the app can invoke its own app id from inside a callback.
+    /// The sidecar suites serve each request with a fresh instance, so it
+    /// works; the go family runs one long-lived app instance that is busy in
+    /// the calling callback, so it must fail fast with `app-unreachable`
+    /// instead of deadlocking.
+    pub self_invocation: bool,
 }
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
@@ -473,6 +503,7 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         publisher_base,
         consumer_base,
         binary_state_exact,
+        self_invocation,
     } = endpoints;
 
     // 1. State: JSON-value roundtrip + etag CAS + delete + metadata.
@@ -491,9 +522,18 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
     let secrets = get_json(&format!("{publisher_base}/secrets"));
     assert_eq!(secrets["ok"], true, "secrets failed: {secrets}");
 
-    // 4. Service invocation out and back into the same instance.
-    let invoked = get_json(&format!("{publisher_base}/invoke-self"));
-    assert_eq!(invoked["ok"], true, "invoke-self failed: {invoked}");
+    // 4. Service invocation out and back into the same app.
+    if self_invocation {
+        let invoked = get_json(&format!("{publisher_base}/invoke-self"));
+        assert_eq!(invoked["ok"], true, "invoke-self failed: {invoked}");
+    } else {
+        let (status, body) = get_status_json(&format!("{publisher_base}/invoke-self"));
+        let error = body["error"].as_str().unwrap_or_default();
+        assert!(
+            status == 500 && error.contains("self-invocation is not supported"),
+            "invoke-self did not fail fast: {status} {body}"
+        );
+    }
 
     // 5. Publish three orders.
     let published = get_json(&format!("{publisher_base}/publish?n=3"));

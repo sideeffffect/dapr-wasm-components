@@ -391,6 +391,7 @@ Dapr bulk subscribe lets a subscription opt in (`bulkSubscribe: {enabled, maxMes
 ## See Also
 
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md) — the outbound design this extends
+- [dapr-wasm-components go Family](dapr-wasm-components-go-family.md) — the embedded-Dapr family: inbound *pulled* by a pump (`go-events`) instead of pushed by a transport
 - [Dapr HTTP API](dapr-http-api.md) — app-channel endpoint shapes (ground truth for the wire mapping)
 - [gRPC to Dapr from Wasm](dapr-grpc-from-wasm.md) — the HTTP/2-from-wasm constraints that also bound gRPC inbound
 - [Dapr Rust SDK](dapr-rust-sdk.md) — its `AppCallback` server is the gRPC inbound reference
