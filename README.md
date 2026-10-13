@@ -11,7 +11,7 @@
 
 Write your app against the interfaces, [compose](#composing) it with an outbound + an inbound provider (`wac`), and run it next to a Dapr sidecar — or, with the go family, on its own. The single diagram in [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr--both-typed) below shows the whole picture.
 
-## Interfaces (`dapr-wasm-components:interfaces@0.7.1`)
+## Interfaces (`dapr-wasm-components:interfaces@0.7.2`)
 
 **Outbound** — interfaces your app *imports* to call Dapr:
 
@@ -57,8 +57,8 @@ Worlds: **`app`** (an application — imports the building blocks, exports the c
 Blocks with a read-only subset are split in two: `<x>-read` (the reads, plus the types both halves share) and `<x>` (the rest). The `app` world imports both halves, but `wit-component` keeps **only the functions an app actually calls**. So a built component's imports say what it may do, and a deployer can check that with `wasm-tools component wit app.wasm` before composing it. For example, an app that only reads state imports `state-read` with just `get`, and no `state` at all (the `state-reader` fixture in `e2e/apps/` is checked like this by `e2e/tests/authority.rs`):
 
 ```wit
-import dapr-wasm-components:interfaces/state-read@0.7.1;   // get only
-import dapr-wasm-components:interfaces/configuration-read@0.7.1;   // types only
+import dapr-wasm-components:interfaces/state-read@0.7.2;   // get only
+import dapr-wasm-components:interfaces/configuration-read@0.7.2;   // types only
 ```
 
 One caveat: an interface can also appear **with types only**. Every app exports all the callbacks, and `bindings-callback` uses `state-read.{state-item}` and `configuration-callback` uses `configuration-read.{configuration-item}`, so every app imports those two interfaces. Such an import has no functions, so it gives no authority.
@@ -149,7 +149,7 @@ dependency. Import it from your world:
 package my:app;
 
 world app {
-  include dapr-wasm-components:interfaces/app@0.7.1;
+  include dapr-wasm-components:interfaces/app@0.7.2;
 }
 ```
 
@@ -212,7 +212,7 @@ A composed component is `outbound → app → inbound` (acyclic — see [Two dir
 ```sh
 ./compose.sh my_app.wasm                       # http out + http in -> composed.wasm
 ./compose.sh my_app.wasm --out grpc --in http  # mixed transports
-./compose.sh my_app.wasm -o server.wasm --tag 0.7.1   # explicit output + OCI tag
+./compose.sh my_app.wasm -o server.wasm --tag 0.7.2   # explicit output + OCI tag
 
 dapr run --app-id my-app -- wasmtime serve -S cli composed.wasm   # reactor (app channel)
 # outbound-only command apps: `wac plug app.wasm --plug http-outbound.wasm` + `wasmtime run -S http`

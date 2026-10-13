@@ -5,7 +5,7 @@
 
 ## Overview
 
-Pure-wasm modules: the **interface** WIT package `dapr-wasm-components:interfaces@0.7.1` (`components/wit/`, published to OCI as `dapr-wasm-components-interfaces`; worlds `app`, `outbound`, `inbound`) and six **provider** components, split per family into an outbound and an inbound half:
+Pure-wasm modules: the **interface** WIT package `dapr-wasm-components:interfaces@0.7.2` (`components/wit/`, published to OCI as `dapr-wasm-components-interfaces`; worlds `app`, `outbound`, `inbound`) and six **provider** components, split per family into an outbound and an inbound half:
 
 - `dapr-wasm-components-wasi-http-outbound` (`components/wasi-http-outbound/`) — exports the building blocks over the Dapr HTTP API via `wasi:http` outgoing requests; portable to any WASI 0.2 runtime.
 - `dapr-wasm-components-wasi-http-inbound` (`components/wasi-http-inbound/`) — exports `wasi:http/incoming-handler`, parses the HTTP app channel, calls the app's `*-callback` exports.
