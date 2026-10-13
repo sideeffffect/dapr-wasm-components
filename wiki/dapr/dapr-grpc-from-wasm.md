@@ -155,6 +155,59 @@ What the `wasi-grpc` crate actually is (source read 2026-10-12): `wasi-grpc-clie
 
 **Upstream PR (2026-10-13):** [fermyon/wasi-grpc#18](https://github.com/fermyon/wasi-grpc/pull/18) (draft) — tonic/prost 0.14, spin-executor 5, `WasiGrpcEndpoint<Registry = SpinExecutorPoller>` + `with_registry` (any `wasi_hyperium::poll::PollableRegistry`; `spin-executor` behind default `spin` feature), CI Rust 1.88 + protoc + failing examples script. Verified on Spin 4.0.1: unary + server-streaming, and unary via `wasi_hyperium::poll::Poller`. Traps found: `spin-sdk` 5 ↔ `spin-executor` 5 must match (two executors = lost wakers); `spin-sdk` 6/7 dropped `spin-executor` entirely; prost 0.14 derives `Hash` itself (remove `type_attribute(… derive(Hash))`); tonic 0.14 MSRV 1.88.
 
+## Who is who: wasi-grpc, wstd, Spin, wasmCloud (2026-10-13)
+
+`fermyon/wasi-grpc` and `wstd` are **libraries compiled into the component** (guest). Spin and wasmCloud v2 are **hosts that run the component**. They meet only at the standard `wasi:http` interface.
+
+```mermaid
+flowchart TB
+    subgraph guest["Inside the .wasm component (guest)"]
+        tonic["tonic generated client"]
+        wg["fermyon/wasi-grpc<br/>(+ wasi-hyperium + spin-executor)"]
+        wstd["wstd<br/>(transport.rs + block_on)"]
+        tonic --> wg
+        tonic --> wstd
+    end
+    wasihttp["wasi:http (standard WIT interface)"]
+    wg --> wasihttp
+    wstd --> wasihttp
+    subgraph hosts["Runtimes (host)"]
+        spin["Spin<br/>h2c only for SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE"]
+        wc["wasmCloud v2<br/>h2 for every application/grpc request"]
+        wt["wasmtime CLI<br/>HTTP/1.1 only"]
+    end
+    wasihttp --> spin
+    wasihttp --> wc
+    wasihttp --> wt
+```
+
+| | What it is | Maker / status | Runs | Role for gRPC |
+|---|---|---|---|---|
+| **fermyon/wasi-grpc** | ~60-line `tower::Service` from tonic to `wasi:http`, on `wasi-hyperium`; waits via `spin-executor` | Fermyon (now Akamai); last commit Oct 2025 | Guest | Turns tonic calls into `wasi:http` requests. Does **not** do HTTP/2 |
+| **wstd** | Async "std" for components: HTTP client/server, `block_on`, timers | Bytecode Alliance; active | Guest | General-purpose; with a ~60-line `tower::Service` it does the **same job** as `wasi-grpc` |
+| **Spin** | Serverless component runtime on wasmtime; also ships guest SDKs (`spin-sdk`, `spin-executor`) | CNCF Sandbox; Akamai funds it; 4.2.2 (Oct 2026) | Host | `wasi:http` with h2c **out** to one fixed `host:port`, h2c **in** auto-detected |
+| **wasmCloud v2** | Component runtime/platform (`wash`) on wasmtime | CNCF; Cosmonic; 2.10.3 (Oct 2026) | Host | `wasi:http` with h2 **out** for any `application/grpc` request, h2c **in** auto-detected |
+
+Relationships:
+
+1. **`wasi-grpc` vs `wstd` — alternatives** in the same slot (tonic → `wasi:http`). `wasi-grpc-outbound` switched from the first to the second in [PR #14](https://github.com/sideeffffect/dapr-wasm-components/pull/14).
+2. **Spin vs wasmCloud — alternatives** as hosts. For gRPC they differ in outbound HTTP/2: one env-var authority vs content-type based.
+3. **Library and host are independent.** Both libraries use only standard `wasi:http`, so either runs on either host. `spin-executor` has no Spin host imports despite its name.
+4. **HTTP/2 always comes from the host.** No guest library over `wasi:http` makes an HTTP/1.1-only host (wasmtime CLI) speak gRPC. The only way around it is HTTP/2 inside the guest over `wasi:sockets`, bypassing `wasi:http`.
+5. **Naming trap:** `wasi-grpc` is a Fermyon crate, not a WASI standard; `anlaco/wasi-grpc` is an unrelated hobby crate with the same name.
+
+### gRPC in both directions, per host
+
+`wasi-grpc-outbound` (app → daprd) needs outbound h2c; `wasi-grpc-inbound` (daprd → app, `--app-protocol grpc`) needs inbound h2c.
+
+| Host | Outbound gRPC | Inbound gRPC | Both ways? |
+|---|---|---|---|
+| Spin ≥ 3.4 | Yes, one `host:port` only | Yes | Yes (one sidecar per app is enough) |
+| wasmCloud v2 | Yes, any authority | Yes | Yes in principle — untested |
+| wasmtime CLI (`serve`) | No (HTTP/1.1) | No (HTTP/1) | No |
+
+Tested so far: outbound on Spin by the real-daprd E2E; inbound on Spin only by hand with `grpcurl` (no daprd `--app-protocol grpc` E2E yet). gRPC therefore never becomes "any runtime" like HTTP/1.1 through `wasi:http`. Guest-side h2 over `wasi:sockets` would fix outbound; inbound would need the component to listen on TCP itself (a `wasi:cli/run` command, not `wasi:http/incoming-handler`), which `wasmtime serve` and Spin's HTTP trigger cannot host. Streaming RPCs (configuration subscribe, true streaming crypto) stay limited on any transport — that limit comes from the sync WIT, not HTTP/2.
+
 ## See Also
 
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md)
