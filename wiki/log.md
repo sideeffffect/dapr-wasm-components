@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-10-13] update | wasi-grpc-outbound: wstd transport replaces wasi-grpc + spin-executor; tonic/prost 0.14 for both gRPC providers.
+- Updated: dapr-wasm-components Architecture (gRPC stack)
+- Updated: gRPC to Dapr from Wasm (outcome)
+
 ## [2026-10-13] update | opened draft upstream PR fermyon/wasi-grpc#18 (tonic 0.14, spin-executor 5, pluggable PollableRegistry).
 - Updated: gRPC to Dapr from Wasm
 
