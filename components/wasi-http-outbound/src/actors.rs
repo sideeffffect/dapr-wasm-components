@@ -7,7 +7,7 @@ use crate::exports::actors::{
     ActorStateOperation, ActorStateOperationType, ActorsError, GetReminderError, GetStateError,
     Guest, InvokeActorError, Reminder, Timer,
 };
-use crate::sidecar::{seg, DaprFailure, Sidecar};
+use crate::sidecar::{check_status, dapr_failure, seg, DaprFailure, HttpResult, Sidecar};
 use crate::state::value_to_json;
 use crate::Component;
 
@@ -32,6 +32,27 @@ fn get_state_error(f: DaprFailure) -> GetStateError {
 /// (The `reminder-not-found` case is produced from the 404 branch.)
 fn get_reminder_error(f: DaprFailure) -> GetReminderError {
     GetReminderError::Actors(actors_error(f))
+}
+
+/// Classify the answer to a timer registration. daprd reports a timer for an
+/// actor type this app does not host as a generic `ERR_ACTOR_TIMER_CREATE`
+/// (HTTP 500) whose message ends in `actor type not registered` — not as a
+/// sidecar fault. It is the caller's mistake, and the very condition daprd
+/// itself reports for reminders as a 403 `ERR_ACTOR_REMINDER_NON_HOSTED`
+/// (permission-denied), so it maps to `permission-denied` with daprd's
+/// message. Any other `ERR_ACTOR_TIMER_CREATE` (e.g. the timer storage
+/// failing) is a sidecar fault and still traps.
+fn register_timer_result(result: HttpResult) -> Result<(), ActorsError> {
+    if result.status == 500 {
+        let failure = dapr_failure(result.status, &result.body);
+        if failure.error_code.as_deref() == Some("ERR_ACTOR_TIMER_CREATE")
+            && failure.message.ends_with("actor type not registered")
+        {
+            return Err(ActorsError::PermissionDenied(failure.message));
+        }
+    }
+    check_status(result).map_err(actors_error)?;
+    Ok(())
 }
 
 fn schedule_json(
@@ -226,10 +247,10 @@ impl Guest for Component {
             &timer.data,
             timer.callback.as_ref(),
         );
-        sidecar
-            .json(Method::POST, &path, &body)
-            .map_err(actors_error)?;
-        Ok(())
+        let body = serde_json::to_vec(&body)
+            .unwrap_or_else(|e| panic!("failed to serialize request: {e}"));
+        let headers = [("content-type".to_string(), "application/json".to_string())];
+        register_timer_result(sidecar.request(Method::POST, &path, &headers, body))
     }
 
     fn unregister_timer(
@@ -248,5 +269,51 @@ impl Guest for Component {
             .expect_success(Method::DELETE, &path, &[], Vec::new())
             .map_err(actors_error)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::register_timer_result;
+    use crate::exports::actors::ActorsError;
+    use crate::sidecar::HttpResult;
+
+    fn response(status: u16, body: &str) -> HttpResult {
+        HttpResult {
+            status,
+            headers: Vec::new(),
+            body: body.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn timer_for_an_unhosted_actor_type_is_permission_denied() {
+        // daprd 1.17.7's answer, verbatim, to a timer for an actor type the
+        // app does not host.
+        let result = register_timer_result(response(
+            500,
+            r#"{"errorCode":"ERR_ACTOR_TIMER_CREATE","message":"error creating actor timer: can't create timer for actor ProbeActor||probe-1: actor type not registered"}"#,
+        ));
+        match result {
+            Err(ActorsError::PermissionDenied(message)) => assert_eq!(
+                message,
+                "error creating actor timer: can't create timer for actor ProbeActor||probe-1: actor type not registered"
+            ),
+            other => panic!("expected permission-denied, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn timer_registered() {
+        assert!(register_timer_result(response(204, "")).is_ok());
+    }
+
+    #[test]
+    fn other_recoverable_timer_failures_are_permission_denied() {
+        let result = register_timer_result(response(
+            403,
+            r#"{"errorCode":"ERR_ACTOR_TYPE_RESERVED","message":"reserved"}"#,
+        ));
+        assert!(matches!(result, Err(ActorsError::PermissionDenied(m)) if m == "reserved"));
     }
 }

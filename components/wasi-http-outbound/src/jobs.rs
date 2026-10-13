@@ -11,6 +11,16 @@ use crate::exports::jobs_read::{
 use crate::sidecar::{seg, DaprFailure, Sidecar};
 use crate::Component;
 
+/// The path of job `name`. daprd serves the jobs API under `/v1.0-alpha1`
+/// (1.14 – 1.17 serve it there only; 1.18 adds `/v1.0` and keeps
+/// `/v1.0-alpha1` as a deprecated alias), so `/v1.0-alpha1` is the one path
+/// every daprd this provider targets routes. Calling `/v1.0/jobs/...` on
+/// daprd <= 1.17 falls through to service invocation and comes back as a 404
+/// `ERR_DIRECT_INVOKE` — which `get` would even misread as `job-not-found`.
+fn job_path(name: &str) -> String {
+    format!("/v1.0-alpha1/jobs/{}", seg(name))
+}
+
 /// Map a recoverable failure to the jobs error (only permission-denied).
 fn jobs_error(f: DaprFailure) -> JobsError {
     JobsError::PermissionDenied(f.message)
@@ -40,7 +50,7 @@ fn schedule_error(f: DaprFailure) -> ScheduleError {
 impl ReadGuest for Component {
     fn get(name: String) -> Result<Job, GetJobError> {
         let sidecar = Sidecar::from_env();
-        let path = format!("/v1.0/jobs/{}", seg(&name));
+        let path = job_path(&name);
         let response = match sidecar.expect_success(Method::GET, &path, &[], Vec::new()) {
             Ok(r) => r,
             Err(f) if f.status == 404 => return Err(GetJobError::JobNotFound),
@@ -103,7 +113,7 @@ impl ReadGuest for Component {
 impl Guest for Component {
     fn schedule(name: String, job: Job, overwrite: bool) -> Result<(), ScheduleError> {
         let sidecar = Sidecar::from_env();
-        let path = format!("/v1.0/jobs/{}", seg(&name));
+        let path = job_path(&name);
 
         let mut body = json!({});
         if let Some(schedule) = &job.schedule {
@@ -149,10 +159,23 @@ impl Guest for Component {
 
     fn delete(name: String) -> Result<(), JobsError> {
         let sidecar = Sidecar::from_env();
-        let path = format!("/v1.0/jobs/{}", seg(&name));
+        let path = job_path(&name);
         sidecar
             .expect_success(Method::DELETE, &path, &[], Vec::new())
             .map_err(jobs_error)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::job_path;
+
+    #[test]
+    fn jobs_live_under_v1_0_alpha1() {
+        // The one path daprd 1.14 – 1.18 all route (daprd <= 1.17 has no
+        // `/v1.0/jobs`).
+        assert_eq!(job_path("nightly"), "/v1.0-alpha1/jobs/nightly");
+        assert_eq!(job_path("a b/c"), "/v1.0-alpha1/jobs/a%20b%2Fc");
     }
 }

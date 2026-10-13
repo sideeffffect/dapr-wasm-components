@@ -33,6 +33,8 @@ cargo clippy --target wasm32-wasip2 --manifest-path components/Cargo.toml -- -D 
 cargo clippy --target wasm32-wasip2 --manifest-path app-sdk/Cargo.toml -- -D warnings
 cargo clippy --target wasm32-wasip2 --manifest-path e2e/apps/Cargo.toml -- -D warnings
 cargo test                                                                 # e2e: provider + composed kv-demo vs mock sidecar
+# provider unit tests (wasm32-wasip2 guests, run under wasmtime with wasi:http):
+CARGO_TARGET_WASM32_WASIP2_RUNNER="wasmtime run -S http" cargo test --target wasm32-wasip2 --manifest-path components/Cargo.toml -p dapr-wasm-components-wasi-http-outbound -p dapr-wasm-components-wasi-grpc-outbound
 # real-Dapr E2E (needs Docker + wasmtime CLI — daprd sidecars and Redis come from testcontainers):
 cargo test --test dapr -- --ignored
 # wasi-grpc E2E (needs Docker + spin CLI >= 3.4, override with SPIN_BIN):
@@ -40,7 +42,7 @@ cargo test --test spin -- --ignored
 # go family (needs Go >= 1.27.1 + componentize-go; E2E needs Docker + wasmtime CLI):
 (cd components/go-outbound && test -z "$(gofmt -l $(git ls-files '*.go'))")
 (cd components/go-outbound && python3 overlay/gen-overlay.py ../target/go-overlay && GOOS=wasip1 GOARCH=wasm GOFLAGS="-overlay=$PWD/../target/go-overlay/overlay.json" go vet -unsafeptr=false ./...)
-(cd components/go-outbound && go test ./internal/anyjson/ ./internal/streams/)
+(cd components/go-outbound && go test ./internal/anyjson/ ./internal/streams/ ./internal/daprerr/)
 components/go-outbound/scripts/build.sh
 cargo test --test go -- --ignored
 ```

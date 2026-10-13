@@ -93,6 +93,10 @@ impl MockSidecar {
             )
             .route("/v1.0/publish/{pubsub}/{topic}", post(publish))
             .route("/v1.0/secrets/{store}/{key}", get(get_secret))
+            .route(
+                "/v1.0/actors/{actor_type}/{actor_id}/timers/{name}",
+                post(register_timer),
+            )
             .route("/v1.0-alpha1/lock/{store}", post(try_lock))
             .route("/v1.0-alpha1/unlock/{store}", post(unlock))
             .route(
@@ -115,7 +119,9 @@ impl MockSidecar {
             )
             .route("/v1.0/workflows/dapr/{instance}", get(get_workflow))
             .route(
-                "/v1.0/jobs/{name}",
+                // The path daprd 1.14 – 1.18 all serve (daprd <= 1.17 has no
+                // `/v1.0/jobs`), so the mock serves only this one.
+                "/v1.0-alpha1/jobs/{name}",
                 post(schedule_job).get(get_job).delete(delete_job),
             )
             .route(
@@ -264,6 +270,37 @@ async fn get_secret(Path((store, key)): Path<(String, String)>) -> Response {
     }
 }
 
+/// The one actor type the mock "hosts" (timers on it succeed).
+pub const MOCK_HOSTED_ACTOR_TYPE: &str = "HostedActor";
+/// An actor type whose timer storage fails.
+pub const MOCK_BROKEN_TIMER_ACTOR_TYPE: &str = "BrokenTimerActor";
+
+/// How real daprd (checked on 1.17.7, same code in 1.18) answers a timer
+/// registration: 204 for a hosted actor type, otherwise HTTP 500
+/// `ERR_ACTOR_TIMER_CREATE` with the timer error appended — `actor type not
+/// registered` for an actor type this app does not host.
+async fn register_timer(
+    Path((actor_type, actor_id, _name)): Path<(String, String, String)>,
+) -> Response {
+    let timer_create = |timer_error: String| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "errorCode": "ERR_ACTOR_TIMER_CREATE",
+                "message": format!("error creating actor timer: {timer_error}"),
+            })),
+        )
+            .into_response()
+    };
+    match actor_type.as_str() {
+        MOCK_HOSTED_ACTOR_TYPE => StatusCode::NO_CONTENT.into_response(),
+        MOCK_BROKEN_TIMER_ACTOR_TYPE => timer_create("timer storage unavailable".to_string()),
+        _ => timer_create(format!(
+            "can't create timer for actor {actor_type}||{actor_id}: actor type not registered"
+        )),
+    }
+}
+
 /// Record the converse request and return a canned alpha2 response that
 /// exercises every result field (choices, tool calls, usage, context id).
 async fn converse(
@@ -272,12 +309,15 @@ async fn converse(
     Json(request): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     recorded.lock().unwrap().converse_requests.push(request);
+    // Shaped like daprd's answer: daprd renders it with protojson, which
+    // writes the proto `int64`/`uint64` fields (the choice index, the token
+    // counts) as JSON strings.
     Json(json!({
         "contextId": "ctx-1",
         "outputs": [{
             "choices": [{
                 "finishReason": "tool_calls",
-                "index": 0,
+                "index": "0",
                 "message": {
                     "content": "hello",
                     "toolCalls": [{
@@ -288,15 +328,15 @@ async fn converse(
             }],
             "model": "gpt-test",
             "usage": {
-                "promptTokens": 3,
-                "completionTokens": 5,
-                "totalTokens": 8,
-                "promptTokensDetails": { "audioTokens": 0, "cachedTokens": 2 },
+                "promptTokens": "3",
+                "completionTokens": "5",
+                "totalTokens": "8",
+                "promptTokensDetails": { "audioTokens": "0", "cachedTokens": "2" },
                 "completionTokensDetails": {
-                    "acceptedPredictionTokens": 0,
-                    "audioTokens": 0,
-                    "reasoningTokens": 4,
-                    "rejectedPredictionTokens": 0
+                    "acceptedPredictionTokens": "0",
+                    "audioTokens": "0",
+                    "reasoningTokens": "4",
+                    "rejectedPredictionTokens": "0"
                 }
             }
         }]

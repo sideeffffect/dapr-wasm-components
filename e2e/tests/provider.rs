@@ -1,5 +1,8 @@
 //! Direct tests of the wasi-http provider's exports against the mock sidecar.
 
+use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::actors::{
+    ActorsError, Timer,
+};
 use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interfaces::conversation::{
     ContentPart, ConversationInput, ConversationOptions, Message, ParticipantMessage, Tool,
     ToolFunction,
@@ -15,7 +18,9 @@ use dapr_wasm_components_e2e::bindings::exports::dapr_wasm_components::interface
     GetError as WorkflowGetError, RuntimeStatus,
 };
 use dapr_wasm_components_e2e::load_provider;
-use dapr_wasm_components_e2e::mock::{MockSidecar, MOCK_BROKEN_CONFIG_STORE};
+use dapr_wasm_components_e2e::mock::{
+    MockSidecar, MOCK_BROKEN_CONFIG_STORE, MOCK_BROKEN_TIMER_ACTOR_TYPE, MOCK_HOSTED_ACTOR_TYPE,
+};
 
 #[tokio::test]
 async fn state_roundtrip() {
@@ -513,5 +518,69 @@ async fn unreachable_sidecar_traps() {
     assert!(
         call.is_err(),
         "unreachable sidecar should trap, surfacing as an errored call"
+    );
+}
+
+fn timer() -> Timer {
+    Timer {
+        due_time: Some("10s".to_string()),
+        period: None,
+        ttl: None,
+        data: None,
+        callback: None,
+    }
+}
+
+#[tokio::test]
+async fn register_timer_on_a_hosted_actor_type() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    provider
+        .dapr_wasm_components_interfaces_actors()
+        .call_register_timer(&mut store, MOCK_HOSTED_ACTOR_TYPE, "a-1", "t", &timer())
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn register_timer_on_an_unhosted_actor_type_is_permission_denied() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    // daprd answers HTTP 500 ERR_ACTOR_TIMER_CREATE "... actor type not
+    // registered": the caller's mistake, not a sidecar fault — a typed error,
+    // not a trap.
+    let result = provider
+        .dapr_wasm_components_interfaces_actors()
+        .call_register_timer(&mut store, "ProbeActor", "probe-1", "t", &timer())
+        .await
+        .expect("an unhosted actor type must not trap");
+    match result {
+        Err(ActorsError::PermissionDenied(message)) => assert_eq!(
+            message,
+            "error creating actor timer: can't create timer for actor ProbeActor||probe-1: actor type not registered"
+        ),
+        other => panic!("expected permission-denied, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn register_timer_storage_failure_traps() {
+    let sidecar = MockSidecar::start().await.unwrap();
+    let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
+    // Any other ERR_ACTOR_TIMER_CREATE is a sidecar fault: unrecoverable.
+    let call = provider
+        .dapr_wasm_components_interfaces_actors()
+        .call_register_timer(
+            &mut store,
+            MOCK_BROKEN_TIMER_ACTOR_TYPE,
+            "a-1",
+            "t",
+            &timer(),
+        )
+        .await;
+    assert!(
+        call.is_err(),
+        "timer storage failure should trap, got {call:?}"
     );
 }

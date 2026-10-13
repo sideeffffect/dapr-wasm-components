@@ -1,8 +1,17 @@
-//! Jobs / distributed scheduler over gRPC — `ScheduleJob`, `GetJob`,
-//! `DeleteJob` (the stable RPCs; this proto version also still carries the
-//! Alpha1 variants).
+//! Jobs / distributed scheduler over gRPC — `ScheduleJobAlpha1`,
+//! `GetJobAlpha1`, `DeleteJobAlpha1`. The stable `ScheduleJob`/`GetJob`/
+//! `DeleteJob` exist only since daprd 1.18 (daprd <= 1.17 answers them
+//! `Unimplemented`, which traps); the Alpha1 RPCs are served by every daprd
+//! from 1.14 to 1.18 (1.18 marks them deprecated but keeps them), so they
+//! are the ones this provider calls — the same choice as the HTTP provider's
+//! `/v1.0-alpha1/jobs`. Switch to the stable RPCs once daprd <= 1.17 is out
+//! of support.
 //! Job data is JSON in the WIT contract but `google.protobuf.Any` on the
 //! wire — packed as `google.protobuf.Value` via `anyjson`.
+
+// The Alpha1 RPCs are `deprecated` in the vendored v1.18 protos; see above
+// for why they are still the right ones to call.
+#![allow(deprecated)]
 
 use crate::anyjson::{pack_json, unpack_json};
 use crate::exports::jobs::{Guest, ScheduleError};
@@ -127,7 +136,7 @@ impl ReadGuest for Component {
         let sidecar = Sidecar::from_env();
         let response = match sidecar.unary(
             pb::GetJobRequest { name },
-            |mut client, request| async move { client.get_job(request).await },
+            |mut client, request| async move { client.get_job_alpha1(request).await },
         ) {
             Ok(response) => response,
             // A missing job maps to the not-found error case.
@@ -151,7 +160,7 @@ impl Guest for Component {
                     job: Some(job_pb(name, &job)),
                     overwrite,
                 },
-                |mut client, request| async move { client.schedule_job(request).await },
+                |mut client, request| async move { client.schedule_job_alpha1(request).await },
             )
             .map_err(schedule_error)?;
         Ok(())
@@ -162,7 +171,7 @@ impl Guest for Component {
         sidecar
             .unary(
                 pb::DeleteJobRequest { name },
-                |mut client, request| async move { client.delete_job(request).await },
+                |mut client, request| async move { client.delete_job_alpha1(request).await },
             )
             .map_err(jobs_error)?;
         Ok(())
