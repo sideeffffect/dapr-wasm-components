@@ -37,13 +37,15 @@ flowchart LR
     exports == "called by" ==> inbound
 ```
 
-Each world has one or two provider components per transport:
+Each provider family has one component per world:
 
 | World | Components |
 |---|---|
-| `outbound` | `wasi-http-outbound`, `wasi-grpc-outbound` |
+| `outbound` | `wasi-http-outbound`, `wasi-grpc-outbound`, `go-outbound` |
 | `app` | your app (with the `dapr-app` SDK), `e2e/apps/*` |
-| `inbound` | `wasi-http-inbound`, `wasi-grpc-inbound` |
+| `inbound` | `wasi-http-inbound`, `wasi-grpc-inbound`, `go-inbound` |
+
+The `go` pair is a special case. `go-outbound` embeds the Dapr runtime itself, so there is no sidecar. `go-inbound` gets the deliveries from `go-outbound` through a private interface that is not part of this package, so the two must be used together. The `go-inbound` world (in `components/go-outbound/wit/go.wit`) includes the `inbound` world.
 
 ## 2. Type dependencies
 
