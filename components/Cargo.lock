@@ -26,49 +26,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "axum"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
-dependencies = [
- "axum-core",
- "bytes",
- "futures-util",
- "http 1.5.0",
- "http-body 1.1.0",
- "http-body-util",
- "itoa",
- "matchit",
- "memchr",
- "mime",
- "percent-encoding",
- "pin-project-lite",
- "serde_core",
- "sync_wrapper",
- "tower",
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
-name = "axum-core"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
-dependencies = [
- "bytes",
- "futures-core",
- "http 1.5.0",
- "http-body 1.1.0",
- "http-body-util",
- "mime",
- "pin-project-lite",
- "sync_wrapper",
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -104,11 +61,12 @@ name = "dapr-wasm-components-wasi-grpc-inbound"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "http 1.5.0",
+ "http",
  "http-body-util",
  "prost",
  "prost-types",
  "tonic",
+ "tonic-prost",
  "wit-bindgen 0.62.0",
  "wstd",
 ]
@@ -117,16 +75,19 @@ dependencies = [
 name = "dapr-wasm-components-wasi-grpc-outbound"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "futures",
- "http 1.5.0",
+ "http",
+ "http-body-util",
  "humantime",
  "prost",
  "prost-types",
  "serde_json",
- "spin-executor",
  "tonic",
- "wasi-grpc",
+ "tonic-prost",
+ "tower-service",
  "wit-bindgen 0.62.0",
+ "wstd",
 ]
 
 [[package]]
@@ -172,12 +133,6 @@ checksum = "e51093e27b0797c359783294ca4f0a911c270184cb10f85783b118614a1501be"
 dependencies = [
  "instant",
 ]
-
-[[package]]
-name = "fnv"
-version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "foldhash"
@@ -305,17 +260,6 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "http"
-version = "0.2.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "601cbb57e577e2f5ef5be8e7b83f0f63994f25aa94d673e54a92d5c516d101f1"
-dependencies = [
- "bytes",
- "fnv",
- "itoa",
-]
-
-[[package]]
-name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0"
@@ -326,23 +270,12 @@ dependencies = [
 
 [[package]]
 name = "http-body"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ceab25649e9960c0311ea418d17bee82c0dcec1bd053b5f9a66e265a693bed2"
-dependencies = [
- "bytes",
- "http 0.2.12",
- "pin-project-lite",
-]
-
-[[package]]
-name = "http-body"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca2a8f2913ee65f60facd6a5905613afaa448497a0230cc41ce022d93290bc2c"
 dependencies = [
  "bytes",
- "http 1.5.0",
+ "http",
 ]
 
 [[package]]
@@ -353,8 +286,8 @@ checksum = "23169fe34a5fbcdd3f3862e78fb9b6fccd5f02a6dc6f732547005d45631ce71c"
 dependencies = [
  "bytes",
  "futures-core",
- "http 1.5.0",
- "http-body 1.1.0",
+ "http",
+ "http-body",
  "pin-project-lite",
 ]
 
@@ -430,22 +363,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "matchit"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
-
-[[package]]
-name = "mime"
-version = "0.3.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "once_cell"
@@ -512,9 +433,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.13.5"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
+checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -522,9 +443,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.13.5"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
+checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
  "itertools",
@@ -535,9 +456,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.13.5"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
+checksum = "f94967dc7688f3054c7fac87473ffae4cc4c3904800e2d9f5b857246d8963b0a"
 dependencies = [
  "prost",
 ]
@@ -607,17 +528,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
-name = "spin-executor"
-version = "4.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3fd5c317f89c040f882f3260e8ef933ca0c9a7b1b169ea5793dae3e552e8873"
-dependencies = [
- "futures",
- "once_cell",
- "wasi",
-]
-
-[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -646,26 +556,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
 
 [[package]]
-name = "thiserror"
-version = "2.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
-dependencies = [
- "thiserror-impl",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.7",
-]
-
-[[package]]
 name = "tokio"
 version = "1.53.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -687,39 +577,34 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.13.1"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
+checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
 dependencies = [
  "async-trait",
- "axum",
  "base64",
  "bytes",
- "http 1.5.0",
- "http-body 1.1.0",
+ "http",
+ "http-body",
  "http-body-util",
  "percent-encoding",
  "pin-project",
- "prost",
+ "sync_wrapper",
  "tokio-stream",
- "tower",
  "tower-layer",
  "tower-service",
  "tracing",
 ]
 
 [[package]]
-name = "tower"
-version = "0.5.3"
+name = "tonic-prost"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4"
+checksum = "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
 dependencies = [
- "futures-core",
- "futures-util",
- "pin-project-lite",
- "sync_wrapper",
- "tower-layer",
- "tower-service",
+ "bytes",
+ "prost",
+ "tonic",
 ]
 
 [[package]]
@@ -782,48 +667,6 @@ name = "waker-fn"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "317211a0dc0ceedd78fb2ca9a44aed3d7b9b26f81870d485c07122b4350673b7"
-
-[[package]]
-name = "wasi"
-version = "0.13.1+wasi-0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f43d1c36145feb89a3e61aa0ba3e582d976a8ab77f1474aa0adb80800fe0cf8"
-dependencies = [
- "wit-bindgen-rt",
-]
-
-[[package]]
-name = "wasi-grpc"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f24c87e7535c4b8f68ef6de882dddf321b78a34ebfcb91aa7ecaac4036e3c226"
-dependencies = [
- "anyhow",
- "http 1.5.0",
- "spin-executor",
- "tonic",
- "tower-service",
- "wasi",
- "wasi-hyperium",
-]
-
-[[package]]
-name = "wasi-hyperium"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "034239cb4f4543dae1ae392abb113189e63387d98bc8f14ded5b9b972c3f0db7"
-dependencies = [
- "anyhow",
- "bytes",
- "futures-util",
- "http 0.2.12",
- "http 1.5.0",
- "http-body 0.4.6",
- "http-body 1.1.0",
- "thiserror",
- "tower-service",
- "wasi",
-]
 
 [[package]]
 name = "wasip2"
@@ -896,15 +739,6 @@ dependencies = [
  "anyhow",
  "heck",
  "wit-parser",
-]
-
-[[package]]
-name = "wit-bindgen-rt"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b0780cf7046630ed70f689a098cd8d56c5c3b22f2a7379bbdb088879963ff96"
-dependencies = [
- "bitflags",
 ]
 
 [[package]]
@@ -987,8 +821,8 @@ dependencies = [
  "async-task",
  "bytes",
  "futures-lite",
- "http 1.5.0",
- "http-body 1.1.0",
+ "http",
+ "http-body",
  "http-body-util",
  "itoa",
  "pin-project-lite",

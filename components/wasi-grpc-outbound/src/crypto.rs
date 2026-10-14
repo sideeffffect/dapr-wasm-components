@@ -1,9 +1,9 @@
 //! Cryptography (alpha) over gRPC — `EncryptAlpha1`, `DecryptAlpha1`.
 //!
 //! Both RPCs are bidirectional streams, and daprd streams them for real
-//! (`pkg/api/grpc/crypto.go`). This provider does **not**: `wasi-grpc` gives
-//! no way to keep one in-flight tonic call alive across several export calls
-//! (each call runs its own `spin_executor::run`). So every operation is one
+//! (`pkg/api/grpc/crypto.go`). This provider does **not**: one in-flight
+//! tonic call cannot stay alive across several export calls (each call runs
+//! its own `block_on`, and the transport collects the request body). So every operation is one
 //! RPC: the input is sent as a stream of request messages (options on the
 //! first, the payload split into [`CHUNK`]-sized `StreamPayload`s with
 //! `seq` 0, 1, …), the client half-closes, and the response chunks are
@@ -131,7 +131,7 @@ fn run_encrypt(
     });
     let request = sidecar.request(futures::stream::iter(messages));
     let mut client = sidecar.client();
-    spin_executor::run(async move {
+    wstd::runtime::block_on(async move {
         let streaming = client.encrypt_alpha1(request).await?.into_inner();
         collect_payload(streaming, |response: pb::EncryptResponse| response.payload).await
     })
@@ -154,7 +154,7 @@ fn run_decrypt(
     });
     let request = sidecar.request(futures::stream::iter(messages));
     let mut client = sidecar.client();
-    spin_executor::run(async move {
+    wstd::runtime::block_on(async move {
         let streaming = client.decrypt_alpha1(request).await?.into_inner();
         collect_payload(streaming, |response: pb::DecryptResponse| response.payload).await
     })

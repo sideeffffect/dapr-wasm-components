@@ -14,13 +14,13 @@ To regenerate after bumping the protos, run from this directory:
 ```sh
 cargo new --bin /tmp/protogen
 cd /tmp/protogen
-cargo add tonic-build@0.13.1 --features prost
-cargo add protox@0.7
+cargo add tonic-prost-build@0.14
+cargo add protox@0.9
 cat > src/main.rs <<'EOF'
 fn main() {
     std::fs::create_dir_all("out").unwrap();
     let fds = protox::compile(["dapr/proto/runtime/v1/dapr.proto"], ["<this proto dir>"]).unwrap();
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(false)
         .build_transport(false)
         .out_dir("out")

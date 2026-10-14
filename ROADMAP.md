@@ -38,8 +38,8 @@ for the inbound spec.
   generic 5xx trap (HTTP: `errorCode`; gRPC: the `ErrorInfo` reason).
 - **True streaming crypto over gRPC.** `wasi-grpc-outbound`'s `encryptor` /
   `decryptor` buffer the whole input and output, because one tonic bidi call
-  cannot stay in flight across several export calls (`spin_executor::run` per
-  call). daprd's gRPC handlers stream for real, so a provider that keeps the
+  cannot stay in flight across several export calls (one `block_on` per
+  call, and the transport collects the request body). daprd's gRPC handlers stream for real, so a provider that keeps the
   call alive (or WASI 0.3) would make this O(chunk).
 - **Workflow** — `wasi-http-outbound` uses the `/v1.0` HTTP API, which Dapr
   documents as deprecated in favour of the SDKs. Dapr offers no non-deprecated
@@ -194,7 +194,7 @@ for the inbound spec.
 
 These are the upstream changes that would unblock items above. None of them has landed yet. Details: [wiki/dapr/dapr-grpc-from-wasm.md](wiki/dapr/dapr-grpc-from-wasm.md#upstream-status-re-check-2026-10-10) and [wiki/dapr/dapr-http-api.md](wiki/dapr/dapr-http-api.md#dapr-119-delta-v1190-rc2-checked-2026-10-10).
 
-- **gRPC outside Spin / multi-authority h2c.** Wasmtime (up to 50-rc) still has HTTP/1-only outbound `wasi-http`. Spin 4.2 still uses the single-authority `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`. `wasi-grpc` is still 0.1.0 (tonic 0.13). The only path we control is guest-side `h2` over `wasi:sockets`.
+- **gRPC outside Spin / multi-authority h2c.** Wasmtime (up to 50-rc) still has HTTP/1-only outbound `wasi-http`. Spin 4.2 still uses the single-authority `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`. wasmCloud v2 sends any `application/grpc` request over HTTP/2 (h2c for `http://`), and `wasi-grpc-outbound` now uses plain `wstd`, so it can run there — not yet covered by an E2E. The only path we control for wasmtime is guest-side `h2` over `wasi:sockets` (tokio 1.51+ has wasip2 networking).
 - **Actor hosting over gRPC.** Dapr 1.19 `AppCallback` still has no actor methods. Workaround: gRPC outbound + HTTP inbound (see *Standing design constraints*).
 - **Streaming crypto.** Shipped in 0.6.0 with sync WIT resources (no WIT `stream` needed). Remaining upstream limits: daprd's HTTP crypto handler still buffers the whole output and caps the input at `--max-body-size`; true streaming over gRPC needs a call that survives across export calls (or WASI 0.3).
 - **Workflow.** The `/v1.0` HTTP API is still deprecated but served in 1.19 (HTTP provider only; the gRPC provider uses the non-deprecated `*WorkflowBeta1` RPCs).

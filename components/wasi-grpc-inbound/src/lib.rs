@@ -6,8 +6,8 @@
 //! application, and translates each call into a typed call on the imported
 //! callback interfaces (world `inbound`). The application never sees gRPC.
 //!
-//! The `wasi-grpc` crate is client-only, so the server side is implemented by
-//! hand on top of `wasi:http/incoming-handler`: the host (Spin, which accepts
+//! There is no published gRPC server crate for `wasi:http`, so the server side
+//! is implemented by hand on top of `wasi:http/incoming-handler`: the host (Spin, which accepts
 //! inbound h2c) hands us the HTTP/2 request; we parse the gRPC length-prefixed
 //! frame, decode the protobuf with the messages generated for the outbound
 //! provider, dispatch, and reply with a length-prefixed protobuf body plus the

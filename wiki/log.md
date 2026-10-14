@@ -1,5 +1,9 @@
 # Wiki Log
 
+## [2026-10-13] update | wasi-grpc-outbound: wstd transport replaces wasi-grpc + spin-executor; tonic/prost 0.14 for both gRPC providers.
+- Updated: dapr-wasm-components Architecture (gRPC stack)
+- Updated: gRPC to Dapr from Wasm (outcome)
+
 ## [2026-10-13] update | who-is-who: fermyon/wasi-grpc + wstd (guest libs, alternatives) vs Spin + wasmCloud v2 (hosts, alternatives); gRPC both-ways matrix per host.
 - Updated: gRPC to Dapr from Wasm
 

@@ -105,7 +105,7 @@ impl Guest for Component {
         }
 
         let mut client = sidecar.client();
-        let response = spin_executor::run(async move { client.invoke_service(request).await })
+        let response = wstd::runtime::block_on(async move { client.invoke_service(request).await })
             .map_err(|s| invoke_error(classify(s)))?;
 
         let mut response_headers: Metadata = response

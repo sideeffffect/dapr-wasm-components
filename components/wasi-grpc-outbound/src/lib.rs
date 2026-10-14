@@ -3,21 +3,23 @@
 //! A pure-wasm Dapr provider component. It exports every interface of the
 //! `dapr-wasm-components:interfaces` WIT package and implements them by
 //! calling the Dapr sidecar's gRPC API (`DaprClient` on :50001) through
-//! `wasi:http` outgoing requests, using tonic's generated client over the
-//! `wasi-grpc` transport.
+//! `wasi:http` outgoing requests, using tonic's generated client over a
+//! small `wstd` transport ([`transport`]).
 //!
 //! gRPC needs HTTP/2 end-to-end; `wasi:http` 0.2 leaves the HTTP version
-//! to the host, and today only Spin >= 3.4 speaks outbound cleartext
-//! HTTP/2 — enabled per-authority via the host-process env var
-//! `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE` (it must equal the authority of
-//! `DAPR_GRPC_ENDPOINT` byte-for-byte). On other runtimes (wasmtime, ...)
-//! this component instantiates but calls fail with `unavailable`. The
+//! to the host. Spin >= 3.4 speaks outbound cleartext HTTP/2 for the one
+//! authority in the host-process env var `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`
+//! (it must equal the authority of `DAPR_GRPC_ENDPOINT` byte-for-byte);
+//! wasmCloud v2 sends every `application/grpc` request over HTTP/2. On
+//! HTTP/1.1-only runtimes (wasmtime, ...) this component instantiates but
+//! calls fail. The
 //! wasi-http sibling provider is the portable choice; this one trades
 //! portability for typed protobuf (byte-exact values) on Spin.
 
 mod anyjson;
 mod proto;
 mod sidecar;
+mod transport;
 
 mod actors;
 mod bindings_block;
