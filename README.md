@@ -283,7 +283,7 @@ wasmtime run -S inherit-network -S tcp -S allow-ip-name-lookup \
 How it works, in short (details in [the design spec](docs/superpowers/specs/2026-10-12-go-family-design.md) and the wiki):
 
 - **Network.** Go's `wasip1` port has only an in-process fake network. `go-outbound` is built with a `go build -overlay` that patches std `net` to use `wasi:sockets` (TCP, listen/accept, DNS) — so Redis, Kafka, Postgres, Consul, placement, scheduler and peer runtimes are reachable. Socket waits are cooperative (non-blocking `wasi:io` plus a short sleep), because Go on wasm runs every goroutine on one thread.
-- **App channel.** The runtime talks to the app with Dapr's HTTP app protocol, over in-memory pipes (no socket) to a handler inside the component, which queues typed events for the pump.
+- **App channel.** The runtime reaches the app with plain Go calls — no HTTP, no app protocol on the wire. It runs in gRPC app-protocol mode with two in-process objects plugged in: an `AppCallback` "connection" that hands each typed protobuf request (pub/sub, bulk pub/sub, input bindings, subscription lists) straight to a handler, and an app channel for invocation, jobs, actors and health. Each handler queues a typed event for the pump.
 - **Components.** `scripts/gen-components.py` selects daprd's stable component set minus what does not build for wasip1 (sqlite, Pulsar, Dubbo, some Azure SDKs), plus crypto, Consul, the Redis lock and the conversation components.
 - Values are raw bytes — binary state roundtrips byte-exact.
 

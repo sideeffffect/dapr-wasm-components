@@ -154,8 +154,8 @@ func (virtualConn) CloseWrite() error { return nil }
 var virtual = map[string]func() net.Conn{}
 
 // RegisterVirtual makes dials to ip:port return dial() — an in-process
-// connection — instead of a socket. Used for Dapr's app channel, which
-// reaches the app's handler inside this same component.
+// connection — instead of a socket. Used for the app port, which Dapr
+// probes but the app, inside this same component, does not listen on.
 func RegisterVirtual(ip net.IP, port int, dial func() net.Conn) {
 	virtual[(&net.TCPAddr{IP: ip, Port: port}).String()] = dial
 }

@@ -1,6 +1,6 @@
 # dapr-wasm-components go Family (Dapr Embedded)
 
-> Sources: dapr-wasm-components go-family session, 2026-10-12
+> Sources: dapr-wasm-components go-family session, 2026-10-12; in-process app callbacks, 2026-10-14
 > Raw: [go family findings](../../raw/dapr/2026-10-12-go-family-embedded-dapr-findings.md)
 
 ## Overview
@@ -29,7 +29,12 @@ flowchart LR
 
 - **Boot.** `internal/daprrt` mirrors daprd's `runWithContext`, parsing the component's program arguments with daprd's own flag parser — `wasmtime run composed.wasm --app-id x --resources-path /r` configures it like daprd. The API object comes from the unexported `DaprRuntime.daprGRPCAPI` (reflection, field names checked at start).
 - **Outbound.** Each export calls the in-process gRPC API object (`runtimev1pb.DaprServer`) — the same protos as `wasi-grpc-outbound`, whose mappings it mirrors. Calls get non-empty incoming metadata run through Dapr's own metadata interceptor; skipping it made Dapr panic on a nil map.
-- **Inbound.** Dapr's app channel speaks its HTTP app protocol to `127.11.11.11:80`, a virtual endpoint that `wasisock` serves with in-memory `net.Pipe`s into an `http.Handler` (a Go port of `wasi-http-inbound`'s router), which queues typed events. Configuration updates are queued directly from the in-process subscription stream.
+- **Inbound (since 2026-10-14: Go calls, no HTTP).** `internal/appcallback` fills Dapr's two app seams, and every handler queues a typed event. Configuration updates are queued directly from the in-process subscription stream.
+  - The runtime runs in **gRPC app-protocol mode**. Pub/sub, bulk pub/sub, input bindings and the two subscription lists go through a `grpc.ClientConnInterface`; `appcallback.Conn` is no connection — it switches on the method name and passes the typed protobuf request to a handler (`wasi-grpc-inbound`'s mapping, minus the framing). It is registered with the public `Manager.SetAppClientConn`.
+  - Invocation, jobs, actors, the actor config and health probes go through `channel.AppChannel`, which `appcallback.Channel` implements directly. Dapr's actor runtime still calls it with `actors/<type>/<id>/method/...` methods and a JSON timer/reminder body: those are Go structs, not HTTP. Jobs reach the app as JSON (`anyjson.UnpackJSON`).
+  - **Wiring, no Dapr patch** (GOMODCACHE files cannot be overlaid). `daprrt.attach`, between `runtime.FromConfig` and `Run`, sets the unexported `Channels.appChannel` and zeroes the app port in `Channels`' private copy of the app connection config, so `Channels.Refresh` leaves the channel alone (its one warning is silenced by raising the `dapr.runtime.channels` logger to errors). All fields are checked at start.
+  - **The app port stays non-zero** (`127.11.11.11:80`): Consul self-registration fails without `APP_PORT` (`metadata property missing: APP_PORT`), and Dapr waits for a TCP connect to the app port before delivering. `wasisock` accepts that connect in-process; no byte flows.
+  - **Better than the HTTP channel it replaced**: no request/response serialization or parsing, no `net.Pipe` HTTP server, pub/sub data arrives as the envelope's bytes (no CloudEvent JSON re-encoding), no `/__dapr_wasm_components/pubsub` route trick, and input-binding replies are applied (`to`, `data`, `concurrency` — Dapr ignores the whole reply on the HTTP channel). Gaps: >100 concurrent `AppCallback` calls would make Dapr's pool dial a second connection (it would fail); Dapr's app HTTP middleware pipeline and app token do not apply.
 - **Network.** Go's wasip1 `net` is an in-process fake. A `go build -overlay` (std only — GOMODCACHE files cannot be overlaid) patches `net` to call hooks that `wasisock` fills with `wasi:sockets` TCP/DNS; waits are cooperative (non-blocking + sleep backoff) because all goroutines share one thread. Wildcard listens bind IPv4: wasi:sockets IPv6 sockets are IPv6-only.
 - **Runtime patch.** A GC can start inside `cabi_realloc`, and its start-the-world `netpoll(0)` calls `poll_oneoff` — an import, forbidden there ("cannot leave component instance"). The overlay skips that no-op poll.
 - **Components.** `scripts/gen-components.py` copies daprd's registration files: the stable set minus what does not build for wasip1 (sqlite via modernc libc, Pulsar, Dubbo, some Azure SDKs), plus crypto, Consul, the Redis lock and conversation.

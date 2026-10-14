@@ -623,9 +623,11 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
     // 12. Each reply also asked the sidecar to persist `binding-response` via
     //    `storeName` + `state`. daprd (checked up to 1.18) ignores the body of
     //    an HTTP app-channel binding reply — `sendBindingEventToApp` never
-    //    parses it — so nothing is persisted, even after 3+ replies. This pins
-    //    that upstream behaviour: if it starts failing, daprd now honours the
-    //    reply — flip this to a positive check and update the docs.
+    //    parses it — and over gRPC (the go family) it applies only `to`,
+    //    `data` and `concurrency`, so nothing is persisted, even after 3+
+    //    replies. This pins that upstream behaviour: if it starts failing,
+    //    daprd now honours the reply — flip this to a positive check and
+    //    update the docs.
     assert!(
         status["responseState"].is_null(),
         "daprd now applies the input-binding reply over the HTTP app channel \

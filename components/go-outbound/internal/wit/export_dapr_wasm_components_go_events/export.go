@@ -2,16 +2,16 @@
 package export_dapr_wasm_components_go_events
 
 import (
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/appchannel"
+	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/appcallback"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/daprrt"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/events"
 	ev "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/dapr_wasm_components_go_events"
 )
 
-// Attach enables the app channel and starts the runtime with it.
+// Attach starts the runtime connected to the app.
 func Attach() {
 	events.Attach()
-	if !daprrt.StartAttached(&appchannel.Handler{}) {
+	if !daprrt.StartAttached(&daprrt.App{Callbacks: appcallback.Conn{}, Channel: &appcallback.Channel{}}) {
 		panic("attach: the Dapr runtime was already started without an app channel " +
 			"(a building block was called before go-inbound attached)")
 	}

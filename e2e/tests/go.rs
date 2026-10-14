@@ -14,7 +14,7 @@
 //!
 //! There is no app port: the scenario drives each app through its embedded
 //! runtime's own Dapr HTTP API (`/v1.0/invoke/<self>/method/...`), which
-//! reaches the app over the in-process app channel and the go-inbound pump.
+//! reaches the app with in-process Go calls and the go-inbound pump.
 //!
 //! Ignored by default — requires Docker and the `wasmtime` CLI:
 //!

@@ -4,7 +4,7 @@
 //! embeds the one Dapr runtime of the composed app and queues every Dapr →
 //! app delivery as an `event` on the private `dapr-wasm-components:go/events`
 //! interface. This component runs as the composition's `wasi:cli/run`: it
-//! attaches (which enables the runtime's app channel), then loops — pull an
+//! attaches (which connects the runtime to the app), then loops — pull an
 //! event, call the app's matching `*-callback` export, hand the result back.
 //!
 //! Pulling instead of pushing keeps the composition acyclic
