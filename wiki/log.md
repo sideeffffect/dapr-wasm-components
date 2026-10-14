@@ -118,3 +118,6 @@
 
 ## [2026-10-13] update | go Family generated code
 - Updated: dapr-wasm-components go Family (checked-in generated Go, Go generated-code header fix)
+
+## [2026-10-14] update | go Family in-process app callbacks
+- Updated: dapr-wasm-components go Family (inbound via Go calls in gRPC app-protocol mode; HTTP app channel removed; wiring, Consul APP_PORT constraint, gaps)

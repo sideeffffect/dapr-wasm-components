@@ -12,7 +12,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"reflect"
 	"sync"
@@ -20,6 +19,8 @@ import (
 
 	"github.com/dapr/dapr/cmd/daprd/options"
 	daprgrpc "github.com/dapr/dapr/pkg/api/grpc"
+	"github.com/dapr/dapr/pkg/api/grpc/manager"
+	"github.com/dapr/dapr/pkg/channel"
 	bindingsLoader "github.com/dapr/dapr/pkg/components/bindings"
 	configurationLoader "github.com/dapr/dapr/pkg/components/configuration"
 	conversationLoader "github.com/dapr/dapr/pkg/components/conversation"
@@ -30,14 +31,18 @@ import (
 	pubsubLoader "github.com/dapr/dapr/pkg/components/pubsub"
 	secretstoresLoader "github.com/dapr/dapr/pkg/components/secretstores"
 	stateLoader "github.com/dapr/dapr/pkg/components/state"
+	"github.com/dapr/dapr/pkg/config"
 	"github.com/dapr/dapr/pkg/healthz"
 	"github.com/dapr/dapr/pkg/metrics"
 	"github.com/dapr/dapr/pkg/modes"
 	"github.com/dapr/dapr/pkg/runtime"
+	"github.com/dapr/dapr/pkg/runtime/channels"
 	"github.com/dapr/dapr/pkg/runtime/registry"
 	"github.com/dapr/dapr/pkg/security"
 	"github.com/dapr/kit/concurrency"
 	"github.com/dapr/kit/logger"
+	"google.golang.org/grpc"
+
 	_ "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/components" // component registrations
 
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/wasisock"
@@ -48,13 +53,25 @@ var (
 	logContrib = logger.NewLogger("dapr.contrib")
 )
 
-// AppChannelIP and AppChannelPort are the virtual address of the app
-// channel: Dapr's HTTP app protocol is served by an in-process handler,
-// reached over in-memory pipes (wasisock.RegisterVirtual) — no socket.
+// AppIP and AppPort are the app address Dapr is given. The app is reached
+// with Go calls (App), not through it, but Dapr still uses it: name
+// resolution registers the app port (Consul requires one), and Dapr waits
+// for a TCP connect to it before it delivers anything. wasisock accepts that
+// connect in-process; no byte ever flows over it.
 var (
-	AppChannelIP   = net.IPv4(127, 11, 11, 11)
-	AppChannelPort = 80
+	AppIP   = net.IPv4(127, 11, 11, 11)
+	AppPort = 80
 )
+
+// App is how the runtime reaches the attached app: plain Go calls, no app
+// protocol on the wire (see package appcallback).
+type App struct {
+	// Callbacks serves the `AppCallback` gRPC service in-process: Dapr
+	// calls it for pub/sub, input bindings and their subscription lists.
+	Callbacks grpc.ClientConnInterface
+	// Channel is Dapr's app channel: invocation, jobs, actors, health.
+	Channel channel.AppChannel
+}
 
 // defaultArgs come before the user's arguments, so the user can override
 // them (daprd's flag parser lets the last occurrence win).
@@ -67,6 +84,7 @@ var (
 	mu            sync.Mutex
 	started       bool
 	attachedStart bool
+	app           *App // nil when outbound only
 	rt            *runtime.DaprRuntime
 	ready         = make(chan struct{}) // closed once rt is set (or failed)
 	failed        error
@@ -89,34 +107,42 @@ func IsSelf(target string) bool {
 	return target == appID || target == appID+"."+ns
 }
 
-// StartAttached boots the runtime with Dapr's app channel enabled and
-// served by handler (the go-inbound pump is attached). It reports false if
-// the runtime was already started without one.
-func StartAttached(handler http.Handler) bool {
+// StartAttached boots the runtime connected to a (the go-inbound pump is
+// attached). It reports false if the runtime was already started without
+// an app.
+func StartAttached(a *App) bool {
 	mu.Lock()
 	defer mu.Unlock()
 	if started {
 		return attachedStart
 	}
 	attachedStart = true
-	start(handler)
+	start(a)
 	return true
 }
 
-// start boots the runtime; mu must be held. With a handler, Dapr's app
-// channel is enabled and served by it; without one the runtime runs like
-// daprd without --app-port (outbound only).
-func start(handler http.Handler) {
+// start boots the runtime; mu must be held. With an app, the runtime runs
+// in gRPC app-protocol mode and reaches the app through a's Go objects (see
+// attach). Without one it runs like daprd without --app-port (outbound
+// only).
+func start(a *App) {
 	started = true
+	app = a
 	checkFields()
 
 	args := append(append([]string{}, defaultArgs...), os.Args[1:]...)
-	if handler != nil {
-		serveAppChannel(handler)
+	if a != nil {
+		wasisock.RegisterVirtual(AppIP, AppPort, func() net.Conn {
+			client, server := net.Pipe()
+			_ = server.Close() // a connect probe only
+			return client
+		})
+		// Last occurrence wins: the app is in-process, whatever the user
+		// passed.
 		args = append(args,
-			"--app-port", fmt.Sprint(AppChannelPort),
-			"--app-channel-address", AppChannelIP.String(),
-			"--app-protocol", "http",
+			"--app-port", fmt.Sprint(AppPort),
+			"--app-channel-address", AppIP.String(),
+			"--app-protocol", "grpc",
 		)
 	}
 	go func() {
@@ -163,50 +189,50 @@ func API() daprgrpc.API {
 // the pinned Dapr version by checkFields at start, so a Dapr upgrade that
 // renames them fails loudly instead of misbehaving.
 func unexported[T any](r *runtime.DaprRuntime, name string) T {
-	f := reflect.ValueOf(r).Elem().FieldByName(name)
-	return *(*T)(unsafe.Pointer(f.UnsafeAddr()))
+	return *field[T](r, name)
+}
+
+// field returns a pointer to the unexported field name of the struct *p.
+func field[T any, S any](p *S, name string) *T {
+	f := reflect.ValueOf(p).Elem().FieldByName(name)
+	return (*T)(unsafe.Pointer(f.UnsafeAddr()))
 }
 
 func checkFields() {
-	t := reflect.TypeOf(runtime.DaprRuntime{})
-	for name, want := range map[string]reflect.Type{
-		"initComplete": reflect.TypeOf(make(chan struct{})),
-		"daprGRPCAPI":  reflect.TypeOf((*daprgrpc.API)(nil)).Elem(),
+	for _, c := range []struct {
+		t    reflect.Type
+		name string
+		want reflect.Type
+	}{
+		{reflect.TypeOf(runtime.DaprRuntime{}), "initComplete", reflect.TypeOf(make(chan struct{}))},
+		{reflect.TypeOf(runtime.DaprRuntime{}), "daprGRPCAPI", reflect.TypeOf((*daprgrpc.API)(nil)).Elem()},
+		{reflect.TypeOf(runtime.DaprRuntime{}), "grpc", reflect.TypeOf((*manager.Manager)(nil))},
+		{reflect.TypeOf(runtime.DaprRuntime{}), "channels", reflect.TypeOf((*channels.Channels)(nil))},
+		{reflect.TypeOf(channels.Channels{}), "appChannel", reflect.TypeOf((*channel.AppChannel)(nil)).Elem()},
+		{reflect.TypeOf(channels.Channels{}), "appConnectionConfig", reflect.TypeOf(config.AppConnectionConfig{})},
 	} {
-		f, ok := t.FieldByName(name)
-		if !ok || f.Type != want {
-			panic(fmt.Sprintf("dapr runtime field %s (%v) not found: incompatible github.com/dapr/dapr version", name, want))
+		f, ok := c.t.FieldByName(c.name)
+		if !ok || f.Type != c.want {
+			panic(fmt.Sprintf("dapr field %v.%s (%v) not found: incompatible github.com/dapr/dapr version", c.t, c.name, c.want))
 		}
 	}
 }
 
-// pipeListener is a net.Listener fed with the server ends of net.Pipe
-// connections created by virtual dials.
-type pipeListener struct{ conns chan net.Conn }
-
-func (l *pipeListener) Accept() (net.Conn, error) {
-	c, ok := <-l.conns
-	if !ok {
-		return nil, net.ErrClosed
-	}
-	return c, nil
-}
-func (l *pipeListener) Close() error { return nil }
-func (l *pipeListener) Addr() net.Addr {
-	return &net.TCPAddr{IP: AppChannelIP, Port: AppChannelPort}
-}
-
-func serveAppChannel(handler http.Handler) {
-	ln := &pipeListener{conns: make(chan net.Conn, 64)}
-	wasisock.RegisterVirtual(AppChannelIP, AppChannelPort, func() net.Conn {
-		client, server := net.Pipe()
-		ln.conns <- server
-		return client
-	})
-	go func() {
-		// Serve only returns on listener failure, which pipeListener never has.
-		_ = (&http.Server{Handler: handler}).Serve(ln)
-	}()
+// attach connects a freshly built runtime, not yet running, to the app.
+// DaprRuntime has no public way to take an app channel or an app gRPC
+// connection, so both are set through unexported fields (checked by
+// checkFields):
+//   - the gRPC manager's app connection, which serves every `AppCallback`
+//     call. Manager.SetAppClientConn is public (meant for tests);
+//   - Channels.appChannel. Channels keeps its own copy of the app
+//     connection config; with its app port zeroed, Channels.Refresh leaves
+//     the channel untouched instead of building Dapr's own (it only warns,
+//     so its logger is raised to errors in run).
+func attach(r *runtime.DaprRuntime, a *App) {
+	(*field[*manager.Manager](r, "grpc")).SetAppClientConn(a.Callbacks)
+	ch := *field[*channels.Channels](r, "channels")
+	field[config.AppConnectionConfig](ch, "appConnectionConfig").Port = 0
+	*field[channel.AppChannel](ch, "appChannel") = a.Channel
 }
 
 // run mirrors daprd's cmd/daprd/app.runWithContext.
@@ -221,6 +247,11 @@ func run(args []string) error {
 	opts.Logger.SetAppID(opts.AppID)
 	if err := logger.ApplyOptionsToLoggers(&opts.Logger); err != nil {
 		return err
+	}
+	if app != nil {
+		// Its only warning, "App channel is not initialized. Did you
+		// configure an app-port?", is wrong here: attach sets the channel.
+		logger.NewLogger("dapr.runtime.channels").SetOutputLevel(logger.ErrorLevel)
 	}
 
 	secretstoresLoader.DefaultRegistry.Logger = logContrib
@@ -332,6 +363,9 @@ func run(args []string) error {
 			})
 			if rerr != nil {
 				return rerr
+			}
+			if app != nil {
+				attach(r, app)
 			}
 			mu.Lock()
 			rt = r
