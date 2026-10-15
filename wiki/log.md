@@ -124,3 +124,6 @@
 
 ## [2026-10-15] update | One OCI name for the interface package
 - Updated: dapr-wasm-components Architecture (interface published only as `dapr-wasm-components/interfaces`, `latest` + semver; flat name is legacy)
+
+## [2026-10-15] update | Provider OCI names under dapr-wasm-components/
+- Updated: dapr-wasm-components Architecture (providers published as `dapr-wasm-components/<module>`; flat names legacy)

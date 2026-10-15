@@ -383,7 +383,7 @@ jobs:
 
       - name: Publish wasi-http outbound module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-http-outbound:${{ steps.tag.outputs.tag }}" \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components/wasi-http-outbound:${{ steps.tag.outputs.tag }}" \
             components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_outbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (outbound): the dapr-wasm-components building blocks over the Dapr HTTP API via wasi:http" \
@@ -391,7 +391,7 @@ jobs:
 
       - name: Publish wasi-http inbound module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-http-inbound:${{ steps.tag.outputs.tag }}" \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components/wasi-http-inbound:${{ steps.tag.outputs.tag }}" \
             components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_http_inbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (inbound): exports wasi:http/incoming-handler and dispatches the Dapr HTTP app channel to typed dapr-wasm-components callbacks" \
@@ -399,7 +399,7 @@ jobs:
 
       - name: Publish wasi-grpc outbound module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-grpc-outbound:${{ steps.tag.outputs.tag }}" \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components/wasi-grpc-outbound:${{ steps.tag.outputs.tag }}" \
             components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_outbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (outbound): the dapr-wasm-components building blocks over the Dapr gRPC API (requires Spin >= 3.4 for outbound h2c)" \
@@ -407,7 +407,7 @@ jobs:
 
       - name: Publish wasi-grpc inbound module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-wasi-grpc-inbound:${{ steps.tag.outputs.tag }}" \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components/wasi-grpc-inbound:${{ steps.tag.outputs.tag }}" \
             components/target/wasm32-wasip2/release/dapr_wasm_components_wasi_grpc_inbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pure-wasm Dapr provider (inbound): serves Dapr's AppCallback gRPC service over wasi:http/incoming-handler and dispatches to typed dapr-wasm-components callbacks (requires a Spin host that accepts inbound h2c)" \
@@ -415,7 +415,7 @@ jobs:
 
       - name: Publish go outbound module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-go-outbound:${{ steps.tag.outputs.tag }}" \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components/go-outbound:${{ steps.tag.outputs.tag }}" \
             components/target/wasm32-wasip2/release/dapr_wasm_components_go_outbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Dapr itself (github.com/dapr/dapr) embedded in a wasm component: serves the dapr-wasm-components building blocks in-process, no sidecar (pair with dapr-wasm-components-go-inbound)" \
@@ -423,7 +423,7 @@ jobs:
 
       - name: Publish go inbound module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-go-inbound:${{ steps.tag.outputs.tag }}" \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components/go-inbound:${{ steps.tag.outputs.tag }}" \
             components/target/wasm32-wasip2/release/dapr_wasm_components_go_inbound.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=Pump of the go provider family: delivers the embedded Dapr runtime's events to the app's typed dapr-wasm-components callbacks (wasi:cli/run; pair with dapr-wasm-components-go-outbound)" \

@@ -132,9 +132,9 @@ All modules are published to this repository's OCI registry — tag `latest` tra
 ```sh
 ORG=ghcr.io/sideeffffect
 wkg oci pull $ORG/dapr-wasm-components/interfaces:latest        -o interface.wasm
-wkg oci pull $ORG/dapr-wasm-components-wasi-http-outbound:latest -o http-outbound.wasm
-wkg oci pull $ORG/dapr-wasm-components-wasi-http-inbound:latest  -o http-inbound.wasm
-# and likewise -wasi-grpc-outbound / -wasi-grpc-inbound and -go-outbound / -go-inbound
+wkg oci pull $ORG/dapr-wasm-components/wasi-http-outbound:latest -o http-outbound.wasm
+wkg oci pull $ORG/dapr-wasm-components/wasi-http-inbound:latest  -o http-inbound.wasm
+# and likewise /wasi-grpc-outbound, /wasi-grpc-inbound, /go-outbound and /go-inbound
 
 wasm-tools component wit interface.wasm    # view the interfaces as WIT text
 ```
