@@ -2,7 +2,7 @@
 
 [Dapr](https://dapr.io) building blocks for [WebAssembly components](https://component-model.bytecodealliance.org/), as pure-wasm modules:
 
-- **`dapr-wasm-components-interfaces`** — the [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md) package `dapr-wasm-components:interfaces` (`components/wit/`): typed, **synchronous** interfaces for every Dapr building block (the *outbound* direction, app → Dapr) and a set of `*-callback` interfaces (the *inbound* direction, Dapr → app), including the experimental/alpha building blocks.
+- **`dapr-wasm-components/interfaces`** — the [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md) package `dapr-wasm-components:interfaces` (`components/wit/`): typed, **synchronous** interfaces for every Dapr building block (the *outbound* direction, app → Dapr) and a set of `*-callback` interfaces (the *inbound* direction, Dapr → app), including the experimental/alpha building blocks.
 - **Six provider components** (`components/`) — one per direction × family, so your app never touches the wire either way:
   - **`-wasi-http-outbound`** / **`-wasi-http-inbound`** — the [HTTP API](https://docs.dapr.io/reference/api/) over `wasi:http`. Portable: any WASI 0.2 runtime with `wasi:http` (wasmtime, wasmCloud, Spin, …). The inbound one exports `wasi:http/incoming-handler` and dispatches the app channel to the typed callbacks.
   - **`-wasi-grpc-outbound`** / **`-wasi-grpc-inbound`** — the [gRPC API](https://docs.dapr.io/developing-applications/local-development/grpc-integration/) (tonic + vendored Dapr protos). Typed protobuf instead of JSON — values roundtrip **byte-exact**. Needs a host that sends cleartext HTTP/2: [Spin](https://spinframework.dev) ≥ 3.4 (tested) or wasmCloud v2 (not tested yet) — see [below](#the-wasi-grpc-provider-spin-only). The inbound one serves Dapr's `AppCallback` gRPC service.
@@ -131,7 +131,7 @@ All modules are published to this repository's OCI registry — tag `latest` tra
 
 ```sh
 ORG=ghcr.io/sideeffffect
-wkg oci pull $ORG/dapr-wasm-components-interfaces:latest        -o interface.wasm
+wkg oci pull $ORG/dapr-wasm-components/interfaces:latest        -o interface.wasm
 wkg oci pull $ORG/dapr-wasm-components-wasi-http-outbound:latest -o http-outbound.wasm
 wkg oci pull $ORG/dapr-wasm-components-wasi-http-inbound:latest  -o http-inbound.wasm
 # and likewise -wasi-grpc-outbound / -wasi-grpc-inbound and -go-outbound / -go-inbound
@@ -141,9 +141,9 @@ wasm-tools component wit interface.wasm    # view the interfaces as WIT text
 
 ### Depending on the WIT package with `wkg`
 
-Releases also publish the WIT package under wkg's own naming scheme
+The interface package's OCI name follows wkg's own naming scheme
 (`ghcr.io/sideeffffect/dapr-wasm-components/interfaces:<version>`), so you can declare it as a normal WIT
-dependency. Import it from your world:
+dependency (wkg ignores the `latest` tag and resolves semver tags only). Import it from your world:
 
 ```wit
 package my:app;

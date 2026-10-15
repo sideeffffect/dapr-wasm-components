@@ -121,3 +121,6 @@
 
 ## [2026-10-14] update | go Family in-process app callbacks
 - Updated: dapr-wasm-components go Family (inbound via Go calls in gRPC app-protocol mode; HTTP app channel removed; wiring, Consul APP_PORT constraint, gaps)
+
+## [2026-10-15] update | One OCI name for the interface package
+- Updated: dapr-wasm-components Architecture (interface published only as `dapr-wasm-components/interfaces`, `latest` + semver; flat name is legacy)

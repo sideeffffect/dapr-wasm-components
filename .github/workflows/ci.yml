@@ -370,9 +370,12 @@ jobs:
           cargo build --release --target wasm32-wasip2 --manifest-path components/Cargo.toml
           components/go-outbound/scripts/build.sh
 
+      # Same OCI name as `wkg publish` (publish-wit.yml, wkg-config.toml), so one
+      # package serves both `wkg oci pull …:latest` and `wkg wit fetch`. wkg's
+      # resolver only reads semver tags, so `latest` does not disturb it.
       - name: Publish interface module
         run: |
-          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components-interfaces:${{ steps.tag.outputs.tag }}" \
+          wkg oci push "ghcr.io/${{ github.repository_owner }}/dapr-wasm-components/interfaces:${{ steps.tag.outputs.tag }}" \
             dapr-wasm-components-interfaces.wasm \
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --annotation "org.opencontainers.image.description=WIT interfaces for Dapr building blocks (dapr-wasm-components:interfaces)" \
