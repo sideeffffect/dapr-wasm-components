@@ -127,3 +127,6 @@
 
 ## [2026-10-15] update | Provider OCI names under dapr-wasm-components/
 - Updated: dapr-wasm-components Architecture (providers published as `dapr-wasm-components/<module>`; flat names legacy)
+
+## [2026-10-15] update | Flat OCI packages deleted
+- Updated: dapr-wasm-components Architecture (old flat packages deleted at 0.7.4; versions copied to the new names)
