@@ -21,10 +21,10 @@
 package dapr-wasm-components:go@0.1.0;
 
 interface events {
-  use dapr-wasm-components:interfaces/types@0.7.3.{metadata, app-error};
-  use dapr-wasm-components:interfaces/state-read@0.7.3.{state-item};
-  use dapr-wasm-components:interfaces/invocation@0.7.3.{http-verb, http-response};
-  use dapr-wasm-components:interfaces/configuration-read@0.7.3.{configuration-item};
+  use dapr-wasm-components:interfaces/types@0.7.4.{metadata, app-error};
+  use dapr-wasm-components:interfaces/state-read@0.7.4.{state-item};
+  use dapr-wasm-components:interfaces/invocation@0.7.4.{http-verb, http-response};
+  use dapr-wasm-components:interfaces/configuration-read@0.7.4.{configuration-item};
 
   // ---- copies of invocation-callback records ----
   record invoke-request {
@@ -240,7 +240,7 @@ interface events {
 /// embedded Dapr runtime, plus the `events` queue. Needs `wasi:sockets` for
 /// Dapr's own network (brokers, stores, placement, scheduler, peers).
 world go-outbound {
-  include dapr-wasm-components:interfaces/outbound@0.7.3;
+  include dapr-wasm-components:interfaces/outbound@0.7.4;
   export events;
 
   import wasi:sockets/network@0.2.6;
@@ -253,7 +253,7 @@ world go-outbound {
 /// `dapr-wasm-components-go-inbound`: the pump. Runs as the composition's
 /// `wasi:cli/run`.
 world go-inbound {
-  include dapr-wasm-components:interfaces/inbound@0.7.3;
+  include dapr-wasm-components:interfaces/inbound@0.7.4;
   import events;
 
   export wasi:cli/run@0.2.6;

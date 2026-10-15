@@ -1,7 +1,7 @@
 # Roadmap / follow-ups
 
 Tracked follow-up work for `dapr-wasm-components`, current as of package
-`dapr-wasm-components:interfaces@0.7.3`. Grouped by area; each item notes *why*
+`dapr-wasm-components:interfaces@0.7.4`. Grouped by area; each item notes *why*
 it's open and roughly *what* it needs. See
 [wiki/dapr/dapr-wasm-components-architecture.md](wiki/dapr/dapr-wasm-components-architecture.md)
 for the design rationale and [wiki/dapr/dapr-wasm-components-inbound-design.md](wiki/dapr/dapr-wasm-components-inbound-design.md)
