@@ -96,9 +96,15 @@ resolve() {
     echo "$local_dir/$file"; return
   fi
   command -v wkg >/dev/null || die "wkg not found and no local $direction build at $local_dir/$file (see https://github.com/bytecodealliance/wasm-pkg-tools)"
-  local ref="$org/dapr-wasm-components-${package}-${direction}:${tag}"
+  # Every module lives under one OCI namespace since 0.7.4:
+  # <org>/dapr-wasm-components/<module>. The old flat names
+  # (<org>/dapr-wasm-components-<module>) were deleted from ghcr; all their
+  # versions (0.6.0+; go-* from 0.7.1) were copied to the new names.
+  local ref="$org/dapr-wasm-components/${package}-${direction}:${tag}"
   echo "compose.sh: pulling $ref" >&2
-  wkg oci pull "$ref" -o "$tmp/$file" >&2
+  # Explicit `|| die`: `set -e` is not inherited by the `$(...)` subshell this
+  # runs in, so a failed pull would otherwise hand wac a missing file.
+  wkg oci pull "$ref" -o "$tmp/$file" >&2 || die "could not pull $ref (does tag '$tag' exist?)"
   echo "$tmp/$file"
 }
 

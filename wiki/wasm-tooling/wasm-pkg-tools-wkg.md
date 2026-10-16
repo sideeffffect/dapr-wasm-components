@@ -28,7 +28,7 @@ auth = { username = "...", password = "..." }  # falls back to docker config.jso
 
 ## OCI naming convention
 
-Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.z`, e.g. `wasi:http@0.2.1` → `ghcr.io/webassembly/wasi/http:0.2.1`. The tag **must** be valid semver. So `dapr:client@0.1.0` with prefix `sideeffffect/` → `ghcr.io/sideeffffect/dapr/client:0.1.0` (this project's v1 layout). This project now bypasses the scheme: CI pushes `dapr-wasm-components:interfaces` with `wkg oci push` to the exact reference `ghcr.io/sideeffffect/dapr-wasm-components-interfaces:<tag>`.
+Package `ns:pkg@x.y.z` is stored at `<registry>/<namespacePrefix><ns>/<pkg>:x.y.z`, e.g. `wasi:http@0.2.1` → `ghcr.io/webassembly/wasi/http:0.2.1`. The tag **must** be valid semver. So `dapr:client@0.1.0` with prefix `sideeffffect/` → `ghcr.io/sideeffffect/dapr/client:0.1.0` (this project's v1 layout). This project now bypasses the scheme: CI pushes `dapr-wasm-components:interfaces` with `wkg oci push` to the exact reference `ghcr.io/sideeffffect/dapr-wasm-components/interfaces:<tag>` (the flat `dapr-wasm-components-interfaces` name was deleted at 0.7.4).
 
 ## Verified in practice (this repo, 2026-06-11)
 

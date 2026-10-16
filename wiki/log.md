@@ -130,3 +130,7 @@
 
 ## [2026-10-15] update | Flat OCI packages deleted
 - Updated: dapr-wasm-components Architecture (old flat packages deleted at 0.7.4; versions copied to the new names)
+
+## [2026-10-16] update | compose.sh pulls the nested OCI names
+- Updated: dapr-wasm-components Architecture (publishing reference uses `dapr-wasm-components/<module>`)
+- Updated: wasm-pkg-tools (wkg) (interface reference uses the nested name)
