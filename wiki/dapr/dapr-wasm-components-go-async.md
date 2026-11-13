@@ -26,7 +26,7 @@ Both come from the WASI 0.2 sync model: one thread of control per store, and a s
 
 ## Spike results
 
-Code: `spikes/go-async/` in SPIKES_PR (kept out of `main`); wasmtime 49.0.2.
+Code: `spikes/go-async/` in [PR #21](https://github.com/sideeffffect/dapr-wasm-components/pull/21) (kept out of `main`); wasmtime 49.0.2.
 
 ```mermaid
 flowchart LR
@@ -45,7 +45,7 @@ Consequences:
 
 ## Plan (stacked)
 
-1. **Research** (this page) **+ spikes** (SPIKES_PR).
+1. **Research** (this page) **+ spikes** ([PR #21](https://github.com/sideeffffect/dapr-wasm-components/pull/21)).
 2. **Go-only async.** Private `go.wit` goes async (`run` daemon task, async `next-event`), go-inbound becomes a WASIp3 pump (`wasi:cli/run@0.3.0`), componentize-go async build. Public interfaces unchanged. Foundation for step 3.
 3. **interfaces 0.8 async.** Building blocks and `*-callback` functions become `async func` (breaks the "WIT stays sync" rule). All providers, the `dapr-app` SDK (async Rust apps) and the E2Es follow. Fixes self-invocation, concurrent deliveries and frozen Dapr while the app awaits Dapr or p3 I/O.
 
