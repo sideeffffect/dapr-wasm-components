@@ -1,0 +1,5 @@
+package spike:composed;
+let p = new spike:provider { ... };
+let a = new spike:app { prov: p.prov, ... };
+let m = new spike:pump { prov: p.prov, cb: a.cb, ... };
+export m["wasi:cli/run@0.3.0"];
