@@ -138,3 +138,6 @@
 ## [2026-11-13] ingest | dapr-wasm-components go Family: Async, Threads and Queues
 - Updated: dapr-wasm-components go Family (Limits point to the async research)
 - Updated: Component Model Overview (CM async / reentrance status as of 2026-11)
+
+## [2026-11-13] ingest | Dapr on TinyGo feasibility
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (TinyGo alternative: tested, blockers, effort; CM-threads claim corrected)

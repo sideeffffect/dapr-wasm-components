@@ -1,7 +1,7 @@
 # dapr-wasm-components go Family: Async, Threads and Queues
 
-> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13
-> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md)
+> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13
+> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md)
 
 ## Overview
 
@@ -18,7 +18,7 @@ Both come from the WASI 0.2 sync model: one thread of control per store, and a s
 |---|---|---|
 | **WASI 0.3 / Component Model async** (async funcs, waitable sets, callback ABI) | WASI 0.3.0 final (June 2026); on by default in wasmtime 49; componentize-go 0.5.x with a patched Go | **Yes — the only practical lever.** An async Go task can stay alive and be resumed by the host event loop; async-typed functions let a caller wait without holding the instance. |
 | Reentrance rule change (CM PR #705) | Spec merged 2026-08; wasmtime 49 passes `reentrance.wast` | Yes, with async: app → Dapr → same app no longer traps. |
-| CM cooperative threads (`thread.new-indirect`, …) | Behind `-W component-model-threading`, "very incomplete" | Not for big Go: Go has its own scheduler. TinyGo maps goroutines to CM threads, but Dapr does not build with TinyGo. |
+| CM cooperative threads (`thread.new-indirect`, …) | Behind `-W component-model-threading`, "very incomplete" | Not for big Go: Go has its own scheduler. TinyGo's pending wasip3 work (go-pkg glue) maps goroutines to CM threads; released TinyGo 0.44 (`wasip2`) still uses asyncify. Dapr does not build with TinyGo (see below). |
 | wasi-threads | Legacy (WASI 0.1 only) | No: incompatible with components. |
 | shared-everything-threads | Phase 1 | Not yet: big Go has no wasm threads (golang/go#28631). |
 | Stack switching | Phase 3 | Indirect: a future Go backend (golang/go#81963); no effect today. |
@@ -56,7 +56,11 @@ Ranked by value for the go family:
 1. **daprd as a wasm sidecar.** go-outbound already serves daprd's HTTP/gRPC API (the E2E calls `/v1.0/invoke` on it). Run it as its own `wasmtime run` process (Go always on the stack, so it always runs) with the normal app channel, and serve the app with the sidecar families under `wasmtime serve`/Spin (fresh or reused instance per request). Gives independence, concurrency and self-invocation today, without async — but gives up the typed in-process calls and adds a process boundary.
 2. **More app instances in the composition** (wac can instantiate the app N times). Only useful together with async (the pump must be able to wait); with sync calls the pump is on the stack and cannot dispatch.
 3. **Host-side pump.** A custom wasmtime embedding that pulls `go-events` and instantiates the app per delivery. Breaks "no native host".
-4. **TinyGo + CM threads.** Goroutines as CM threads with timer-aware waits; Dapr (reflection-heavy, ~138 MB) is not expected to build with TinyGo.
+4. **TinyGo + CM threads.** Goroutines as CM threads with timer-aware waits. Tested with TinyGo 0.44.0: feasible only with heavy forks, about 10–20 person-weeks ([raw](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md)):
+   - protobuf-go works after a ~6-line patch (reflect `MethodByName`); grpc-go builds after 5 build-tag patches but cannot dial (TinyGo `net` has no wasi:sockets backend).
+   - A minimal Dapr subset pulls 1145 packages and fails in Azure azcore (`http.Transport.ForceAttemptHTTP2`, `tls.RenegotiateFreelyAsClient`).
+   - Blockers: stub `crypto/tls`, no wasi:sockets `net`, reflect `Method`/`Call` unimplemented (tinygo#3862), json-iterator/reflect2 linknames, build scale (tinygo#5840), `wasip2` = `linux/arm` drags in Linux-only code. No released wasip3 target yet.
+   - A slim TinyGo "Dapr-lite" (building blocks over small clients) is cheaper (4–8 person-weeks) but loses component breadth.
 5. **Upstream `GOOS=wasip3`** (golang/go#77141): would move the scheduler/host bridge, timers included, into the Go runtime. Wait and adopt.
 
 ## See Also
