@@ -38,7 +38,7 @@ interface invocation {
   /// query string (without the leading `?`).
   /// Note: a non-2xx response from the target application is returned as a
   /// normal `http-response`, not as an `error`.
-  invoke: func(
+  invoke: async func(
     app-id: string,
     method-path: string,
     verb: http-verb,

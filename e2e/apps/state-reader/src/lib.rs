@@ -14,8 +14,8 @@ struct App;
 impl DaprApp for App {
     /// Invoking method `<key>` returns the value stored under `key` (404 when
     /// absent).
-    fn on_invoke(request: InvokeRequest) -> HttpResponse {
-        match state_read::get("statestore", &request.method, None, &[]) {
+    async fn on_invoke(request: InvokeRequest) -> HttpResponse {
+        match state_read::get("statestore".into(), request.method, None, Vec::new()).await {
             Ok(response) => HttpResponse {
                 status: 200,
                 headers: Vec::new(),

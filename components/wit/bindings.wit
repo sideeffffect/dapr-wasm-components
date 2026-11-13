@@ -27,7 +27,7 @@ interface bindings {
   }
 
   /// Invoke `operation` (e.g. "create", "get") on the output binding `name`.
-  invoke-binding: func(
+  invoke-binding: async func(
     name: string,
     operation: string,
     data: list<u8>,

@@ -60,11 +60,11 @@ interface crypto {
   }
 
   /// Encrypt `data` using the crypto component `component-name`.
-  encrypt: func(component-name: string, data: list<u8>, options: encrypt-options) -> result<list<u8>, encrypt-error>;
+  encrypt: async func(component-name: string, data: list<u8>, options: encrypt-options) -> result<list<u8>, encrypt-error>;
 
   /// Decrypt `data`. `key-name` is only needed when it was omitted from
   /// the encrypted document.
-  decrypt: func(component-name: string, data: list<u8>, key-name: option<string>) -> result<list<u8>, decrypt-error>;
+  decrypt: async func(component-name: string, data: list<u8>, key-name: option<string>) -> result<list<u8>, decrypt-error>;
 
   /// Streaming encryption. Create it, `write` the plaintext in chunks, then
   /// `finish` to get the ciphertext as a `crypto-output`.

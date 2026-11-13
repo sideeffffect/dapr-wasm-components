@@ -15,5 +15,5 @@ interface jobs-callback {
   }
 
   /// Handle one job trigger.
-  on-job-event: func(event: job-event) -> result<_, app-error>;
+  on-job-event: async func(event: job-event) -> result<_, app-error>;
 }

@@ -8,8 +8,9 @@
 //! dapr run --app-id kv-demo -- wasmtime run -S http app.wasm
 //! ```
 //!
-//! All the Dapr calls below are plain synchronous function calls; the
-//! provider component turns them into wasi:http requests to the sidecar.
+//! The Dapr calls below are `async` (interfaces 0.8.0); `main` drives them
+//! with `dapr_app::block_on`. The provider component turns them into
+//! wasi:http requests to the sidecar.
 
 use std::io::{Read, Write};
 
@@ -85,8 +86,8 @@ fn crypto_roundtrip(component: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn run() -> Result<(), String> {
-    if !runtime::outbound_healthz() {
+async fn run() -> Result<(), String> {
+    if !runtime::outbound_healthz().await {
         return Err("Dapr sidecar is not ready for outbound calls".to_string());
     }
     println!("sidecar is ready");
@@ -95,23 +96,26 @@ fn run() -> Result<(), String> {
     let value = br#"{"message":"hello from a wasm component"}"#;
 
     state::save(
-        STATE_STORE,
-        &[state_read::StateItem {
+        STATE_STORE.into(),
+        vec![state_read::StateItem {
             key: key.to_string(),
             value: value.to_vec(),
             etag: None,
             metadata: Vec::new(),
             options: None,
         }],
-        &[],
+        Vec::new(),
     )
+    .await
     .map_err(|e| format!("state save failed: {e:?}"))?;
     println!("saved {key}");
 
-    let got = state_read::get(STATE_STORE, key, None, &[]).map_err(|e| match e {
-        state_read::GetError::KeyNotFound => format!("state key {key} unexpectedly missing"),
-        other => format!("state get failed: {other:?}"),
-    })?;
+    let got = state_read::get(STATE_STORE.into(), key.into(), None, Vec::new())
+        .await
+        .map_err(|e| match e {
+            state_read::GetError::KeyNotFound => format!("state key {key} unexpectedly missing"),
+            other => format!("state get failed: {other:?}"),
+        })?;
     if got.data != value {
         return Err(format!(
             "state roundtrip mismatch: wrote {}, read {}",
@@ -121,14 +125,27 @@ fn run() -> Result<(), String> {
     }
     println!("read {key} back (etag: {:?})", got.etag);
 
-    state::delete(STATE_STORE, key, None, None, &[])
+    state::delete(STATE_STORE.into(), key.into(), None, None, Vec::new())
+        .await
         .map_err(|e| format!("state delete failed: {e:?}"))?;
     println!("deleted {key}");
 
-    match lock::try_lock(LOCK_STORE, "kv-demo-resource", "kv-demo-owner", 60) {
+    match lock::try_lock(
+        LOCK_STORE.into(),
+        "kv-demo-resource".into(),
+        "kv-demo-owner".into(),
+        60,
+    )
+    .await
+    {
         Ok(()) => {
-            lock::unlock(LOCK_STORE, "kv-demo-resource", "kv-demo-owner")
-                .map_err(|e| format!("unlock failed: {e:?}"))?;
+            lock::unlock(
+                LOCK_STORE.into(),
+                "kv-demo-resource".into(),
+                "kv-demo-owner".into(),
+            )
+            .await
+            .map_err(|e| format!("unlock failed: {e:?}"))?;
             println!("lock roundtrip done");
         }
         Err(lock::TryLockError::NotAcquired) => {
@@ -142,12 +159,13 @@ fn run() -> Result<(), String> {
     }
 
     pubsub::publish(
-        PUBSUB,
-        TOPIC,
-        br#"{"message":"kv-demo roundtrip done"}"#,
-        Some("application/json"),
-        &[],
+        PUBSUB.into(),
+        TOPIC.into(),
+        br#"{"message":"kv-demo roundtrip done"}"#.to_vec(),
+        Some("application/json".into()),
+        Vec::new(),
     )
+    .await
     .map_err(|e| format!("publish failed: {e:?}"))?;
     println!("published to {TOPIC} on {PUBSUB}");
 
@@ -155,7 +173,7 @@ fn run() -> Result<(), String> {
 }
 
 fn main() {
-    if let Err(error) = run() {
+    if let Err(error) = dapr_app::block_on(run()) {
         eprintln!("kv-demo failed: {error}");
         std::process::exit(1);
     }

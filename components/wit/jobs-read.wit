@@ -49,5 +49,5 @@ interface jobs-read {
 
   /// Get the named job's definition. Fails with `job-not-found` when no
   /// such job exists.
-  get: func(name: string) -> result<job, get-job-error>;
+  get: async func(name: string) -> result<job, get-job-error>;
 }

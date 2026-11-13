@@ -18,5 +18,5 @@ prost = "0.14"
 prost-types = "0.14"
 tonic = { version = "0.14", default-features = false, features = ["codegen"] }
 tonic-prost = "0.14"
-wit-bindgen = "0.62"
+wit-bindgen = "0.63"
 wstd = "0.6"

@@ -49,9 +49,14 @@ impl wit::exports::wasi::cli0_3_0::run::Guest for Pump {
         let _runtime = wit_bindgen::spawn_local(ev::run());
         loop {
             let (id, event) = ev::next_event().await;
-            // The callbacks are sync-typed: this blocks the pump (and the
-            // runtime) until the app returns.
-            ev::complete_event(id, &dispatch(event));
+            // One task per delivery: while the app awaits (a building block,
+            // or another delivery's result), the pump keeps pulling, so
+            // deliveries run concurrently and the app can be re-entered —
+            // e.g. a callback that invokes its own app id.
+            drop(wit_bindgen::spawn_local(async move {
+                let outcome = dispatch(event).await;
+                ev::complete_event(id, &outcome);
+            }));
         }
     }
 }
@@ -60,34 +65,39 @@ wit::export!(Pump);
 
 /// Call the app's callback for one event and wrap its answer in the
 /// matching `event-result` case.
-fn dispatch(event: ev::Event) -> ev::EventResult {
+async fn dispatch(event: ev::Event) -> ev::EventResult {
     match event {
         ev::Event::ListTopicSubscriptions => ev::EventResult::ListTopicSubscriptions(
             pubsub::list_topic_subscriptions()
+                .await
                 .into_iter()
                 .map(subscription)
                 .collect(),
         ),
         ev::Event::ListInputBindings => {
-            ev::EventResult::ListInputBindings(bindings::list_input_bindings())
+            ev::EventResult::ListInputBindings(bindings::list_input_bindings().await)
         }
-        ev::Event::ActorConfig => ev::EventResult::ActorConfig(actor_config(actors::config())),
-        ev::Event::HealthCheck => ev::EventResult::HealthCheck(health::health_check()),
-        ev::Event::Invoke(r) => {
-            ev::EventResult::Invoke(invocation::on_invoke(&invocation::InvokeRequest {
+        ev::Event::ActorConfig => {
+            ev::EventResult::ActorConfig(actor_config(actors::config().await))
+        }
+        ev::Event::HealthCheck => ev::EventResult::HealthCheck(health::health_check().await),
+        ev::Event::Invoke(r) => ev::EventResult::Invoke(
+            invocation::on_invoke(invocation::InvokeRequest {
                 method: r.method,
                 verb: r.verb,
                 headers: r.headers,
                 query: r.query,
                 content_type: r.content_type,
                 data: r.data,
-            }))
-        }
+            })
+            .await,
+        ),
         ev::Event::Topic(e) => {
-            ev::EventResult::Topic(topic_status(pubsub::on_topic_event(&topic_event(e))))
+            ev::EventResult::Topic(topic_status(pubsub::on_topic_event(topic_event(e)).await))
         }
         ev::Event::BulkTopic(b) => ev::EventResult::BulkTopic(
-            pubsub::on_bulk_topic_event(&bulk_topic_event(b))
+            pubsub::on_bulk_topic_event(bulk_topic_event(b))
+                .await
                 .into_iter()
                 .map(|r| ev::BulkTopicEventEntryResponse {
                     entry_id: r.entry_id,
@@ -96,26 +106,27 @@ fn dispatch(event: ev::Event) -> ev::EventResult {
                 .collect(),
         ),
         ev::Event::Binding(e) => ev::EventResult::Binding(
-            bindings::on_binding_event(&bindings::BindingEvent {
+            bindings::on_binding_event(bindings::BindingEvent {
                 name: e.name,
                 data: e.data,
                 metadata: e.metadata,
             })
+            .await
             .map(binding_response),
         ),
-        ev::Event::Job(e) => ev::EventResult::Job(jobs::on_job_event(&jobs::JobEvent {
-            name: e.name,
-            data: e.data,
-            content_type: e.content_type,
-        })),
-        ev::Event::ActorInvoke(a) => ev::EventResult::ActorInvoke(actors::on_invoke(
-            &a.actor_type,
-            &a.actor_id,
-            &a.method,
-            &a.data,
-        )),
-        ev::Event::ActorTimer(t) => {
-            ev::EventResult::ActorTimer(actors::on_timer(&actors::ActorTimerEvent {
+        ev::Event::Job(e) => ev::EventResult::Job(
+            jobs::on_job_event(jobs::JobEvent {
+                name: e.name,
+                data: e.data,
+                content_type: e.content_type,
+            })
+            .await,
+        ),
+        ev::Event::ActorInvoke(a) => ev::EventResult::ActorInvoke(
+            actors::on_invoke(a.actor_type, a.actor_id, a.method, a.data).await,
+        ),
+        ev::Event::ActorTimer(t) => ev::EventResult::ActorTimer(
+            actors::on_timer(actors::ActorTimerEvent {
                 actor_type: t.actor_type,
                 actor_id: t.actor_id,
                 name: t.name,
@@ -123,27 +134,30 @@ fn dispatch(event: ev::Event) -> ev::EventResult {
                 period: t.period,
                 data: t.data,
                 callback: t.callback,
-            }))
-        }
-        ev::Event::ActorReminder(r) => {
-            ev::EventResult::ActorReminder(actors::on_reminder(&actors::ActorReminderEvent {
+            })
+            .await,
+        ),
+        ev::Event::ActorReminder(r) => ev::EventResult::ActorReminder(
+            actors::on_reminder(actors::ActorReminderEvent {
                 actor_type: r.actor_type,
                 actor_id: r.actor_id,
                 name: r.name,
                 due_time: r.due_time,
                 period: r.period,
                 data: r.data,
-            }))
-        }
+            })
+            .await,
+        ),
         ev::Event::ActorDeactivate(a) => {
-            ev::EventResult::ActorDeactivate(actors::deactivate(&a.actor_type, &a.actor_id))
+            ev::EventResult::ActorDeactivate(actors::deactivate(a.actor_type, a.actor_id).await)
         }
         ev::Event::ConfigurationUpdate(u) => {
-            configuration::on_configuration_event(&configuration::ConfigurationUpdate {
+            configuration::on_configuration_event(configuration::ConfigurationUpdate {
                 store_name: u.store_name,
                 id: u.id,
                 items: u.items,
-            });
+            })
+            .await;
             ev::EventResult::ConfigurationUpdate
         }
     }

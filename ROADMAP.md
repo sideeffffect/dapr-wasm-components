@@ -1,7 +1,7 @@
 # Roadmap / follow-ups
 
 Tracked follow-up work for `dapr-wasm-components`, current as of package
-`dapr-wasm-components:interfaces@0.7.5`. Grouped by area; each item notes *why*
+`dapr-wasm-components:interfaces@0.8.0`. Grouped by area; each item notes *why*
 it's open and roughly *what* it needs. See
 [wiki/dapr/dapr-wasm-components-architecture.md](wiki/dapr/dapr-wasm-components-architecture.md)
 for the design rationale and [wiki/dapr/dapr-wasm-components-inbound-design.md](wiki/dapr/dapr-wasm-components-inbound-design.md)
@@ -213,11 +213,14 @@ Additive Dapr 1.19 surface we could adopt (1.19 is still an RC): actor timer rea
   `SubscribeActorEventsAlpha1` (an app-initiated bidi stream, `actors.proto`
   ~line 172), was rejected: it needs a long-lived bidi stream that request-scoped
   wasm/Spin HTTP triggers cannot hold, and it is alpha.
-- **go family: one long-lived app instance.** A delivery cannot reach the app
-  while it runs a callback, so self-invocation fails fast (`app-unreachable`)
-  and A → B → A cycles hang without a resiliency timeout. Inherent to a single
-  instance plus a sync WIT; per-request instances (the sidecar families) don't
-  have it.
+- **go family: one long-lived app instance.** Since 0.8.0 (async callbacks
+  and building blocks) deliveries interleave where a callback awaits, so
+  self-invocation and A → B → A work. A callback that computes without
+  awaiting still holds the whole composition (one thread per store).
+  Follow-ups: let the `wasi-http`/`wasi-grpc` providers lift with the async
+  ABI too (today: sync ABI), and replace go-outbound's clock-wait polling
+  (`events.Wait`, `events.Run`) once upstream Go gets `GOOS=wasip3`
+  (golang/go#77141) with timer-aware idling.
 - **Outbound and inbound are separate components** because a single bidirectional
   provider forms an `app ↔ provider` instantiation cycle the component model
   forbids. This is by design, not a limitation to remove.

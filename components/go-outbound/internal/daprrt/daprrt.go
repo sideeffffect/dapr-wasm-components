@@ -88,24 +88,7 @@ var (
 	rt            *runtime.DaprRuntime
 	ready         = make(chan struct{}) // closed once rt is set (or failed)
 	failed        error
-
-	appID, namespace string // from the parsed arguments / NAMESPACE env
 )
-
-// IsSelf reports whether target ("<app-id>" or "<app-id>.<namespace>")
-// names this runtime's own app.
-func IsSelf(target string) bool {
-	mu.Lock()
-	defer mu.Unlock()
-	if appID == "" {
-		return false
-	}
-	ns := namespace
-	if ns == "" {
-		ns = "default"
-	}
-	return target == appID || target == appID+"."+ns
-}
 
 // StartAttached boots the runtime connected to a (the go-inbound pump is
 // attached). It reports false if the runtime was already started without
@@ -241,9 +224,6 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("parsing daprd arguments: %w", err)
 	}
-	mu.Lock()
-	appID, namespace = opts.AppID, os.Getenv("NAMESPACE")
-	mu.Unlock()
 	opts.Logger.SetAppID(opts.AppID)
 	if err := logger.ApplyOptionsToLoggers(&opts.Logger); err != nil {
 		return err

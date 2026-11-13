@@ -7,5 +7,5 @@ interface health-callback {
 
   /// Report application health. An `app-error` (or a trap) marks the app
   /// unhealthy to the sidecar.
-  health-check: func() -> result<_, app-error>;
+  health-check: async func() -> result<_, app-error>;
 }
