@@ -141,3 +141,6 @@
 
 ## [2026-11-13] ingest | Dapr on TinyGo feasibility
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (TinyGo alternative: tested, blockers, effort; CM-threads claim corrected)
+
+## [2026-11-13] ingest | proposal: all: add wasip3/wasm port (golang/go#77141)
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (alternative 5: status and what it would and would not change)

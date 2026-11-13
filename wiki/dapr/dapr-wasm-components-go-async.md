@@ -1,7 +1,7 @@
 # dapr-wasm-components go Family: Async, Threads and Queues
 
-> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13
-> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md)
+> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09
+> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md)
 
 ## Overview
 
@@ -61,7 +61,7 @@ Ranked by value for the go family:
    - A minimal Dapr subset pulls 1145 packages and fails in Azure azcore (`http.Transport.ForceAttemptHTTP2`, `tls.RenegotiateFreelyAsClient`).
    - Blockers: stub `crypto/tls`, no wasi:sockets `net`, reflect `Method`/`Call` unimplemented (tinygo#3862), json-iterator/reflect2 linknames, build scale (tinygo#5840), `wasip2` = `linux/arm` drags in Linux-only code. No released wasip3 target yet.
    - A slim TinyGo "Dapr-lite" (building blocks over small clients) is cheaper (4–8 person-weeks) but loses component breadth.
-5. **Upstream `GOOS=wasip3`** (golang/go#77141): would move the scheduler/host bridge, timers included, into the Go runtime. Wait and adopt.
+5. **Upstream `GOOS=wasip3`** (golang/go#77141): would move the scheduler/host bridge, timers included, into the Go runtime. Wait and adopt. Status 2026-11-13: proposal not accepted; Step 0 (`runtime.wasiOnIdle`, golang/go#76775) still open; one prototype branch. Would let the async go build (steps 2–3) drop: the patched Go, the `net`/netpoll overlay, the polling clock ticks that a Go async task needs today (spike finding above) and (probably) any hand-written offload of export bodies to goroutines. Would **not** give parallelism or stop a busy app callback from freezing Dapr (same store, one thread), and would not make the 0.8 async WIT unnecessary.
 
 ## See Also
 
