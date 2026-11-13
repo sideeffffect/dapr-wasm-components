@@ -93,7 +93,7 @@ interface state-read {
 
   /// Get the value of `key`. Fails with `key-not-found` when the key does
   /// not exist.
-  get: func(
+  get: async func(
     store-name: string,
     key: string,
     consistency: option<consistency>,
@@ -101,7 +101,7 @@ interface state-read {
   ) -> result<get-state-response, get-error>;
 
   /// Get several keys in one request.
-  get-bulk: func(
+  get-bulk: async func(
     store-name: string,
     keys: list<string>,
     parallelism: option<u32>,
@@ -109,5 +109,5 @@ interface state-read {
   ) -> result<list<bulk-state-item>, state-error>;
 
   /// Query state (alpha). `query` is the JSON query document.
-  query: func(store-name: string, query: json, metadata: metadata) -> result<query-response, query-error>;
+  query: async func(store-name: string, query: json, metadata: metadata) -> result<query-response, query-error>;
 }

@@ -29,7 +29,7 @@ interface lock {
   /// Acquire a lock on `resource-id`. Succeeds when the lock is obtained;
   /// fails with `not-acquired` when it is already held. The lock auto-expires
   /// after `expiry-in-seconds`.
-  try-lock: func(
+  try-lock: async func(
     store-name: string,
     resource-id: string,
     lock-owner: string,
@@ -37,5 +37,5 @@ interface lock {
   ) -> result<_, try-lock-error>;
 
   /// Release a lock previously acquired by `lock-owner`.
-  unlock: func(store-name: string, resource-id: string, lock-owner: string) -> result<_, unlock-error>;
+  unlock: async func(store-name: string, resource-id: string, lock-owner: string) -> result<_, unlock-error>;
 }

@@ -38,8 +38,8 @@ interface bindings-callback {
   }
 
   /// Declares the input binding names this app handles. Called at startup.
-  list-input-bindings: func() -> list<string>;
+  list-input-bindings: async func() -> list<string>;
 
   /// Handle one input binding event.
-  on-binding-event: func(event: binding-event) -> result<binding-event-response, app-error>;
+  on-binding-event: async func(event: binding-event) -> result<binding-event-response, app-error>;
 }

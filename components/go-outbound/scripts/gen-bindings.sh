@@ -18,3 +18,4 @@ find internal/wit \( -name wit_bindings.go -o -name empty.s -o -name wit_exports
 done
 find internal/wit -type d -empty -delete
 python3 scripts/fix-bindings.py
+gofmt -w internal/wit/wit_exports

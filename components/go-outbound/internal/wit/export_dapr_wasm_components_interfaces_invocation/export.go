@@ -29,8 +29,6 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/call"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/daprrt"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/events"
 	iv "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/dapr_wasm_components_interfaces_invocation"
 )
 
@@ -92,14 +90,9 @@ func (h *headerCapture) SendHeader(md metadata.MD) error { return h.SetHeader(md
 func (*headerCapture) SetTrailer(metadata.MD) error { return nil }
 
 func Invoke(appID string, methodPath string, verb iv.HttpVerb, headers []witTypes.Tuple2[string, string], query witTypes.Option[string], body []uint8) witTypes.Result[iv.HttpResponse, iv.InvokeError] {
-	// The app is one instance and only runs inside a callback, so an
-	// invocation of its own app id could only be delivered back into the
-	// busy instance: it would deadlock. Fail fast instead.
-	if events.Attached() && daprrt.IsSelf(appID) {
-		return witTypes.Err[iv.HttpResponse](iv.MakeInvokeErrorAppUnreachable(
-			"self-invocation is not supported by the go provider family: the app is a single " +
-				"instance, busy in the callback that makes this call"))
-	}
+	// Self-invocation needs no special case: `invoke` and the callbacks are
+	// async (interfaces 0.8.0), so while this call waits, the pump delivers
+	// the request into the same app instance.
 
 	// content-type rides in a dedicated proto field; everything else is
 	// passed through as incoming metadata (gRPC keys are lowercase).

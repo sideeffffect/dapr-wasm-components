@@ -23,5 +23,5 @@ interface invocation-callback {
 
   /// Handle a service-invocation call. A non-2xx status is a normal response,
   /// not a trap; a panic maps to HTTP 500 / gRPC internal.
-  on-invoke: func(request: invoke-request) -> http-response;
+  on-invoke: async func(request: invoke-request) -> http-response;
 }

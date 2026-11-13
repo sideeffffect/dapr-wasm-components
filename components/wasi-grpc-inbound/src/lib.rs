@@ -36,6 +36,9 @@ mod wit {
         world: "inbound",
         path: "../wit",
         default_bindings_module: "crate::wit",
+        // The interfaces are `async func` (0.8.0); this provider uses the
+        // sync ABI for all of them, so its code stays blocking.
+        sync: true,
     });
 }
 

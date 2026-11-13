@@ -2,7 +2,7 @@
 
 [Dapr](https://dapr.io) building blocks for [WebAssembly components](https://component-model.bytecodealliance.org/), as pure-wasm modules:
 
-- **`dapr-wasm-components/interfaces`** — the [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md) package `dapr-wasm-components:interfaces` (`components/wit/`): typed, **synchronous** interfaces for every Dapr building block (the *outbound* direction, app → Dapr) and a set of `*-callback` interfaces (the *inbound* direction, Dapr → app), including the experimental/alpha building blocks.
+- **`dapr-wasm-components/interfaces`** — the [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md) package `dapr-wasm-components:interfaces` (`components/wit/`): typed **`async`** (WASI 0.3) interfaces for every Dapr building block (the *outbound* direction, app → Dapr) and a set of `*-callback` interfaces (the *inbound* direction, Dapr → app), including the experimental/alpha building blocks.
 - **Six provider components** (`components/`) — one per direction × family, so your app never touches the wire either way:
   - **`-wasi-http-outbound`** / **`-wasi-http-inbound`** — the [HTTP API](https://docs.dapr.io/reference/api/) over `wasi:http`. Portable: any WASI 0.2 runtime with `wasi:http` (wasmtime, wasmCloud, Spin, …). The inbound one exports `wasi:http/incoming-handler` and dispatches the app channel to the typed callbacks.
   - **`-wasi-grpc-outbound`** / **`-wasi-grpc-inbound`** — the [gRPC API](https://docs.dapr.io/developing-applications/local-development/grpc-integration/) (tonic + vendored Dapr protos). Typed protobuf instead of JSON — values roundtrip **byte-exact**. Needs a host that sends cleartext HTTP/2: [Spin](https://spinframework.dev) ≥ 3.4 (tested) or wasmCloud v2 (not tested yet) — see [below](#the-wasi-grpc-provider-spin-only). The inbound one serves Dapr's `AppCallback` gRPC service.
@@ -11,7 +11,9 @@
 
 Write your app against the interfaces, [compose](#composing) it with an outbound + an inbound provider (`wac`), and run it next to a Dapr sidecar — or, with the go family, on its own. The single diagram in [Two directions](#two-directions-calling-dapr-vs-being-called-by-dapr--both-typed) below shows the whole picture.
 
-## Interfaces (`dapr-wasm-components:interfaces@0.7.5`)
+## Interfaces (`dapr-wasm-components:interfaces@0.8.0`)
+
+Since 0.8.0 every building-block function and every callback is an `async func` (Component Model async, WASI 0.3): an app awaits Dapr inside a callback, and while it waits the same app instance can take other deliveries — including a call to its own app id. Resource methods (crypto streams, `subscription.id`) stay sync. Providers may implement the `async` functions with the sync ABI (the `wasi-http` and `wasi-grpc` providers do), so they need no async runtime; hosts need Component Model async (wasmtime ≥ 49, Spin ≥ 4).
 
 **Outbound** — interfaces your app *imports* to call Dapr:
 
@@ -57,8 +59,8 @@ Worlds: **`app`** (an application — imports the building blocks, exports the c
 Blocks with a read-only subset are split in two: `<x>-read` (the reads, plus the types both halves share) and `<x>` (the rest). The `app` world imports both halves, but `wit-component` keeps **only the functions an app actually calls**. So a built component's imports say what it may do, and a deployer can check that with `wasm-tools component wit app.wasm` before composing it. For example, an app that only reads state imports `state-read` with just `get`, and no `state` at all (the `state-reader` fixture in `e2e/apps/` is checked like this by `e2e/tests/authority.rs`):
 
 ```wit
-import dapr-wasm-components:interfaces/state-read@0.7.5;   // get only
-import dapr-wasm-components:interfaces/configuration-read@0.7.5;   // types only
+import dapr-wasm-components:interfaces/state-read@0.8.0;   // get only
+import dapr-wasm-components:interfaces/configuration-read@0.8.0;   // types only
 ```
 
 One caveat: an interface can also appear **with types only**. Every app exports all the callbacks, and `bindings-callback` uses `state-read.{state-item}` and `configuration-callback` uses `configuration-read.{configuration-item}`, so every app imports those two interfaces. Such an import has no functions, so it gives no authority.
@@ -93,7 +95,7 @@ Inbound callbacks report a graceful handling failure with `types.app-error`
 
 A Dapr application communicates with its sidecar in two directions, and **the providers shield your app from the wire on both**. Your app is pure typed domain logic — it only implements WIT and never opens a socket.
 
-- **Outbound — your app calls Dapr** (state, pub/sub, secrets, service invocation, …). Your app makes a synchronous WIT call on an imported building-block interface; the composed-in **outbound** provider turns it into a sidecar request (over the host's `wasi:http/outgoing-handler`) and blocks until the reply.
+- **Outbound — your app calls Dapr** (state, pub/sub, secrets, service invocation, …). Your app awaits an `async` WIT call on an imported building-block interface; the composed-in **outbound** provider turns it into a sidecar request (over the host's `wasi:http/outgoing-handler`) and returns the reply.
 - **Inbound — Dapr calls your app** (service invocation, pub/sub deliveries, input bindings, job triggers, actor activations, configuration updates, health). The sidecar hits the *application channel*; the **inbound** provider owns `wasi:http/incoming-handler`, parses each request, and dispatches it as a typed call on the matching `*-callback` interface your app exports.
 
 Why two provider components per transport? A single provider that both *exported* the building blocks and *imported* the callbacks would form an instantiation **cycle** with the app (the app imports the building blocks; the provider imports the callbacks) — which the component model forbids. Splitting outbound from inbound makes the graph acyclic: **`outbound → app → inbound`**.
@@ -117,7 +119,7 @@ flowchart LR
     host ~~~ outbound
     outbound ~~~ app
 
-    app -- "① sync WIT call" --> outbound
+    app -- "① async WIT call" --> outbound
     outbound -- "① wasi:http/outgoing-handler" --> host
     host -- "① HTTP :3500 / gRPC :50001" --> sidecar
     sidecar -- "② app channel (HTTP)" --> host
@@ -149,7 +151,7 @@ dependency (wkg ignores the `latest` tag and resolves semver tags only). Import 
 package my:app;
 
 world app {
-  include dapr-wasm-components:interfaces/app@0.7.5;
+  include dapr-wasm-components:interfaces/app@0.8.0;
 }
 ```
 
@@ -176,7 +178,7 @@ struct App;
 
 impl DaprApp for App {
     // Outbound-only apps override nothing. This one also handles a topic:
-    fn list_topic_subscriptions() -> Vec<ps::TopicSubscription> {
+    async fn list_topic_subscriptions() -> Vec<ps::TopicSubscription> {
         vec![
             ps::TopicSubscription::new("pubsub", "orders"),
             // Optional CEL routing rules: daprd picks the route, the app sees
@@ -190,12 +192,13 @@ impl DaprApp for App {
             ps::TopicSubscription::new("pubsub", "audit").with_bulk_subscribe(Some(100), None),
         ]
     }
-    fn on_topic_event(event: ps::TopicEvent) -> ps::TopicEventResponse {
+    async fn on_topic_event(event: ps::TopicEvent) -> ps::TopicEventResponse {
         // `event.data` is the domain payload; the envelope is already parsed.
-        state::save("statestore", &[state::StateItem {
+        // Building blocks are `async`: arguments are owned, results awaited.
+        state::save("statestore".into(), vec![state::StateItem {
             key: "last-order".into(), value: event.data,
             etag: None, metadata: vec![], options: None,
-        }], &[]).unwrap();
+        }], vec![]).await.unwrap();
         ps::TopicEventResponse::Success
     }
 }
@@ -203,7 +206,7 @@ impl DaprApp for App {
 dapr_app::export_app!(App);
 ```
 
-See `e2e/apps/kv-demo/` for an outbound-only command and `e2e/apps/microservice/` for an inbound reactor.
+See `e2e/apps/kv-demo/` for an outbound-only command (it drives the `async` calls from a sync `main` with `dapr_app::block_on`) and `e2e/apps/microservice/` for an inbound reactor.
 
 ### Composing
 
@@ -232,7 +235,7 @@ The outbound provider resolves the sidecar like other Dapr SDKs: `DAPR_HTTP_ENDP
 
 ## The wasi-grpc provider (Spin only)
 
-`dapr-wasm-components-wasi-grpc-outbound` exports the identical building blocks — apps don't change, they just compose a different provider — but implements them with a [tonic](https://github.com/hyperium/tonic) client (no `transport` feature) over a small `wstd` `wasi:http` transport, driven to completion inside each sync export by `wstd`'s `block_on` — the same stack as `wasi-http-outbound`. HTTP/2 is the host's job: Spin (h2c for the one authority in `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`) and wasmCloud v2 (every `application/grpc` request) provide it. The Dapr v1.18 protos are vendored and the generated client is checked in — no protoc needed to build. The matching `dapr-wasm-components-wasi-grpc-inbound` serves Dapr's `AppCallback` gRPC service (`--app-protocol grpc`) by hand-rolling the gRPC server framing over `wasi:http/incoming-handler` (reusing the same vendored protobuf messages) — it needs a Spin host that accepts **inbound** h2c.
+`dapr-wasm-components-wasi-grpc-outbound` exports the identical building blocks — apps don't change, they just compose a different provider — but implements them with a [tonic](https://github.com/hyperium/tonic) client (no `transport` feature) over a small `wstd` `wasi:http` transport, driven to completion inside each export (sync ABI) by `wstd`'s `block_on` — the same stack as `wasi-http-outbound`. HTTP/2 is the host's job: Spin (h2c for the one authority in `SPIN_OUTBOUND_H2C_PRIOR_KNOWLEDGE`) and wasmCloud v2 (every `application/grpc` request) provide it. The Dapr v1.18 protos are vendored and the generated client is checked in — no protoc needed to build. The matching `dapr-wasm-components-wasi-grpc-inbound` serves Dapr's `AppCallback` gRPC service (`--app-protocol grpc`) by hand-rolling the gRPC server framing over `wasi:http/incoming-handler` (reusing the same vendored protobuf messages) — it needs a Spin host that accepts **inbound** h2c.
 
 Why bother: protobuf carries values as raw bytes, so binary state values, binding payloads and pub/sub events roundtrip **byte-exact** (the HTTP provider's JSON envelope can't do that), and errors map 1:1 from `grpc-status` codes.
 
@@ -271,7 +274,7 @@ flowchart LR
 
 Inbound is pulled, not pushed: `go-inbound` (about 300 lines of Rust, no Dapr state) loops `next-event` → the app's matching callback → `complete-event`. That keeps the graph acyclic and never re-enters an instance, so a callback may call any building block. The composed app holds **one** Go runtime and **one** Dapr runtime. The pump is not written in Go on purpose: it would add a second Go runtime.
 
-The pair runs on the WASI 0.3 event loop (Component Model async; componentize-go with a patched Go that has `runtime.wasiOnIdle`). The pump starts go-outbound's never-ending `run` task and awaits `next-event`, so the runtime is a live task of its own: Dapr's goroutines run whenever the host turns its event loop, not only while the pump is inside go-outbound. The app is still one instance with sync callbacks, so while a callback runs Dapr pauses and the app cannot be re-entered (self-invocation fails fast) — lifting that needs async interfaces; see [the wiki](wiki/dapr/dapr-wasm-components-go-async.md).
+The pair runs on the WASI 0.3 event loop (Component Model async; componentize-go with a patched Go that has `runtime.wasiOnIdle`). The pump starts go-outbound's never-ending `run` task and awaits `next-event`, so the runtime is a live task of its own: Dapr's goroutines run whenever the host turns its event loop, not only while the pump is inside go-outbound. The pump runs each delivery as its own task. go-outbound lifts the building blocks with the async ABI, so while a callback awaits Dapr the app instance is free: other deliveries run concurrently, and a self-invocation is delivered back into the same instance. Details: [the wiki](wiki/dapr/dapr-wasm-components-go-async.md).
 
 Compose and run — the program arguments are daprd's own flags, parsed by daprd's own parser:
 
@@ -377,7 +380,7 @@ Experimental. Tracked follow-up work lives in [ROADMAP.md](ROADMAP.md).
 
 - The whole Dapr **outbound** HTTP API surface is covered, including alpha APIs (lock, crypto, state query, conversation) — alpha APIs can change with Dapr releases.
 - Values in the HTTP state/bindings APIs are JSON: bytes that parse as JSON are sent as-is, anything else is sent as a JSON string (UTF-8 lossy). Store JSON if you need byte-exact roundtrips — **or use the wasi-grpc provider**, where values are raw protobuf bytes.
-- **Streaming crypto** (`encryptor` / `decryptor` → `crypto-output`) is sync WIT resources, no WASI 0.3: write the input in chunks, `finish`, then read the output in chunks (write-all-then-read; interleaving is not supported). The `dapr-app` SDK wraps them as `std::io` types (`dapr_app::crypto_io`). What it saves depends on the provider and on daprd:
+- **Streaming crypto** (`encryptor` / `decryptor` → `crypto-output`) is WIT resources with sync methods (the one-shot `encrypt`/`decrypt` are `async`): write the input in chunks, `finish`, then read the output in chunks (write-all-then-read; interleaving is not supported). The `dapr-app` SDK wraps them as `std::io` types (`dapr_app::crypto_io`). What it saves depends on the provider and on daprd:
   - `wasi-http-outbound` streams both bodies over `wasi:http`, so neither the app nor the provider holds the whole payload. But daprd v1.18 buffers the whole output before it answers ([`io.ReadAll` in `pkg/api/http/crypto.go`](https://github.com/dapr/dapr/blob/v1.18.0/pkg/api/http/crypto.go)) and caps the HTTP input at `--max-body-size` (default 4Mi); a larger input makes daprd fail the call (a 5xx, so the provider traps). The streaming resources first check the component with `GET /v1.0/metadata`.
   - `wasi-grpc-outbound` buffers input and output in provider memory (see the gRPC section). daprd's gRPC side streams for real and has no total-size cap.
   - daprd reports a missing key (`ERR_CRYPTO_KEY`) and a failed decryption (`ERR_CRYPTO`) as HTTP 500 / gRPC `Internal`, so both providers trap on these instead of returning `key-not-found` / `malformed-ciphertext`.
@@ -388,7 +391,7 @@ Experimental. Tracked follow-up work lives in [ROADMAP.md](ROADMAP.md).
 - **Workflow deprecation affects only the HTTP provider.** `wasi-http-outbound` uses the `/v1.0` workflow HTTP API. Dapr documents it as deprecated in favour of the SDKs, but offers no non-deprecated HTTP replacement, and Dapr 1.19 still serves it. `wasi-grpc-outbound` uses the gRPC `*WorkflowBeta1` RPCs. In the vendored v1.18 protos these RPCs have no `deprecated` option (only the `*WorkflowAlpha1` set has it).
 - **Actor hosting with gRPC outbound.** Dapr's `AppCallback` gRPC service has no actor methods, so actor hosting needs the HTTP app channel. To use gRPC outbound *and* host actors, compose `wasi-grpc-outbound` with `wasi-http-inbound` (`./compose.sh my_app.wasm --out grpc --in http`) and run daprd with `--app-protocol http`. Outbound calls go over gRPC; actor callbacks arrive over the HTTP app channel. The gRPC-native alternative, `SubscribeActorEventsAlpha1` (an app-initiated bidirectional stream, `actors.proto`), is not used: it needs a long-lived bidi stream that request-scoped wasm/Spin HTTP triggers cannot hold, and it is alpha.
 - **Inbound transport is independent of outbound.** The portable `wasi-http-inbound` provider serves the HTTP app channel on any runtime (including behind a `wasi-grpc`-outbound app). The `wasi-grpc-inbound` provider serves Dapr's `AppCallback` gRPC service (`--app-protocol grpc`); it is verified working over Spin's inbound h2c with `grpcurl` (`ListTopicSubscriptions`, `HealthCheck`) but does not yet have an automated daprd `--app-protocol grpc` E2E. Actor *hosting* needs the HTTP app channel (or the go family), since Dapr's `AppCallback` has no actor methods.
-- **go family limits.** The app is **one long-lived instance**, and it runs only inside a callback. So a delivery to the app cannot be served while a callback is running: **self-invocation** (`invocation.invoke` of the app's own id) fails fast with `app-unreachable`, and a call cycle that comes back to the same app (A → B → A) hangs unless a Dapr resiliency timeout is configured. Go goroutines run only while go-outbound is on the stack, so a long callback that never calls Dapr pauses Dapr's background work (subscribers, heartbeats). Dapr's `HotReload` feature is off (WASI has no file watching), mDNS name resolution cannot work (no UDP multicast — use Consul, Kubernetes or a static resolver), and `DAPR_HOST_IP` must be set when a name resolver registers the app. The component is large (about 260 MB: the Dapr runtime plus the component SDKs).
+- **go family limits.** The app is **one long-lived instance**. Deliveries interleave only where a callback awaits (a building block or another `async` import): a callback that computes for a long time without awaiting holds the whole composition — Dapr's background work (subscribers, heartbeats) and other deliveries wait. Self-invocation and A → B → A cycles work (since 0.8.0). Dapr's `HotReload` feature is off (WASI has no file watching), mDNS name resolution cannot work (no UDP multicast — use Consul, Kubernetes or a static resolver), and `DAPR_HOST_IP` must be set when a name resolver registers the app. The component is large (about 260 MB: the Dapr runtime plus the component SDKs).
 - The wasi-grpc (outbound) provider remains a proof of concept: it is tested only on Spin ≥ 3.4 (outbound h2c; its h2c allowlist holds a single authority) — wasmCloud v2 sends `application/grpc` over HTTP/2 and should work, but has no E2E yet. Most interfaces are compile-checked but only the E2E surface (state, invocation, pub/sub, metadata) is integration-tested.
 
 ## License

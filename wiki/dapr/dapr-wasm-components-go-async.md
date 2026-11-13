@@ -1,6 +1,6 @@
 # dapr-wasm-components go Family: Async, Threads and Queues
 
-> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09
+> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; async interfaces 0.8.0, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09
 > Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md)
 
 ## Overview
@@ -47,7 +47,12 @@ Consequences:
 
 1. **Research** (this page) **+ spikes** ([spikes/go-async](../../spikes/go-async/README.md)).
 2. **Go-only async.** Private `go.wit` goes async (`run` daemon task, async `next-event`), go-inbound becomes a WASIp3 pump (`wasi:cli/run@0.3.0`), componentize-go async build. Public interfaces unchanged. Foundation for step 3. **Done** (`go@0.2.0`): the real-Dapr go E2E passes unchanged. `run` aims its clock wait at the next Go timer via `runtime.wasiNextTimer` (overlay), clamped to 0.2–10 ms; `next-event` polls with 0.5→10 ms backoff. componentize-go 0.4.3 (what `go install …@v0.5.0` installs) already uses the patched `go1.27.1-wasi-on-idle`; 0.5.3 moves the bindings to `imports/`/`exports/`. Cost: idle wakeups (≤ ~100/s each for `run` and `next-event`) instead of sleeping in `poll_oneoff`.
-3. **interfaces 0.8 async.** Building blocks and `*-callback` functions become `async func` (breaks the "WIT stays sync" rule). All providers, the `dapr-app` SDK (async Rust apps) and the E2Es follow. Fixes self-invocation, concurrent deliveries and frozen Dapr while the app awaits Dapr or p3 I/O.
+3. **interfaces 0.8 async.** Building blocks and `*-callback` functions become `async func` (breaks the "WIT stays sync" rule). All providers, the `dapr-app` SDK (async Rust apps) and the E2Es follow. Fixes self-invocation, concurrent deliveries and frozen Dapr while the app awaits Dapr or p3 I/O. **Done** (`interfaces@0.8.0`). All three real-Dapr E2Es pass, and the shared scenario now asserts self-invocation for the go family too. How each side copes:
+   - `wasi-http`/`wasi-grpc` providers: wit-bindgen `sync: true` — async-typed functions with the sync ABI, code unchanged.
+   - go-outbound: componentize-go has no sync option, so every building block is async-lifted; `fix-bindings.py` routes each body through `events.CallN` (body in its own goroutine, export goroutine waits with a clock wait). A bug in componentize-go 0.4.3 (async `task.return` with a `uintptr`) is patched there too.
+   - go-inbound: one task per delivery (`spawn_local`), so deliveries run concurrently.
+   - SDK: `DaprApp` methods are `async fn`; building blocks take owned arguments; `dapr_app::block_on` drives them from a sync `main` (only safe with sync-ABI providers).
+   - Native e2e host: calls go through `Store::run_concurrent`; a trap is `run_concurrent`'s error.
 
 ## Other alternatives
 
@@ -61,7 +66,7 @@ Ranked by value for the go family:
    - A minimal Dapr subset pulls 1145 packages and fails in Azure azcore (`http.Transport.ForceAttemptHTTP2`, `tls.RenegotiateFreelyAsClient`).
    - Blockers: stub `crypto/tls`, no wasi:sockets `net`, reflect `Method`/`Call` unimplemented (tinygo#3862), json-iterator/reflect2 linknames, build scale (tinygo#5840), `wasip2` = `linux/arm` drags in Linux-only code. No released wasip3 target yet.
    - A slim TinyGo "Dapr-lite" (building blocks over small clients) is cheaper (4–8 person-weeks) but loses component breadth.
-5. **Upstream `GOOS=wasip3`** (golang/go#77141): would move the scheduler/host bridge, timers included, into the Go runtime. Wait and adopt. Status 2026-11-13: proposal not accepted; Step 0 (`runtime.wasiOnIdle`, golang/go#76775) still open; one prototype branch. Would let the async go build (steps 2–3) drop: the patched Go, the `net`/netpoll overlay, the polling clock ticks that a Go async task needs today (spike finding above) and (probably) any hand-written offload of export bodies to goroutines. Would **not** give parallelism or stop a busy app callback from freezing Dapr (same store, one thread), and would not make the 0.8 async WIT unnecessary.
+5. **Upstream `GOOS=wasip3`** (golang/go#77141): would move the scheduler/host bridge, timers included, into the Go runtime. Wait and adopt. Status 2026-11-13: proposal not accepted; Step 0 (`runtime.wasiOnIdle`, golang/go#76775) still open; one prototype branch. Would let the async go build (steps 2–3) drop: the patched Go, the `net`/netpoll/`wasiNextTimer` overlay, the polling `Run`/`Wait` ticks and (probably) the `events.CallN` offload. Would **not** give parallelism or stop a busy app callback from freezing Dapr (same store, one thread), and would not make the 0.8 async WIT unnecessary.
 
 ## See Also
 

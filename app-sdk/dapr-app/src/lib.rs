@@ -14,7 +14,7 @@
 //! struct App;
 //!
 //! impl DaprApp for App {
-//!     fn list_topic_subscriptions() -> Vec<callback::pubsub_callback::TopicSubscription> {
+//!     async fn list_topic_subscriptions() -> Vec<callback::pubsub_callback::TopicSubscription> {
 //!         vec![
 //!             // One route for the whole topic.
 //!             callback::pubsub_callback::TopicSubscription::new("pubsub", "orders"),
@@ -30,10 +30,11 @@
 //!                 .with_bulk_subscribe(Some(10), Some(100)),
 //!         ]
 //!     }
-//!     fn on_topic_event(
+//!     async fn on_topic_event(
 //!         event: callback::pubsub_callback::TopicEvent,
 //!     ) -> callback::pubsub_callback::TopicEventResponse {
-//!         // ... dispatch on event.topic / event.path, call dapr::state::save(...), etc.
+//!         // ... dispatch on event.topic / event.path, `dapr::state::save(...).await`, etc. While it awaits,
+//!         // the app can take other deliveries (callbacks are `async func`).
 //!         callback::pubsub_callback::TopicEventResponse::Success
 //!     }
 //! }
@@ -44,6 +45,14 @@
 // Let the generated `export_app!` macro resolve binding paths as `dapr_app::…`
 // both inside this crate and from the application crates that invoke it.
 extern crate self as dapr_app;
+
+/// Runs a future to completion from sync code, e.g. a `wasi:cli/run@0.2`
+/// `main` that calls the (`async`) building blocks. It waits with
+/// `waitable-set.wait`, which a sync task may only do when the call does not
+/// actually block: true for the sync-ABI providers (`wasi-http`, `wasi-grpc`),
+/// whose calls return before the future is first polled. Inside callbacks,
+/// `.await` instead.
+pub use wit_bindgen::block_on;
 
 wit_bindgen::generate!({
     world: "app",
@@ -80,12 +89,16 @@ use dapr::types::AppError;
 /// it with [`export_app!`]. Every method has a default, so an outbound-only
 /// app implements nothing and a pub/sub app overrides just the two pub/sub
 /// methods.
-#[allow(unused_variables)]
+// Callbacks are `async func` (0.8.0): an app awaits building blocks inside
+// them, and while it waits it can be re-entered (another delivery, or a
+// call to its own app id). The futures need not be `Send` (wasm is
+// single-threaded), hence the allowed lint.
+#[allow(unused_variables, async_fn_in_trait)]
 pub trait DaprApp {
     // --- service invocation ---
 
     /// Handle a service-invocation call. Default: 404 Not Found.
-    fn on_invoke(request: ic::InvokeRequest) -> ic::HttpResponse {
+    async fn on_invoke(request: ic::InvokeRequest) -> ic::HttpResponse {
         ic::HttpResponse {
             status: 404,
             headers: Vec::new(),
@@ -96,32 +109,36 @@ pub trait DaprApp {
     // --- pub/sub ---
 
     /// Declare the topics this app subscribes to. Default: none.
-    fn list_topic_subscriptions() -> Vec<pc::TopicSubscription> {
+    async fn list_topic_subscriptions() -> Vec<pc::TopicSubscription> {
         Vec::new()
     }
 
     /// Handle a delivered event. Default: DROP (with no subscriptions
     /// declared, this is never reached).
-    fn on_topic_event(event: pc::TopicEvent) -> pc::TopicEventResponse {
+    async fn on_topic_event(event: pc::TopicEvent) -> pc::TopicEventResponse {
         pc::TopicEventResponse::Drop
     }
 
     /// Handle a batch of events for a bulk-subscribed topic. Default: call
     /// [`DaprApp::on_topic_event`] once per entry (see [`bulk_to_single`]), so
     /// an app can opt a subscription in to bulk delivery without new code.
-    fn on_bulk_topic_event(event: pc::BulkTopicEvent) -> Vec<pc::BulkTopicEventEntryResponse> {
-        bulk_to_single(event, <Self as DaprApp>::on_topic_event)
+    async fn on_bulk_topic_event(
+        event: pc::BulkTopicEvent,
+    ) -> Vec<pc::BulkTopicEventEntryResponse> {
+        bulk_to_single(event, <Self as DaprApp>::on_topic_event).await
     }
 
     // --- input bindings ---
 
     /// Declare the input binding names this app consumes. Default: none.
-    fn list_input_bindings() -> Vec<String> {
+    async fn list_input_bindings() -> Vec<String> {
         Vec::new()
     }
 
     /// Handle an input-binding event. Default: acknowledge with no side effects.
-    fn on_binding_event(event: bc::BindingEvent) -> Result<bc::BindingEventResponse, AppError> {
+    async fn on_binding_event(
+        event: bc::BindingEvent,
+    ) -> Result<bc::BindingEventResponse, AppError> {
         Ok(bc::BindingEventResponse {
             store_name: None,
             states: Vec::new(),
@@ -134,14 +151,14 @@ pub trait DaprApp {
     // --- jobs ---
 
     /// Handle a job trigger. Default: acknowledge.
-    fn on_job_event(event: jc::JobEvent) -> Result<(), AppError> {
+    async fn on_job_event(event: jc::JobEvent) -> Result<(), AppError> {
         Ok(())
     }
 
     // --- actors ---
 
     /// Declare hosted actor types and runtime options. Default: host none.
-    fn actor_config() -> ac::ActorConfig {
+    async fn actor_config() -> ac::ActorConfig {
         ac::ActorConfig {
             entities: Vec::new(),
             actor_idle_timeout: None,
@@ -155,7 +172,7 @@ pub trait DaprApp {
     }
 
     /// Invoke an actor method. Default: not found.
-    fn on_actor_invoke(
+    async fn on_actor_invoke(
         actor_type: String,
         actor_id: String,
         method: String,
@@ -167,29 +184,29 @@ pub trait DaprApp {
     }
 
     /// Fire an actor timer. Default: no-op.
-    fn on_actor_timer(event: ac::ActorTimerEvent) -> Result<(), AppError> {
+    async fn on_actor_timer(event: ac::ActorTimerEvent) -> Result<(), AppError> {
         Ok(())
     }
 
     /// Fire an actor reminder. Default: no-op.
-    fn on_actor_reminder(event: ac::ActorReminderEvent) -> Result<(), AppError> {
+    async fn on_actor_reminder(event: ac::ActorReminderEvent) -> Result<(), AppError> {
         Ok(())
     }
 
     /// Deactivate an actor instance. Default: no-op.
-    fn deactivate_actor(actor_type: String, actor_id: String) -> Result<(), AppError> {
+    async fn deactivate_actor(actor_type: String, actor_id: String) -> Result<(), AppError> {
         Ok(())
     }
 
     // --- configuration updates ---
 
     /// Handle a configuration update push. Default: ignore.
-    fn on_configuration_event(update: cc::ConfigurationUpdate) {}
+    async fn on_configuration_event(update: cc::ConfigurationUpdate) {}
 
     // --- health ---
 
     /// Report application health. Default: healthy.
-    fn health_check() -> Result<(), AppError> {
+    async fn health_check() -> Result<(), AppError> {
         Ok(())
     }
 }
@@ -272,35 +289,37 @@ impl pc::TopicSubscription {
 /// entry becomes a `topic-event` with `id` = the entry id, the raw bytes as
 /// `data`, the entry content type, and the batch's topic, pub/sub name, type
 /// and path.
-pub fn bulk_to_single(
+pub async fn bulk_to_single<F, Fut>(
     event: pc::BulkTopicEvent,
-    mut handle: impl FnMut(pc::TopicEvent) -> pc::TopicEventResponse,
-) -> Vec<pc::BulkTopicEventEntryResponse> {
-    event
-        .entries
-        .into_iter()
-        .map(|entry| {
-            let single = match entry.event {
-                pc::BulkEvent::CloudEvent(cloud_event) => cloud_event,
-                pc::BulkEvent::Raw(data) => pc::TopicEvent {
-                    id: entry.entry_id.clone(),
-                    source: String::new(),
-                    type_: event.type_.clone(),
-                    spec_version: "1.0".to_string(),
-                    data_content_type: entry.content_type,
-                    data,
-                    topic: event.topic.clone(),
-                    pubsub_name: event.pubsub_name.clone(),
-                    path: event.path.clone(),
-                    extensions: Vec::new(),
-                },
-            };
-            pc::BulkTopicEventEntryResponse {
-                entry_id: entry.entry_id,
-                status: handle(single),
-            }
-        })
-        .collect()
+    mut handle: F,
+) -> Vec<pc::BulkTopicEventEntryResponse>
+where
+    F: FnMut(pc::TopicEvent) -> Fut,
+    Fut: core::future::Future<Output = pc::TopicEventResponse>,
+{
+    let mut statuses = Vec::with_capacity(event.entries.len());
+    for entry in event.entries {
+        let single = match entry.event {
+            pc::BulkEvent::CloudEvent(cloud_event) => cloud_event,
+            pc::BulkEvent::Raw(data) => pc::TopicEvent {
+                id: entry.entry_id.clone(),
+                source: String::new(),
+                type_: event.type_.clone(),
+                spec_version: "1.0".to_string(),
+                data_content_type: entry.content_type,
+                data,
+                topic: event.topic.clone(),
+                pubsub_name: event.pubsub_name.clone(),
+                path: event.path.clone(),
+                extensions: Vec::new(),
+            },
+        };
+        statuses.push(pc::BulkTopicEventEntryResponse {
+            entry_id: entry.entry_id,
+            status: handle(single).await,
+        });
+    }
+    statuses
 }
 
 // Bridge the generated per-interface `Guest` traits to the single `DaprApp`
@@ -308,70 +327,74 @@ pub fn bulk_to_single(
 // every callback export.
 
 impl<T: DaprApp> ic::Guest for T {
-    fn on_invoke(request: ic::InvokeRequest) -> ic::HttpResponse {
-        <T as DaprApp>::on_invoke(request)
+    async fn on_invoke(request: ic::InvokeRequest) -> ic::HttpResponse {
+        <T as DaprApp>::on_invoke(request).await
     }
 }
 
 impl<T: DaprApp> pc::Guest for T {
-    fn list_topic_subscriptions() -> Vec<pc::TopicSubscription> {
-        <T as DaprApp>::list_topic_subscriptions()
+    async fn list_topic_subscriptions() -> Vec<pc::TopicSubscription> {
+        <T as DaprApp>::list_topic_subscriptions().await
     }
-    fn on_topic_event(event: pc::TopicEvent) -> pc::TopicEventResponse {
-        <T as DaprApp>::on_topic_event(event)
+    async fn on_topic_event(event: pc::TopicEvent) -> pc::TopicEventResponse {
+        <T as DaprApp>::on_topic_event(event).await
     }
-    fn on_bulk_topic_event(event: pc::BulkTopicEvent) -> Vec<pc::BulkTopicEventEntryResponse> {
-        <T as DaprApp>::on_bulk_topic_event(event)
+    async fn on_bulk_topic_event(
+        event: pc::BulkTopicEvent,
+    ) -> Vec<pc::BulkTopicEventEntryResponse> {
+        <T as DaprApp>::on_bulk_topic_event(event).await
     }
 }
 
 impl<T: DaprApp> bc::Guest for T {
-    fn list_input_bindings() -> Vec<String> {
-        <T as DaprApp>::list_input_bindings()
+    async fn list_input_bindings() -> Vec<String> {
+        <T as DaprApp>::list_input_bindings().await
     }
-    fn on_binding_event(event: bc::BindingEvent) -> Result<bc::BindingEventResponse, AppError> {
-        <T as DaprApp>::on_binding_event(event)
+    async fn on_binding_event(
+        event: bc::BindingEvent,
+    ) -> Result<bc::BindingEventResponse, AppError> {
+        <T as DaprApp>::on_binding_event(event).await
     }
 }
 
 impl<T: DaprApp> jc::Guest for T {
-    fn on_job_event(event: jc::JobEvent) -> Result<(), AppError> {
-        <T as DaprApp>::on_job_event(event)
+    async fn on_job_event(event: jc::JobEvent) -> Result<(), AppError> {
+        <T as DaprApp>::on_job_event(event).await
     }
 }
 
 impl<T: DaprApp> ac::Guest for T {
-    fn config() -> ac::ActorConfig {
-        <T as DaprApp>::actor_config()
+    async fn config() -> ac::ActorConfig {
+        <T as DaprApp>::actor_config().await
     }
-    fn on_invoke(
+    async fn on_invoke(
         actor_type: String,
         actor_id: String,
         method: String,
         data: Vec<u8>,
     ) -> Result<Vec<u8>, AppError> {
-        <T as DaprApp>::on_actor_invoke(actor_type, actor_id, method, data)
+        <T as DaprApp>::on_actor_invoke(actor_type, actor_id, method, data).await
     }
-    fn on_timer(event: ac::ActorTimerEvent) -> Result<(), AppError> {
-        <T as DaprApp>::on_actor_timer(event)
+    async fn on_timer(event: ac::ActorTimerEvent) -> Result<(), AppError> {
+        <T as DaprApp>::on_actor_timer(event).await
     }
-    fn on_reminder(event: ac::ActorReminderEvent) -> Result<(), AppError> {
-        <T as DaprApp>::on_actor_reminder(event)
+    async fn on_reminder(event: ac::ActorReminderEvent) -> Result<(), AppError> {
+        <T as DaprApp>::on_actor_reminder(event).await
     }
-    fn deactivate(actor_type: String, actor_id: String) -> Result<(), AppError> {
-        <T as DaprApp>::deactivate_actor(actor_type, actor_id)
+    async fn deactivate(actor_type: String, actor_id: String) -> Result<(), AppError> {
+        <T as DaprApp>::deactivate_actor(actor_type, actor_id).await
     }
 }
 
 impl<T: DaprApp> cc::Guest for T {
-    fn on_configuration_event(update: cc::ConfigurationUpdate) {
-        <T as DaprApp>::on_configuration_event(update)
+    async fn on_configuration_event(update: cc::ConfigurationUpdate) {
+        <T as DaprApp>::on_configuration_event(update).await
     }
 }
 
 impl<T: DaprApp> callback::health_callback::Guest for T {
-    fn health_check() -> Result<(), AppError> {
-        <T as DaprApp>::health_check()
+    async fn health_check() -> Result<(), AppError> {
+        <T as DaprApp>::health_check().await
     }
 }
 
