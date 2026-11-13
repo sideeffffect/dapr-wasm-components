@@ -263,13 +263,15 @@ Divergences from the wasi-http provider (inherent to the gRPC API): service invo
 flowchart LR
   GO["go-outbound<br/>(the Dapr runtime)"]
   APP["app"]
-  PUMP["go-inbound<br/>(pump, wasi:cli/run)"]
+  PUMP["go-inbound<br/>(pump, wasi:cli/run@0.3.0)"]
   GO -- "building blocks" --> APP
   GO -- "go-events" --> PUMP
   APP -- "*-callback" --> PUMP
 ```
 
 Inbound is pulled, not pushed: `go-inbound` (about 300 lines of Rust, no Dapr state) loops `next-event` → the app's matching callback → `complete-event`. That keeps the graph acyclic and never re-enters an instance, so a callback may call any building block. The composed app holds **one** Go runtime and **one** Dapr runtime. The pump is not written in Go on purpose: it would add a second Go runtime.
+
+The pair runs on the WASI 0.3 event loop (Component Model async; componentize-go with a patched Go that has `runtime.wasiOnIdle`). The pump starts go-outbound's never-ending `run` task and awaits `next-event`, so the runtime is a live task of its own: Dapr's goroutines run whenever the host turns its event loop, not only while the pump is inside go-outbound. The app is still one instance with sync callbacks, so while a callback runs Dapr pauses and the app cannot be re-entered (self-invocation fails fast) — lifting that needs async interfaces; see [the wiki](wiki/dapr/dapr-wasm-components-go-async.md).
 
 Compose and run — the program arguments are daprd's own flags, parsed by daprd's own parser:
 
@@ -299,7 +301,7 @@ How it works, in short (details in [the design spec](docs/superpowers/specs/2026
 | `components/wasi-grpc-outbound/` | wasi:grpc **outbound** provider — the building blocks over the Dapr gRPC API (Spin ≥ 3.4; vendored protos + checked-in tonic codegen) |
 | `components/wasi-grpc-inbound/` | wasi:grpc **inbound** provider — serves Dapr's `AppCallback` gRPC service over `wasi:http/incoming-handler` (Spin h2c inbound), dispatching to the typed callbacks |
 | `components/go-outbound/` | go **outbound** — the Dapr runtime embedded (Go module, built with `componentize-go`): every building block in-process + the private `go-events` queue (`wit/go.wit`); `scripts/build.sh` builds it |
-| `components/go-inbound/` | go **inbound** — the Rust pump (`wasi:cli/run`) delivering the runtime's events to the app's callbacks |
+| `components/go-inbound/` | go **inbound** — the Rust pump (`wasi:cli/run@0.3.0`) delivering the runtime's events to the app's callbacks |
 | `app-sdk/dapr-app/` | The app-side `dapr-app` SDK (`DaprApp` trait + `export_app!`); wasm-only |
 | `compose.wac` / `compose.sh` | The `outbound → app → inbound` composition graph, and a wrapper that resolves the providers and runs `wac` as a one-liner |
 | `e2e/` | Test harness: mock-sidecar tests, wac composition, and the real-Dapr E2Es (shared scenario in `tests/common/`) |

@@ -17,6 +17,12 @@ func Attach() {
 	}
 }
 
+// Run drives the runtime and never returns (the async `run` export).
+func Run() {
+	events.Run()
+}
+
+// NextEvent is the async `next-event` export.
 func NextEvent() (uint64, ev.Event) {
 	return events.Next()
 }

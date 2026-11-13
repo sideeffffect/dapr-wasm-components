@@ -5,12 +5,17 @@
 //     wasi:io@0.2.6
 //     wasi:clocks@0.2.6
 //     wasi:sockets@0.2.6
+//     wasi:clocks@0.3.0
+//     wasi:filesystem@0.3.0
+//     wasi:sockets@0.3.0
+//     wasi:random@0.3.0
+//     wasi:cli@0.3.0
+//     dapr-wasm-components:go@0.2.0
 //     wasi:filesystem@0.2.6
 //     wasi:random@0.2.6
 //     wasi:cli@0.2.6
-//     dapr-wasm-components:go@0.1.0
 
-package wasi_sockets_network
+package wasi_sockets_0_2_6_network
 
 import (
 	witRuntime "go.bytecodealliance.org/pkg/wit/runtime"

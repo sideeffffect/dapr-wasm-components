@@ -1,6 +1,6 @@
 # dapr-wasm-components go Family (Dapr Embedded)
 
-> Sources: dapr-wasm-components go-family session, 2026-10-12; in-process app callbacks, 2026-10-14; go-async research, 2026-11-13
+> Sources: dapr-wasm-components go-family session, 2026-10-12; in-process app callbacks, 2026-10-14; go-async research and WASI 0.3 pump, 2026-11-13
 > Raw: [go family findings](../../raw/dapr/2026-10-12-go-family-embedded-dapr-findings.md)
 
 ## Overview
@@ -24,6 +24,7 @@ flowchart LR
 - go-outbound exports the public `outbound` world plus the private `dapr-wasm-components:go/events` (`attach`, `next-event`, `complete-event`), defined in `components/go-outbound/wit/go.wit`. Its records are structural copies of the callback records: `use`-ing the callback interfaces would force go-outbound to import them from the app (a cycle).
 - go-inbound loops: pull an event, call the matching callback, hand the result back. While it calls the app, go-outbound is not on the stack, so the app may call any building block.
 - The composed app holds exactly one Go runtime and one Dapr runtime; the pump is Rust because a Go pump would add a second Go runtime.
+- **WASI 0.3 async (since 2026-11-13, `go@0.2.0`).** `events.run` (never returns) and `events.next-event` are `async`; go-inbound exports `wasi:cli/run@0.3.0`, starts `run` without awaiting it and awaits `next-event`. go-outbound is built by componentize-go as an async component with the patched Go (`runtime.wasiOnIdle`, golang/go#76775). Rules learned from the go-pkg callback glue: a task resumes only on its own waitable; an idle task with no pending waitable is ended (even before `task.return`); an export goroutine must not be woken in another task's turn. So `run` keeps a clock wait aimed at the next Go timer (`runtime.wasiNextTimer`, added by the overlay; clamped to 0.2–10 ms) and `next-event` polls the queue between clock waits (`events.Wait`, 0.5→10 ms backoff). Details and spikes: [go Family: Async, Threads and Queues](dapr-wasm-components-go-async.md).
 
 ## How go-outbound works
 
@@ -43,11 +44,11 @@ flowchart LR
 ## Limits
 
 - **One app instance.** A delivery cannot reach the app while it runs a callback. Self-invocation would deadlock, so it fails fast with `app-unreachable`; the shared scenario asserts exactly that (`Endpoints::self_invocation`). An A → B → A cycle hangs unless a resiliency timeout is set. The sidecar families avoid this because their hosts instantiate per request.
-- Go goroutines run only while go-outbound is on the stack; a long callback that never calls Dapr pauses subscribers and heartbeats.
+- Dapr runs as its own task (`events.run`), but the store has one thread: while the app runs a sync callback, nothing else runs, so a long callback that never calls Dapr pauses subscribers and heartbeats. A sync-typed callback cannot yield (it traps if it waits on a p3 import).
 - Both limits come from the WASI 0.2 sync model. What WASI 0.3 async can and cannot change (spikes, plan, alternatives): [go Family: Async, Threads and Queues](dapr-wasm-components-go-async.md).
 - No UDP multicast → no mDNS; `nameformat` cannot give per-app ports on one host. Use Consul (set `DAPR_HOST_IP`), Kubernetes, or another resolver. Dapr resolves even its own app id before short-circuiting to a local call.
 - Size ~264 MB (Dapr runtime ~138 MB + component SDKs); first wasmtime compile ~30 s.
-- Toolchain bugs worked around in `scripts/fix-bindings.py`: a wit-bindgen-go name clash (variant case vs record type) `FromOwnHandle` not recording the incoming handle, and a header line that is not Go's `// Code generated ... DO NOT EDIT.` marker. The generated Go is checked in (Go tools do not run generators); CI regenerates it and fails on drift, and `.gitattributes` marks it `linguist-generated`.
+- Toolchain bugs worked around in `scripts/fix-bindings.py`: a wit-bindgen-go name clash (variant case vs record type), `FromOwnHandle` not recording the incoming handle, an async export's `task.return` called with a `uintptr` for an `int32` parameter, and a header line that is not Go's `// Code generated ... DO NOT EDIT.` marker. The generated Go is checked in (Go tools do not run generators); CI regenerates it and fails on drift, and `.gitattributes` marks it `linguist-generated`.
 
 ## See Also
 
