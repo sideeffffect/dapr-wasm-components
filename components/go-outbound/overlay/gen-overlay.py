@@ -15,6 +15,16 @@ loudly instead of silently.
   poll, and a GC can start inside cabi_realloc, where the component model
   forbids import calls ("cannot leave component instance").
 
+- runtime/zz_wasi_timer.go (added, from _runtime/): wasiNextTimer and
+  wasiNanotime, linknamed by go-outbound's internal/events. go-outbound is an
+  async component (componentize-go with the patched Go that has
+  runtime.wasiOnIdle); its idle hook does not wake the host for Go timers, so
+  events.Run aims a WASI clock wait at the next timer.
+
+The overlay must be generated against the Go that builds the component: the
+patched Go that componentize-go downloads for async worlds (scripts/build.sh
+passes it as $GO).
+
 Writes <out>/overlay.json (default: components/target/go-overlay — outside
 the Go module, so `go ... ./...` never sees the patched std files).
 """
@@ -22,7 +32,7 @@ import json, os, subprocess, sys
 
 here = os.path.dirname(os.path.abspath(__file__))
 out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "..", "..", "target", "go-overlay"))
-goroot = subprocess.check_output(["go", "env", "GOROOT"], text=True).strip()
+goroot = subprocess.check_output([os.environ.get("GO", "go"), "env", "GOROOT"], text=True).strip()
 src = os.path.join(goroot, "src")
 
 PATCHES = {
@@ -91,5 +101,6 @@ for name, patches in PATCHES.items():
     open(dst, "w").write(text)
     replace[os.path.join(src, name)] = dst
 replace[os.path.join(src, "net", "zz_wasisock.go")] = os.path.join(here, "_net", "zz_wasisock.go")
+replace[os.path.join(src, "runtime", "zz_wasi_timer.go")] = os.path.join(here, "_runtime", "zz_wasi_timer.go")
 json.dump({"Replace": replace}, open(os.path.join(out, "overlay.json"), "w"), indent=1)
 print(os.path.join(out, "overlay.json"))

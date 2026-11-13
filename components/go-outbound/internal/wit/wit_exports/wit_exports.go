@@ -5,10 +5,15 @@
 //     wasi:io@0.2.6
 //     wasi:clocks@0.2.6
 //     wasi:sockets@0.2.6
+//     wasi:clocks@0.3.0
+//     wasi:filesystem@0.3.0
+//     wasi:sockets@0.3.0
+//     wasi:random@0.3.0
+//     wasi:cli@0.3.0
+//     dapr-wasm-components:go@0.2.0
 //     wasi:filesystem@0.2.6
 //     wasi:random@0.2.6
 //     wasi:cli@0.2.6
-//     dapr-wasm-components:go@0.1.0
 
 package wit_exports
 
@@ -50,6 +55,7 @@ import (
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/export_dapr_wasm_components_interfaces_state_read"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/export_dapr_wasm_components_interfaces_workflow"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/export_dapr_wasm_components_interfaces_workflow_read"
+	witAsync "go.bytecodealliance.org/pkg/wit/async"
 	witRuntime "go.bytecodealliance.org/pkg/wit/runtime"
 	witTypes "go.bytecodealliance.org/pkg/wit/types"
 	"runtime"
@@ -626,643 +632,666 @@ func wasm_export_post_return_dapr_wasm_components_interfaces_configuration_read_
 	syncExportPinner.Unpin()
 }
 
-//go:wasmexport dapr-wasm-components:go/events@0.1.0#attach
+//go:wasmexport dapr-wasm-components:go/events@0.2.0#attach
 func wasm_export_dapr_wasm_components_go_events_attach() {
 
 	export_dapr_wasm_components_go_events.Attach()
 
 }
 
-//go:wasmexport dapr-wasm-components:go/events@0.1.0#next-event
-func wasm_export_dapr_wasm_components_go_events_next_event() uintptr {
+//go:wasmexport [async-lift]dapr-wasm-components:go/events@0.2.0#run
+func wasm_export_dapr_wasm_components_go_events_run() int32 {
+	return int32(witAsync.Run(func() {
 
-	pinner := &syncExportPinner
-	result0, result1 := export_dapr_wasm_components_go_events.NextEvent()
-	result := witTypes.Tuple2[uint64, dapr_wasm_components_go_events.Event]{F0: result0, F1: result1}
-	*(*int64)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int64((result).F0)
+		export_dapr_wasm_components_go_events.Run()
+		wasm_export_task_return_dapr_wasm_components_go_events_run()
 
-	switch (result).F1.Tag() {
-	case dapr_wasm_components_go_events.EventListTopicSubscriptions:
+	}))
+}
 
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(0))
+//go:wasmexport [callback][async-lift]dapr-wasm-components:go/events@0.2.0#run
+func wasm_export_callback_dapr_wasm_components_go_events_run(event0 uint32, event1 uint32, event2 uint32) uint32 {
+	return witAsync.Callback(event0, event1, event2)
+}
 
-	case dapr_wasm_components_go_events.EventListInputBindings:
+//go:wasmimport [export]dapr-wasm-components:go/events@0.2.0 [task-return]run
+func wasm_export_task_return_dapr_wasm_components_go_events_run()
 
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(1))
+//go:wasmexport [async-lift]dapr-wasm-components:go/events@0.2.0#next-event
+func wasm_export_dapr_wasm_components_go_events_next_event() int32 {
+	return int32(witAsync.Run(func() {
+		pinner := &runtime.Pinner{}
+		defer pinner.Unpin()
+		result0, result1 := export_dapr_wasm_components_go_events.NextEvent()
+		result := witTypes.Tuple2[uint64, dapr_wasm_components_go_events.Event]{F0: result0, F1: result1}
+		*(*int64)(unsafe.Add(unsafe.Pointer(exportReturnArea), 0)) = int64((result).F0)
 
-	case dapr_wasm_components_go_events.EventActorConfig:
+		switch (result).F1.Tag() {
+		case dapr_wasm_components_go_events.EventListTopicSubscriptions:
 
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(2))
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(0))
 
-	case dapr_wasm_components_go_events.EventHealthCheck:
+		case dapr_wasm_components_go_events.EventListInputBindings:
 
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(3))
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(1))
 
-	case dapr_wasm_components_go_events.EventInvoke:
-		payload := (result).F1.Invoke()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(4))
-		utf8 := unsafe.Pointer(unsafe.StringData((payload).Method))
-		pinner.Pin(utf8)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Method)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf8)))
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = int8(int32((payload).Verb))
-		slice := (payload).Headers
-		length := uint32(len(slice))
-		result4 := witRuntime.Allocate(pinner, uintptr(length*(4*4)), 4)
-		for index, element := range slice {
-			base := unsafe.Add(result4, index*(4*4))
-			utf82 := unsafe.Pointer(unsafe.StringData((element).F0))
-			pinner.Pin(utf82)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf82)))
-			utf83 := unsafe.Pointer(unsafe.StringData((element).F1))
-			pinner.Pin(utf83)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf83)))
+		case dapr_wasm_components_go_events.EventActorConfig:
 
-		}
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(2))
 
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(length)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uintptr(uintptr(result4)))
+		case dapr_wasm_components_go_events.EventHealthCheck:
 
-		switch (payload).Query.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = int8(int32(0))
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(3))
 
-		case witTypes.OptionSome:
-			payload := (payload).Query.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = int8(int32(1))
-			utf85 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf85)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uintptr(uintptr(utf85)))
+		case dapr_wasm_components_go_events.EventInvoke:
+			payload := (result).F1.Invoke()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(4))
+			utf8 := unsafe.Pointer(unsafe.StringData((payload).Method))
+			pinner.Pin(utf8)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Method)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf8)))
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = int8(int32((payload).Verb))
+			slice := (payload).Headers
+			length := uint32(len(slice))
+			result4 := witRuntime.Allocate(pinner, uintptr(length*(4*4)), 4)
+			for index, element := range slice {
+				base := unsafe.Add(result4, index*(4*4))
+				utf82 := unsafe.Pointer(unsafe.StringData((element).F0))
+				pinner.Pin(utf82)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf82)))
+				utf83 := unsafe.Pointer(unsafe.StringData((element).F1))
+				pinner.Pin(utf83)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf83)))
 
-		default:
-			panic("unreachable")
-		}
-		utf86 := unsafe.Pointer(unsafe.StringData((payload).ContentType))
-		pinner.Pin(utf86)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = uint32(uint32(len((payload).ContentType)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = uint32(uintptr(uintptr(utf86)))
-		data := unsafe.Pointer(unsafe.SliceData((payload).Data))
-		pinner.Pin(data)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uint32(len((payload).Data)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uintptr(uintptr(data)))
-
-	case dapr_wasm_components_go_events.EventTopic:
-		payload := (result).F1.Topic()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(5))
-		utf87 := unsafe.Pointer(unsafe.StringData((payload).Id))
-		pinner.Pin(utf87)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Id)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf87)))
-		utf88 := unsafe.Pointer(unsafe.StringData((payload).Source))
-		pinner.Pin(utf88)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).Source)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf88)))
-		utf89 := unsafe.Pointer(unsafe.StringData((payload).Type))
-		pinner.Pin(utf89)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uint32(len((payload).Type)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(utf89)))
-		utf810 := unsafe.Pointer(unsafe.StringData((payload).SpecVersion))
-		pinner.Pin(utf810)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uint32(len((payload).SpecVersion)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uintptr(uintptr(utf810)))
-
-		switch (payload).DataContentType.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = int8(int32(0))
-
-		case witTypes.OptionSome:
-			payload := (payload).DataContentType.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = int8(int32(1))
-			utf811 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf811)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = uint32(uintptr(uintptr(utf811)))
-
-		default:
-			panic("unreachable")
-		}
-		data12 := unsafe.Pointer(unsafe.SliceData((payload).Data))
-		pinner.Pin(data12)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = uint32(uint32(len((payload).Data)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uintptr(uintptr(data12)))
-		utf813 := unsafe.Pointer(unsafe.StringData((payload).Topic))
-		pinner.Pin(utf813)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 15*4))) = uint32(uint32(len((payload).Topic)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 14*4))) = uint32(uintptr(uintptr(utf813)))
-		utf814 := unsafe.Pointer(unsafe.StringData((payload).PubsubName))
-		pinner.Pin(utf814)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 17*4))) = uint32(uint32(len((payload).PubsubName)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 16*4))) = uint32(uintptr(uintptr(utf814)))
-
-		switch (payload).Path.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 18*4))) = int8(int32(0))
-
-		case witTypes.OptionSome:
-			payload := (payload).Path.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 18*4))) = int8(int32(1))
-			utf815 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf815)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 20*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 19*4))) = uint32(uintptr(uintptr(utf815)))
-
-		default:
-			panic("unreachable")
-		}
-		slice18 := (payload).Extensions
-		length20 := uint32(len(slice18))
-		result19 := witRuntime.Allocate(pinner, uintptr(length20*(4*4)), 4)
-		for index, element := range slice18 {
-			base := unsafe.Add(result19, index*(4*4))
-			utf816 := unsafe.Pointer(unsafe.StringData((element).F0))
-			pinner.Pin(utf816)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf816)))
-			utf817 := unsafe.Pointer(unsafe.StringData((element).F1))
-			pinner.Pin(utf817)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf817)))
-
-		}
-
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 22*4))) = uint32(length20)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 21*4))) = uint32(uintptr(uintptr(result19)))
-
-	case dapr_wasm_components_go_events.EventBulkTopic:
-		payload := (result).F1.BulkTopic()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(6))
-		utf821 := unsafe.Pointer(unsafe.StringData((payload).Id))
-		pinner.Pin(utf821)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Id)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf821)))
-		slice44 := (payload).Entries
-		length46 := uint32(len(slice44))
-		result45 := witRuntime.Allocate(pinner, uintptr(length46*(30*4)), 4)
-		for index, element := range slice44 {
-			base := unsafe.Add(result45, index*(30*4))
-			utf822 := unsafe.Pointer(unsafe.StringData((element).EntryId))
-			pinner.Pin(utf822)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).EntryId)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf822)))
-
-			switch (element).Event.Tag() {
-			case dapr_wasm_components_go_events.BulkEventCloudEvent:
-				payload := (element).Event.CloudEvent()
-				*(*int8)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = int8(int32(0))
-				utf823 := unsafe.Pointer(unsafe.StringData((payload).Id))
-				pinner.Pin(utf823)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (4 * 4))) = uint32(uint32(len((payload).Id)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uintptr(uintptr(utf823)))
-				utf824 := unsafe.Pointer(unsafe.StringData((payload).Source))
-				pinner.Pin(utf824)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (6 * 4))) = uint32(uint32(len((payload).Source)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (5 * 4))) = uint32(uintptr(uintptr(utf824)))
-				utf825 := unsafe.Pointer(unsafe.StringData((payload).Type))
-				pinner.Pin(utf825)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (8 * 4))) = uint32(uint32(len((payload).Type)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (7 * 4))) = uint32(uintptr(uintptr(utf825)))
-				utf826 := unsafe.Pointer(unsafe.StringData((payload).SpecVersion))
-				pinner.Pin(utf826)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (10 * 4))) = uint32(uint32(len((payload).SpecVersion)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (9 * 4))) = uint32(uintptr(uintptr(utf826)))
-
-				switch (payload).DataContentType.Tag() {
-				case witTypes.OptionNone:
-					*(*int8)(unsafe.Add(unsafe.Pointer(base), (11 * 4))) = int8(int32(0))
-
-				case witTypes.OptionSome:
-					payload := (payload).DataContentType.Some()
-					*(*int8)(unsafe.Add(unsafe.Pointer(base), (11 * 4))) = int8(int32(1))
-					utf827 := unsafe.Pointer(unsafe.StringData(payload))
-					pinner.Pin(utf827)
-					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (13 * 4))) = uint32(uint32(len(payload)))
-					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (12 * 4))) = uint32(uintptr(uintptr(utf827)))
-
-				default:
-					panic("unreachable")
-				}
-				data28 := unsafe.Pointer(unsafe.SliceData((payload).Data))
-				pinner.Pin(data28)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (15 * 4))) = uint32(uint32(len((payload).Data)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (14 * 4))) = uint32(uintptr(uintptr(data28)))
-				utf829 := unsafe.Pointer(unsafe.StringData((payload).Topic))
-				pinner.Pin(utf829)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (17 * 4))) = uint32(uint32(len((payload).Topic)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (16 * 4))) = uint32(uintptr(uintptr(utf829)))
-				utf830 := unsafe.Pointer(unsafe.StringData((payload).PubsubName))
-				pinner.Pin(utf830)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (19 * 4))) = uint32(uint32(len((payload).PubsubName)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (18 * 4))) = uint32(uintptr(uintptr(utf830)))
-
-				switch (payload).Path.Tag() {
-				case witTypes.OptionNone:
-					*(*int8)(unsafe.Add(unsafe.Pointer(base), (20 * 4))) = int8(int32(0))
-
-				case witTypes.OptionSome:
-					payload := (payload).Path.Some()
-					*(*int8)(unsafe.Add(unsafe.Pointer(base), (20 * 4))) = int8(int32(1))
-					utf831 := unsafe.Pointer(unsafe.StringData(payload))
-					pinner.Pin(utf831)
-					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (22 * 4))) = uint32(uint32(len(payload)))
-					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (21 * 4))) = uint32(uintptr(uintptr(utf831)))
-
-				default:
-					panic("unreachable")
-				}
-				slice34 := (payload).Extensions
-				length36 := uint32(len(slice34))
-				result35 := witRuntime.Allocate(pinner, uintptr(length36*(4*4)), 4)
-				for index, element := range slice34 {
-					base := unsafe.Add(result35, index*(4*4))
-					utf832 := unsafe.Pointer(unsafe.StringData((element).F0))
-					pinner.Pin(utf832)
-					*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
-					*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf832)))
-					utf833 := unsafe.Pointer(unsafe.StringData((element).F1))
-					pinner.Pin(utf833)
-					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
-					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf833)))
-
-				}
-
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (24 * 4))) = uint32(length36)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (23 * 4))) = uint32(uintptr(uintptr(result35)))
-
-			case dapr_wasm_components_go_events.BulkEventRaw:
-				payload := (element).Event.Raw()
-				*(*int8)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = int8(int32(1))
-				data37 := unsafe.Pointer(unsafe.SliceData(payload))
-				pinner.Pin(data37)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (4 * 4))) = uint32(uint32(len(payload)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uintptr(uintptr(data37)))
-
-			default:
-				panic("unreachable")
 			}
 
-			switch (element).ContentType.Tag() {
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(length)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uintptr(uintptr(result4)))
+
+			switch (payload).Query.Tag() {
 			case witTypes.OptionNone:
-				*(*int8)(unsafe.Add(unsafe.Pointer(base), (25 * 4))) = int8(int32(0))
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = int8(int32(0))
 
 			case witTypes.OptionSome:
-				payload := (element).ContentType.Some()
-				*(*int8)(unsafe.Add(unsafe.Pointer(base), (25 * 4))) = int8(int32(1))
-				utf838 := unsafe.Pointer(unsafe.StringData(payload))
-				pinner.Pin(utf838)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (27 * 4))) = uint32(uint32(len(payload)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (26 * 4))) = uint32(uintptr(uintptr(utf838)))
+				payload := (payload).Query.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = int8(int32(1))
+				utf85 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf85)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uintptr(uintptr(utf85)))
 
 			default:
 				panic("unreachable")
 			}
-			slice41 := (element).Metadata
-			length43 := uint32(len(slice41))
-			result42 := witRuntime.Allocate(pinner, uintptr(length43*(4*4)), 4)
-			for index, element := range slice41 {
-				base := unsafe.Add(result42, index*(4*4))
-				utf839 := unsafe.Pointer(unsafe.StringData((element).F0))
-				pinner.Pin(utf839)
+			utf86 := unsafe.Pointer(unsafe.StringData((payload).ContentType))
+			pinner.Pin(utf86)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = uint32(uint32(len((payload).ContentType)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = uint32(uintptr(uintptr(utf86)))
+			data := unsafe.Pointer(unsafe.SliceData((payload).Data))
+			pinner.Pin(data)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uint32(len((payload).Data)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uintptr(uintptr(data)))
+
+		case dapr_wasm_components_go_events.EventTopic:
+			payload := (result).F1.Topic()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(5))
+			utf87 := unsafe.Pointer(unsafe.StringData((payload).Id))
+			pinner.Pin(utf87)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Id)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf87)))
+			utf88 := unsafe.Pointer(unsafe.StringData((payload).Source))
+			pinner.Pin(utf88)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).Source)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf88)))
+			utf89 := unsafe.Pointer(unsafe.StringData((payload).Type))
+			pinner.Pin(utf89)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uint32(len((payload).Type)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(utf89)))
+			utf810 := unsafe.Pointer(unsafe.StringData((payload).SpecVersion))
+			pinner.Pin(utf810)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uint32(len((payload).SpecVersion)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uintptr(uintptr(utf810)))
+
+			switch (payload).DataContentType.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).DataContentType.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = int8(int32(1))
+				utf811 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf811)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = uint32(uintptr(uintptr(utf811)))
+
+			default:
+				panic("unreachable")
+			}
+			data12 := unsafe.Pointer(unsafe.SliceData((payload).Data))
+			pinner.Pin(data12)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = uint32(uint32(len((payload).Data)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uintptr(uintptr(data12)))
+			utf813 := unsafe.Pointer(unsafe.StringData((payload).Topic))
+			pinner.Pin(utf813)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 15*4))) = uint32(uint32(len((payload).Topic)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 14*4))) = uint32(uintptr(uintptr(utf813)))
+			utf814 := unsafe.Pointer(unsafe.StringData((payload).PubsubName))
+			pinner.Pin(utf814)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 17*4))) = uint32(uint32(len((payload).PubsubName)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 16*4))) = uint32(uintptr(uintptr(utf814)))
+
+			switch (payload).Path.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 18*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).Path.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 18*4))) = int8(int32(1))
+				utf815 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf815)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 20*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 19*4))) = uint32(uintptr(uintptr(utf815)))
+
+			default:
+				panic("unreachable")
+			}
+			slice18 := (payload).Extensions
+			length20 := uint32(len(slice18))
+			result19 := witRuntime.Allocate(pinner, uintptr(length20*(4*4)), 4)
+			for index, element := range slice18 {
+				base := unsafe.Add(result19, index*(4*4))
+				utf816 := unsafe.Pointer(unsafe.StringData((element).F0))
+				pinner.Pin(utf816)
 				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf839)))
-				utf840 := unsafe.Pointer(unsafe.StringData((element).F1))
-				pinner.Pin(utf840)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf816)))
+				utf817 := unsafe.Pointer(unsafe.StringData((element).F1))
+				pinner.Pin(utf817)
 				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf840)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf817)))
 
 			}
 
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (29 * 4))) = uint32(length43)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (28 * 4))) = uint32(uintptr(uintptr(result42)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 22*4))) = uint32(length20)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 21*4))) = uint32(uintptr(uintptr(result19)))
 
-		}
+		case dapr_wasm_components_go_events.EventBulkTopic:
+			payload := (result).F1.BulkTopic()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(6))
+			utf821 := unsafe.Pointer(unsafe.StringData((payload).Id))
+			pinner.Pin(utf821)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Id)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf821)))
+			slice44 := (payload).Entries
+			length46 := uint32(len(slice44))
+			result45 := witRuntime.Allocate(pinner, uintptr(length46*(30*4)), 4)
+			for index, element := range slice44 {
+				base := unsafe.Add(result45, index*(30*4))
+				utf822 := unsafe.Pointer(unsafe.StringData((element).EntryId))
+				pinner.Pin(utf822)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).EntryId)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf822)))
 
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(length46)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(result45)))
-		slice49 := (payload).Metadata
-		length51 := uint32(len(slice49))
-		result50 := witRuntime.Allocate(pinner, uintptr(length51*(4*4)), 4)
-		for index, element := range slice49 {
-			base := unsafe.Add(result50, index*(4*4))
-			utf847 := unsafe.Pointer(unsafe.StringData((element).F0))
-			pinner.Pin(utf847)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf847)))
-			utf848 := unsafe.Pointer(unsafe.StringData((element).F1))
-			pinner.Pin(utf848)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf848)))
+				switch (element).Event.Tag() {
+				case dapr_wasm_components_go_events.BulkEventCloudEvent:
+					payload := (element).Event.CloudEvent()
+					*(*int8)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = int8(int32(0))
+					utf823 := unsafe.Pointer(unsafe.StringData((payload).Id))
+					pinner.Pin(utf823)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (4 * 4))) = uint32(uint32(len((payload).Id)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uintptr(uintptr(utf823)))
+					utf824 := unsafe.Pointer(unsafe.StringData((payload).Source))
+					pinner.Pin(utf824)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (6 * 4))) = uint32(uint32(len((payload).Source)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (5 * 4))) = uint32(uintptr(uintptr(utf824)))
+					utf825 := unsafe.Pointer(unsafe.StringData((payload).Type))
+					pinner.Pin(utf825)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (8 * 4))) = uint32(uint32(len((payload).Type)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (7 * 4))) = uint32(uintptr(uintptr(utf825)))
+					utf826 := unsafe.Pointer(unsafe.StringData((payload).SpecVersion))
+					pinner.Pin(utf826)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (10 * 4))) = uint32(uint32(len((payload).SpecVersion)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (9 * 4))) = uint32(uintptr(uintptr(utf826)))
 
-		}
+					switch (payload).DataContentType.Tag() {
+					case witTypes.OptionNone:
+						*(*int8)(unsafe.Add(unsafe.Pointer(base), (11 * 4))) = int8(int32(0))
 
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(length51)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(result50)))
-		utf852 := unsafe.Pointer(unsafe.StringData((payload).Topic))
-		pinner.Pin(utf852)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uint32(len((payload).Topic)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uintptr(uintptr(utf852)))
-		utf853 := unsafe.Pointer(unsafe.StringData((payload).PubsubName))
-		pinner.Pin(utf853)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = uint32(uint32(len((payload).PubsubName)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = uint32(uintptr(uintptr(utf853)))
-		utf854 := unsafe.Pointer(unsafe.StringData((payload).Type))
-		pinner.Pin(utf854)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uint32(len((payload).Type)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uintptr(uintptr(utf854)))
+					case witTypes.OptionSome:
+						payload := (payload).DataContentType.Some()
+						*(*int8)(unsafe.Add(unsafe.Pointer(base), (11 * 4))) = int8(int32(1))
+						utf827 := unsafe.Pointer(unsafe.StringData(payload))
+						pinner.Pin(utf827)
+						*(*uint32)(unsafe.Add(unsafe.Pointer(base), (13 * 4))) = uint32(uint32(len(payload)))
+						*(*uint32)(unsafe.Add(unsafe.Pointer(base), (12 * 4))) = uint32(uintptr(uintptr(utf827)))
 
-		switch (payload).Path.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = int8(int32(0))
+					default:
+						panic("unreachable")
+					}
+					data28 := unsafe.Pointer(unsafe.SliceData((payload).Data))
+					pinner.Pin(data28)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (15 * 4))) = uint32(uint32(len((payload).Data)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (14 * 4))) = uint32(uintptr(uintptr(data28)))
+					utf829 := unsafe.Pointer(unsafe.StringData((payload).Topic))
+					pinner.Pin(utf829)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (17 * 4))) = uint32(uint32(len((payload).Topic)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (16 * 4))) = uint32(uintptr(uintptr(utf829)))
+					utf830 := unsafe.Pointer(unsafe.StringData((payload).PubsubName))
+					pinner.Pin(utf830)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (19 * 4))) = uint32(uint32(len((payload).PubsubName)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (18 * 4))) = uint32(uintptr(uintptr(utf830)))
 
-		case witTypes.OptionSome:
-			payload := (payload).Path.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = int8(int32(1))
-			utf855 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf855)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 15*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 14*4))) = uint32(uintptr(uintptr(utf855)))
+					switch (payload).Path.Tag() {
+					case witTypes.OptionNone:
+						*(*int8)(unsafe.Add(unsafe.Pointer(base), (20 * 4))) = int8(int32(0))
 
-		default:
-			panic("unreachable")
-		}
+					case witTypes.OptionSome:
+						payload := (payload).Path.Some()
+						*(*int8)(unsafe.Add(unsafe.Pointer(base), (20 * 4))) = int8(int32(1))
+						utf831 := unsafe.Pointer(unsafe.StringData(payload))
+						pinner.Pin(utf831)
+						*(*uint32)(unsafe.Add(unsafe.Pointer(base), (22 * 4))) = uint32(uint32(len(payload)))
+						*(*uint32)(unsafe.Add(unsafe.Pointer(base), (21 * 4))) = uint32(uintptr(uintptr(utf831)))
 
-	case dapr_wasm_components_go_events.EventBinding:
-		payload := (result).F1.Binding()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(7))
-		utf856 := unsafe.Pointer(unsafe.StringData((payload).Name))
-		pinner.Pin(utf856)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Name)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf856)))
-		data57 := unsafe.Pointer(unsafe.SliceData((payload).Data))
-		pinner.Pin(data57)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).Data)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(data57)))
-		slice60 := (payload).Metadata
-		length62 := uint32(len(slice60))
-		result61 := witRuntime.Allocate(pinner, uintptr(length62*(4*4)), 4)
-		for index, element := range slice60 {
-			base := unsafe.Add(result61, index*(4*4))
-			utf858 := unsafe.Pointer(unsafe.StringData((element).F0))
-			pinner.Pin(utf858)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf858)))
-			utf859 := unsafe.Pointer(unsafe.StringData((element).F1))
-			pinner.Pin(utf859)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf859)))
+					default:
+						panic("unreachable")
+					}
+					slice34 := (payload).Extensions
+					length36 := uint32(len(slice34))
+					result35 := witRuntime.Allocate(pinner, uintptr(length36*(4*4)), 4)
+					for index, element := range slice34 {
+						base := unsafe.Add(result35, index*(4*4))
+						utf832 := unsafe.Pointer(unsafe.StringData((element).F0))
+						pinner.Pin(utf832)
+						*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
+						*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf832)))
+						utf833 := unsafe.Pointer(unsafe.StringData((element).F1))
+						pinner.Pin(utf833)
+						*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
+						*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf833)))
 
-		}
+					}
 
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(length62)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(result61)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (24 * 4))) = uint32(length36)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (23 * 4))) = uint32(uintptr(uintptr(result35)))
 
-	case dapr_wasm_components_go_events.EventJob:
-		payload := (result).F1.Job()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(8))
-		utf863 := unsafe.Pointer(unsafe.StringData((payload).Name))
-		pinner.Pin(utf863)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Name)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf863)))
-		data64 := unsafe.Pointer(unsafe.SliceData((payload).Data))
-		pinner.Pin(data64)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).Data)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(data64)))
+				case dapr_wasm_components_go_events.BulkEventRaw:
+					payload := (element).Event.Raw()
+					*(*int8)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = int8(int32(1))
+					data37 := unsafe.Pointer(unsafe.SliceData(payload))
+					pinner.Pin(data37)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (4 * 4))) = uint32(uint32(len(payload)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uintptr(uintptr(data37)))
 
-		switch (payload).ContentType.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = int8(int32(0))
+				default:
+					panic("unreachable")
+				}
 
-		case witTypes.OptionSome:
-			payload := (payload).ContentType.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = int8(int32(1))
-			utf865 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf865)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uintptr(uintptr(utf865)))
+				switch (element).ContentType.Tag() {
+				case witTypes.OptionNone:
+					*(*int8)(unsafe.Add(unsafe.Pointer(base), (25 * 4))) = int8(int32(0))
 
-		default:
-			panic("unreachable")
-		}
+				case witTypes.OptionSome:
+					payload := (element).ContentType.Some()
+					*(*int8)(unsafe.Add(unsafe.Pointer(base), (25 * 4))) = int8(int32(1))
+					utf838 := unsafe.Pointer(unsafe.StringData(payload))
+					pinner.Pin(utf838)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (27 * 4))) = uint32(uint32(len(payload)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (26 * 4))) = uint32(uintptr(uintptr(utf838)))
 
-	case dapr_wasm_components_go_events.EventActorInvoke:
-		payload := (result).F1.ActorInvoke()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(9))
-		utf866 := unsafe.Pointer(unsafe.StringData((payload).ActorType))
-		pinner.Pin(utf866)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).ActorType)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf866)))
-		utf867 := unsafe.Pointer(unsafe.StringData((payload).ActorId))
-		pinner.Pin(utf867)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).ActorId)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf867)))
-		utf868 := unsafe.Pointer(unsafe.StringData((payload).Method))
-		pinner.Pin(utf868)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uint32(len((payload).Method)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(utf868)))
-		data69 := unsafe.Pointer(unsafe.SliceData((payload).Data))
-		pinner.Pin(data69)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uint32(len((payload).Data)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uintptr(uintptr(data69)))
+				default:
+					panic("unreachable")
+				}
+				slice41 := (element).Metadata
+				length43 := uint32(len(slice41))
+				result42 := witRuntime.Allocate(pinner, uintptr(length43*(4*4)), 4)
+				for index, element := range slice41 {
+					base := unsafe.Add(result42, index*(4*4))
+					utf839 := unsafe.Pointer(unsafe.StringData((element).F0))
+					pinner.Pin(utf839)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf839)))
+					utf840 := unsafe.Pointer(unsafe.StringData((element).F1))
+					pinner.Pin(utf840)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf840)))
 
-	case dapr_wasm_components_go_events.EventActorTimer:
-		payload := (result).F1.ActorTimer()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(10))
-		utf870 := unsafe.Pointer(unsafe.StringData((payload).ActorType))
-		pinner.Pin(utf870)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).ActorType)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf870)))
-		utf871 := unsafe.Pointer(unsafe.StringData((payload).ActorId))
-		pinner.Pin(utf871)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).ActorId)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf871)))
-		utf872 := unsafe.Pointer(unsafe.StringData((payload).Name))
-		pinner.Pin(utf872)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uint32(len((payload).Name)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(utf872)))
+				}
 
-		switch (payload).DueTime.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = int8(int32(0))
-
-		case witTypes.OptionSome:
-			payload := (payload).DueTime.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = int8(int32(1))
-			utf873 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf873)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uintptr(uintptr(utf873)))
-
-		default:
-			panic("unreachable")
-		}
-
-		switch (payload).Period.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = int8(int32(0))
-
-		case witTypes.OptionSome:
-			payload := (payload).Period.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = int8(int32(1))
-			utf874 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf874)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uintptr(uintptr(utf874)))
-
-		default:
-			panic("unreachable")
-		}
-		data75 := unsafe.Pointer(unsafe.SliceData((payload).Data))
-		pinner.Pin(data75)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 14*4))) = uint32(uint32(len((payload).Data)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = uint32(uintptr(uintptr(data75)))
-
-		switch (payload).Callback.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 15*4))) = int8(int32(0))
-
-		case witTypes.OptionSome:
-			payload := (payload).Callback.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 15*4))) = int8(int32(1))
-			utf876 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf876)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 17*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 16*4))) = uint32(uintptr(uintptr(utf876)))
-
-		default:
-			panic("unreachable")
-		}
-
-	case dapr_wasm_components_go_events.EventActorReminder:
-		payload := (result).F1.ActorReminder()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(11))
-		utf877 := unsafe.Pointer(unsafe.StringData((payload).ActorType))
-		pinner.Pin(utf877)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).ActorType)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf877)))
-		utf878 := unsafe.Pointer(unsafe.StringData((payload).ActorId))
-		pinner.Pin(utf878)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).ActorId)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf878)))
-		utf879 := unsafe.Pointer(unsafe.StringData((payload).Name))
-		pinner.Pin(utf879)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uint32(len((payload).Name)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(utf879)))
-
-		switch (payload).DueTime.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = int8(int32(0))
-
-		case witTypes.OptionSome:
-			payload := (payload).DueTime.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = int8(int32(1))
-			utf880 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf880)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uintptr(uintptr(utf880)))
-
-		default:
-			panic("unreachable")
-		}
-
-		switch (payload).Period.Tag() {
-		case witTypes.OptionNone:
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = int8(int32(0))
-
-		case witTypes.OptionSome:
-			payload := (payload).Period.Some()
-			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = int8(int32(1))
-			utf881 := unsafe.Pointer(unsafe.StringData(payload))
-			pinner.Pin(utf881)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uint32(len(payload)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uintptr(uintptr(utf881)))
-
-		default:
-			panic("unreachable")
-		}
-		data82 := unsafe.Pointer(unsafe.SliceData((payload).Data))
-		pinner.Pin(data82)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 14*4))) = uint32(uint32(len((payload).Data)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = uint32(uintptr(uintptr(data82)))
-
-	case dapr_wasm_components_go_events.EventActorDeactivate:
-		payload := (result).F1.ActorDeactivate()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(12))
-		utf883 := unsafe.Pointer(unsafe.StringData((payload).ActorType))
-		pinner.Pin(utf883)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).ActorType)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf883)))
-		utf884 := unsafe.Pointer(unsafe.StringData((payload).ActorId))
-		pinner.Pin(utf884)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).ActorId)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf884)))
-
-	case dapr_wasm_components_go_events.EventConfigurationUpdate:
-		payload := (result).F1.ConfigurationUpdate()
-		*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(13))
-		utf885 := unsafe.Pointer(unsafe.StringData((payload).StoreName))
-		pinner.Pin(utf885)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).StoreName)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf885)))
-		utf886 := unsafe.Pointer(unsafe.StringData((payload).Id))
-		pinner.Pin(utf886)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).Id)))
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf886)))
-		slice95 := (payload).Items
-		length97 := uint32(len(slice95))
-		result96 := witRuntime.Allocate(pinner, uintptr(length97*(8*4)), 4)
-		for index, element := range slice95 {
-			base := unsafe.Add(result96, index*(8*4))
-			utf887 := unsafe.Pointer(unsafe.StringData((element).F0))
-			pinner.Pin(utf887)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf887)))
-			utf888 := unsafe.Pointer(unsafe.StringData(((element).F1).Value))
-			pinner.Pin(utf888)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len(((element).F1).Value)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf888)))
-			utf889 := unsafe.Pointer(unsafe.StringData(((element).F1).Version))
-			pinner.Pin(utf889)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (5 * 4))) = uint32(uint32(len(((element).F1).Version)))
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (4 * 4))) = uint32(uintptr(uintptr(utf889)))
-			slice92 := ((element).F1).Metadata
-			length94 := uint32(len(slice92))
-			result93 := witRuntime.Allocate(pinner, uintptr(length94*(4*4)), 4)
-			for index, element := range slice92 {
-				base := unsafe.Add(result93, index*(4*4))
-				utf890 := unsafe.Pointer(unsafe.StringData((element).F0))
-				pinner.Pin(utf890)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf890)))
-				utf891 := unsafe.Pointer(unsafe.StringData((element).F1))
-				pinner.Pin(utf891)
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
-				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf891)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (29 * 4))) = uint32(length43)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (28 * 4))) = uint32(uintptr(uintptr(result42)))
 
 			}
 
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (7 * 4))) = uint32(length94)
-			*(*uint32)(unsafe.Add(unsafe.Pointer(base), (6 * 4))) = uint32(uintptr(uintptr(result93)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(length46)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(result45)))
+			slice49 := (payload).Metadata
+			length51 := uint32(len(slice49))
+			result50 := witRuntime.Allocate(pinner, uintptr(length51*(4*4)), 4)
+			for index, element := range slice49 {
+				base := unsafe.Add(result50, index*(4*4))
+				utf847 := unsafe.Pointer(unsafe.StringData((element).F0))
+				pinner.Pin(utf847)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf847)))
+				utf848 := unsafe.Pointer(unsafe.StringData((element).F1))
+				pinner.Pin(utf848)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf848)))
 
+			}
+
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(length51)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(result50)))
+			utf852 := unsafe.Pointer(unsafe.StringData((payload).Topic))
+			pinner.Pin(utf852)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uint32(len((payload).Topic)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uintptr(uintptr(utf852)))
+			utf853 := unsafe.Pointer(unsafe.StringData((payload).PubsubName))
+			pinner.Pin(utf853)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = uint32(uint32(len((payload).PubsubName)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = uint32(uintptr(uintptr(utf853)))
+			utf854 := unsafe.Pointer(unsafe.StringData((payload).Type))
+			pinner.Pin(utf854)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uint32(len((payload).Type)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uintptr(uintptr(utf854)))
+
+			switch (payload).Path.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).Path.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = int8(int32(1))
+				utf855 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf855)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 15*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 14*4))) = uint32(uintptr(uintptr(utf855)))
+
+			default:
+				panic("unreachable")
+			}
+
+		case dapr_wasm_components_go_events.EventBinding:
+			payload := (result).F1.Binding()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(7))
+			utf856 := unsafe.Pointer(unsafe.StringData((payload).Name))
+			pinner.Pin(utf856)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Name)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf856)))
+			data57 := unsafe.Pointer(unsafe.SliceData((payload).Data))
+			pinner.Pin(data57)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).Data)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(data57)))
+			slice60 := (payload).Metadata
+			length62 := uint32(len(slice60))
+			result61 := witRuntime.Allocate(pinner, uintptr(length62*(4*4)), 4)
+			for index, element := range slice60 {
+				base := unsafe.Add(result61, index*(4*4))
+				utf858 := unsafe.Pointer(unsafe.StringData((element).F0))
+				pinner.Pin(utf858)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf858)))
+				utf859 := unsafe.Pointer(unsafe.StringData((element).F1))
+				pinner.Pin(utf859)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf859)))
+
+			}
+
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(length62)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(result61)))
+
+		case dapr_wasm_components_go_events.EventJob:
+			payload := (result).F1.Job()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(8))
+			utf863 := unsafe.Pointer(unsafe.StringData((payload).Name))
+			pinner.Pin(utf863)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).Name)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf863)))
+			data64 := unsafe.Pointer(unsafe.SliceData((payload).Data))
+			pinner.Pin(data64)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).Data)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(data64)))
+
+			switch (payload).ContentType.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).ContentType.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = int8(int32(1))
+				utf865 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf865)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uintptr(uintptr(utf865)))
+
+			default:
+				panic("unreachable")
+			}
+
+		case dapr_wasm_components_go_events.EventActorInvoke:
+			payload := (result).F1.ActorInvoke()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(9))
+			utf866 := unsafe.Pointer(unsafe.StringData((payload).ActorType))
+			pinner.Pin(utf866)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).ActorType)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf866)))
+			utf867 := unsafe.Pointer(unsafe.StringData((payload).ActorId))
+			pinner.Pin(utf867)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).ActorId)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf867)))
+			utf868 := unsafe.Pointer(unsafe.StringData((payload).Method))
+			pinner.Pin(utf868)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uint32(len((payload).Method)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(utf868)))
+			data69 := unsafe.Pointer(unsafe.SliceData((payload).Data))
+			pinner.Pin(data69)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uint32(len((payload).Data)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = uint32(uintptr(uintptr(data69)))
+
+		case dapr_wasm_components_go_events.EventActorTimer:
+			payload := (result).F1.ActorTimer()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(10))
+			utf870 := unsafe.Pointer(unsafe.StringData((payload).ActorType))
+			pinner.Pin(utf870)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).ActorType)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf870)))
+			utf871 := unsafe.Pointer(unsafe.StringData((payload).ActorId))
+			pinner.Pin(utf871)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).ActorId)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf871)))
+			utf872 := unsafe.Pointer(unsafe.StringData((payload).Name))
+			pinner.Pin(utf872)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uint32(len((payload).Name)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(utf872)))
+
+			switch (payload).DueTime.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).DueTime.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = int8(int32(1))
+				utf873 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf873)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uintptr(uintptr(utf873)))
+
+			default:
+				panic("unreachable")
+			}
+
+			switch (payload).Period.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).Period.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = int8(int32(1))
+				utf874 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf874)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uintptr(uintptr(utf874)))
+
+			default:
+				panic("unreachable")
+			}
+			data75 := unsafe.Pointer(unsafe.SliceData((payload).Data))
+			pinner.Pin(data75)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 14*4))) = uint32(uint32(len((payload).Data)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = uint32(uintptr(uintptr(data75)))
+
+			switch (payload).Callback.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 15*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).Callback.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 15*4))) = int8(int32(1))
+				utf876 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf876)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 17*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 16*4))) = uint32(uintptr(uintptr(utf876)))
+
+			default:
+				panic("unreachable")
+			}
+
+		case dapr_wasm_components_go_events.EventActorReminder:
+			payload := (result).F1.ActorReminder()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(11))
+			utf877 := unsafe.Pointer(unsafe.StringData((payload).ActorType))
+			pinner.Pin(utf877)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).ActorType)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf877)))
+			utf878 := unsafe.Pointer(unsafe.StringData((payload).ActorId))
+			pinner.Pin(utf878)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).ActorId)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf878)))
+			utf879 := unsafe.Pointer(unsafe.StringData((payload).Name))
+			pinner.Pin(utf879)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(uint32(len((payload).Name)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(utf879)))
+
+			switch (payload).DueTime.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).DueTime.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 7*4))) = int8(int32(1))
+				utf880 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf880)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 9*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 8*4))) = uint32(uintptr(uintptr(utf880)))
+
+			default:
+				panic("unreachable")
+			}
+
+			switch (payload).Period.Tag() {
+			case witTypes.OptionNone:
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = int8(int32(0))
+
+			case witTypes.OptionSome:
+				payload := (payload).Period.Some()
+				*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 10*4))) = int8(int32(1))
+				utf881 := unsafe.Pointer(unsafe.StringData(payload))
+				pinner.Pin(utf881)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 12*4))) = uint32(uint32(len(payload)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 11*4))) = uint32(uintptr(uintptr(utf881)))
+
+			default:
+				panic("unreachable")
+			}
+			data82 := unsafe.Pointer(unsafe.SliceData((payload).Data))
+			pinner.Pin(data82)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 14*4))) = uint32(uint32(len((payload).Data)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 13*4))) = uint32(uintptr(uintptr(data82)))
+
+		case dapr_wasm_components_go_events.EventActorDeactivate:
+			payload := (result).F1.ActorDeactivate()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(12))
+			utf883 := unsafe.Pointer(unsafe.StringData((payload).ActorType))
+			pinner.Pin(utf883)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).ActorType)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf883)))
+			utf884 := unsafe.Pointer(unsafe.StringData((payload).ActorId))
+			pinner.Pin(utf884)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).ActorId)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf884)))
+
+		case dapr_wasm_components_go_events.EventConfigurationUpdate:
+			payload := (result).F1.ConfigurationUpdate()
+			*(*int8)(unsafe.Add(unsafe.Pointer(exportReturnArea), 8)) = int8(int32(13))
+			utf885 := unsafe.Pointer(unsafe.StringData((payload).StoreName))
+			pinner.Pin(utf885)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 2*4))) = uint32(uint32(len((payload).StoreName)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 1*4))) = uint32(uintptr(uintptr(utf885)))
+			utf886 := unsafe.Pointer(unsafe.StringData((payload).Id))
+			pinner.Pin(utf886)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 4*4))) = uint32(uint32(len((payload).Id)))
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 3*4))) = uint32(uintptr(uintptr(utf886)))
+			slice95 := (payload).Items
+			length97 := uint32(len(slice95))
+			result96 := witRuntime.Allocate(pinner, uintptr(length97*(8*4)), 4)
+			for index, element := range slice95 {
+				base := unsafe.Add(result96, index*(8*4))
+				utf887 := unsafe.Pointer(unsafe.StringData((element).F0))
+				pinner.Pin(utf887)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf887)))
+				utf888 := unsafe.Pointer(unsafe.StringData(((element).F1).Value))
+				pinner.Pin(utf888)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len(((element).F1).Value)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf888)))
+				utf889 := unsafe.Pointer(unsafe.StringData(((element).F1).Version))
+				pinner.Pin(utf889)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (5 * 4))) = uint32(uint32(len(((element).F1).Version)))
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (4 * 4))) = uint32(uintptr(uintptr(utf889)))
+				slice92 := ((element).F1).Metadata
+				length94 := uint32(len(slice92))
+				result93 := witRuntime.Allocate(pinner, uintptr(length94*(4*4)), 4)
+				for index, element := range slice92 {
+					base := unsafe.Add(result93, index*(4*4))
+					utf890 := unsafe.Pointer(unsafe.StringData((element).F0))
+					pinner.Pin(utf890)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), 4)) = uint32(uint32(len((element).F0)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), 0)) = uint32(uintptr(uintptr(utf890)))
+					utf891 := unsafe.Pointer(unsafe.StringData((element).F1))
+					pinner.Pin(utf891)
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (3 * 4))) = uint32(uint32(len((element).F1)))
+					*(*uint32)(unsafe.Add(unsafe.Pointer(base), (2 * 4))) = uint32(uintptr(uintptr(utf891)))
+
+				}
+
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (7 * 4))) = uint32(length94)
+				*(*uint32)(unsafe.Add(unsafe.Pointer(base), (6 * 4))) = uint32(uintptr(uintptr(result93)))
+
+			}
+
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(length97)
+			*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(result96)))
+
+		default:
+			panic("unreachable")
 		}
+		wasm_export_task_return_dapr_wasm_components_go_events_next_event(int32(exportReturnArea))
 
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 6*4))) = uint32(length97)
-		*(*uint32)(unsafe.Add(unsafe.Pointer(exportReturnArea), (8 + 5*4))) = uint32(uintptr(uintptr(result96)))
-
-	default:
-		panic("unreachable")
-	}
-	return exportReturnArea
-
+	}))
 }
 
-//go:wasmexport cabi_post_dapr-wasm-components:go/events@0.1.0#next-event
-func wasm_export_post_return_dapr_wasm_components_go_events_next_event(result uintptr) {
-	syncExportPinner.Unpin()
+//go:wasmexport [callback][async-lift]dapr-wasm-components:go/events@0.2.0#next-event
+func wasm_export_callback_dapr_wasm_components_go_events_next_event(event0 uint32, event1 uint32, event2 uint32) uint32 {
+	return witAsync.Callback(event0, event1, event2)
 }
 
-//go:wasmexport dapr-wasm-components:go/events@0.1.0#complete-event
+//go:wasmimport [export]dapr-wasm-components:go/events@0.2.0 [task-return]next-event
+func wasm_export_task_return_dapr_wasm_components_go_events_next_event(arg0 int32)
+
+//go:wasmexport dapr-wasm-components:go/events@0.2.0#complete-event
 func wasm_export_dapr_wasm_components_go_events_complete_event(arg0 uintptr) {
 
 	var variant dapr_wasm_components_go_events.EventResult

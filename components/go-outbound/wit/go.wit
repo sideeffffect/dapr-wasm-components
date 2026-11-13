@@ -8,6 +8,12 @@
 /// `next-event`, calls the app's matching `*-callback` export, and hands the
 /// result back with `complete-event`.
 ///
+/// `run` and `next-event` are `async` (WASI 0.3 / Component Model async):
+/// go-outbound keeps a live task on the host's event loop, so the runtime
+/// does not stop when the pump leaves go-outbound. The public building
+/// blocks and callbacks stay sync, so the runtime still pauses while the app
+/// runs a callback (a sync-typed callback cannot yield to the host).
+///
 /// Pull instead of push keeps the composition acyclic
 /// (`go-outbound → app → go-inbound`, plus `go-outbound → go-inbound`) and
 /// never re-enters an instance: when the pump calls the app, go-outbound is
@@ -18,7 +24,7 @@
 /// to import them from the app (a cycle). Types from interfaces go-outbound
 /// exports itself (`types`, `state-read`, `invocation`, `configuration-read`) are used
 /// directly.
-package dapr-wasm-components:go@0.1.0;
+package dapr-wasm-components:go@0.2.0;
 
 interface events {
   use dapr-wasm-components:interfaces/types@0.7.5.{metadata, app-error};
@@ -227,9 +233,19 @@ interface events {
   /// runtime runs like daprd without `--app-port` (outbound only).
   attach: func();
 
-  /// Blocks — running Dapr's goroutines (subscribers, timers, servers) —
-  /// until a delivery for the app is queued, and returns it with its id.
-  next-event: func() -> tuple<u64, event>;
+  /// Drives the embedded runtime: never returns. The pump calls it once,
+  /// without waiting for it. Its task stays alive on the host's event loop,
+  /// so Dapr's goroutines (subscribers, timers, servers) run whenever the
+  /// host turns that loop — not only while the pump is inside go-outbound.
+  /// It keeps a short clock wait pending: the Go runtime's idle hook does not
+  /// wake the host for Go timers, so the wait is what resumes timer-driven
+  /// goroutines (resolution: one tick).
+  run: async func();
+
+  /// Waits until a delivery for the app is queued, and returns it with its
+  /// id. While it waits, its task is off the stack (the pump may do other
+  /// work) and the runtime keeps running.
+  next-event: async func() -> tuple<u64, event>;
 
   /// Hands back the app's answer for event `id`. A result case that does not
   /// match the event's case is a bug in the pump and traps.
@@ -248,13 +264,16 @@ world go-outbound {
   import wasi:sockets/tcp@0.2.6;
   import wasi:sockets/tcp-create-socket@0.2.6;
   import wasi:sockets/ip-name-lookup@0.2.6;
+  // The tick of `events.run` and the waits of `events.next-event`.
+  import wasi:clocks/monotonic-clock@0.3.0;
 }
 
 /// `dapr-wasm-components-go-inbound`: the pump. Runs as the composition's
-/// `wasi:cli/run`.
+/// `wasi:cli/run` (WASI 0.3: an async export, so it can start `events.run`
+/// and wait for `events.next-event` without blocking).
 world go-inbound {
   include dapr-wasm-components:interfaces/inbound@0.7.5;
   import events;
 
-  export wasi:cli/run@0.2.6;
+  export wasi:cli/run@0.3.0;
 }

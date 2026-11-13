@@ -4,8 +4,11 @@
 //! embeds the one Dapr runtime of the composed app and queues every Dapr →
 //! app delivery as an `event` on the private `dapr-wasm-components:go/events`
 //! interface. This component runs as the composition's `wasi:cli/run`: it
-//! attaches (which connects the runtime to the app), then loops — pull an
-//! event, call the app's matching `*-callback` export, hand the result back.
+//! attaches (which connects the runtime to the app), starts the runtime's
+//! never-ending `run` task, then loops — await an event, call the app's
+//! matching `*-callback` export, hand the result back. It is a WASI 0.3
+//! component (`wasi:cli/run@0.3.0`): `run` and `next-event` are async, so
+//! go-outbound keeps a live task on the host's event loop.
 //!
 //! Pulling instead of pushing keeps the composition acyclic
 //! (`go-outbound → app → go-inbound`, plus `go-outbound → go-inbound`), and no
@@ -38,11 +41,16 @@ use wit::dapr_wasm_components::interfaces::{
 
 struct Pump;
 
-impl wit::exports::wasi::cli::run::Guest for Pump {
-    fn run() -> Result<(), ()> {
+impl wit::exports::wasi::cli0_3_0::run::Guest for Pump {
+    async fn run() -> Result<(), ()> {
         ev::attach();
+        // The runtime's own task: never returns, never awaited. It keeps
+        // Dapr's goroutines running on the host's event loop.
+        let _runtime = wit_bindgen::spawn_local(ev::run());
         loop {
-            let (id, event) = ev::next_event();
+            let (id, event) = ev::next_event().await;
+            // The callbacks are sync-typed: this blocks the pump (and the
+            // runtime) until the app returns.
             ev::complete_event(id, &dispatch(event));
         }
     }

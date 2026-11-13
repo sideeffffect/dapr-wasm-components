@@ -5,16 +5,21 @@
 //     wasi:io@0.2.6
 //     wasi:clocks@0.2.6
 //     wasi:sockets@0.2.6
+//     wasi:clocks@0.3.0
+//     wasi:filesystem@0.3.0
+//     wasi:sockets@0.3.0
+//     wasi:random@0.3.0
+//     wasi:cli@0.3.0
+//     dapr-wasm-components:go@0.2.0
 //     wasi:filesystem@0.2.6
 //     wasi:random@0.2.6
 //     wasi:cli@0.2.6
-//     dapr-wasm-components:go@0.1.0
 
-package wasi_sockets_ip_name_lookup
+package wasi_sockets_0_2_6_ip_name_lookup
 
 import (
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_io_poll"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_network"
+	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_0_2_6_network"
 	witRuntime "go.bytecodealliance.org/pkg/wit/runtime"
 	witTypes "go.bytecodealliance.org/pkg/wit/types"
 	"runtime"
@@ -22,9 +27,9 @@ import (
 )
 
 type Pollable = wasi_io_poll.Pollable
-type Network = wasi_sockets_network.Network
-type ErrorCode = wasi_sockets_network.ErrorCode
-type IpAddress = wasi_sockets_network.IpAddress
+type Network = wasi_sockets_0_2_6_network.Network
+type ErrorCode = wasi_sockets_0_2_6_network.ErrorCode
+type IpAddress = wasi_sockets_0_2_6_network.IpAddress
 
 //go:wasmimport wasi:sockets/ip-name-lookup@0.2.6 [resource-drop]resolve-address-stream
 func resourceDropResolveAddressStream(handle int32)
@@ -72,44 +77,44 @@ func ResolveAddressStreamFromBorrowHandle(handleValue int32) *ResolveAddressStre
 //go:wasmimport wasi:sockets/ip-name-lookup@0.2.6 [method]resolve-address-stream.resolve-next-address
 func wasm_import_method_resolve_address_stream_resolve_next_address(arg0 int32, arg1 uintptr)
 
-func (self *ResolveAddressStream) ResolveNextAddress() witTypes.Result[witTypes.Option[wasi_sockets_network.IpAddress], wasi_sockets_network.ErrorCode] {
+func (self *ResolveAddressStream) ResolveNextAddress() witTypes.Result[witTypes.Option[wasi_sockets_0_2_6_network.IpAddress], wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 22, 2))
 	wasm_import_method_resolve_address_stream_resolve_next_address((self).Handle(), returnArea)
-	var result witTypes.Result[witTypes.Option[wasi_sockets_network.IpAddress], wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Option[wasi_sockets_0_2_6_network.IpAddress], wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
-		var option witTypes.Option[wasi_sockets_network.IpAddress]
+		var option witTypes.Option[wasi_sockets_0_2_6_network.IpAddress]
 		switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 2))) {
 		case 0:
 
-			option = witTypes.None[wasi_sockets_network.IpAddress]()
+			option = witTypes.None[wasi_sockets_0_2_6_network.IpAddress]()
 		case 1:
-			var variant wasi_sockets_network.IpAddress
+			var variant wasi_sockets_0_2_6_network.IpAddress
 			switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4))) {
 			case 0:
 
-				variant = wasi_sockets_network.MakeIpAddressIpv4(witTypes.Tuple4[uint8, uint8, uint8, uint8]{F0: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 6)))), F1: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 7)))), F2: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), F3: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 9))))})
+				variant = wasi_sockets_0_2_6_network.MakeIpAddressIpv4(witTypes.Tuple4[uint8, uint8, uint8, uint8]{F0: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 6)))), F1: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 7)))), F2: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), F3: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 9))))})
 
 			case 1:
 
-				variant = wasi_sockets_network.MakeIpAddressIpv6(witTypes.Tuple8[uint16, uint16, uint16, uint16, uint16, uint16, uint16, uint16]{F0: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 6)))), F1: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), F2: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 10)))), F3: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 12)))), F4: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 14)))), F5: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 16)))), F6: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 18)))), F7: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 20))))})
+				variant = wasi_sockets_0_2_6_network.MakeIpAddressIpv6(witTypes.Tuple8[uint16, uint16, uint16, uint16, uint16, uint16, uint16, uint16]{F0: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 6)))), F1: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), F2: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 10)))), F3: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 12)))), F4: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 14)))), F5: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 16)))), F6: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 18)))), F7: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 20))))})
 
 			default:
 				panic("unreachable")
 			}
 
-			option = witTypes.Some[wasi_sockets_network.IpAddress](variant)
+			option = witTypes.Some[wasi_sockets_0_2_6_network.IpAddress](variant)
 		default:
 			panic("unreachable")
 		}
 
-		result = witTypes.Ok[witTypes.Option[wasi_sockets_network.IpAddress], wasi_sockets_network.ErrorCode](option)
+		result = witTypes.Ok[witTypes.Option[wasi_sockets_0_2_6_network.IpAddress], wasi_sockets_0_2_6_network.ErrorCode](option)
 	case 1:
 
-		result = witTypes.Err[witTypes.Option[wasi_sockets_network.IpAddress], wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 2)))))
+		result = witTypes.Err[witTypes.Option[wasi_sockets_0_2_6_network.IpAddress], wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 2)))))
 	default:
 		panic("unreachable")
 	}
@@ -131,7 +136,7 @@ func (self *ResolveAddressStream) Subscribe() *wasi_io_poll.Pollable {
 //go:wasmimport wasi:sockets/ip-name-lookup@0.2.6 resolve-addresses
 func wasm_import_resolve_addresses(arg0 int32, arg1 uintptr, arg2 uint32, arg3 uintptr)
 
-func ResolveAddresses(network *wasi_sockets_network.Network, name string) witTypes.Result[*ResolveAddressStream, wasi_sockets_network.ErrorCode] {
+func ResolveAddresses(network *wasi_sockets_0_2_6_network.Network, name string) witTypes.Result[*ResolveAddressStream, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
@@ -139,14 +144,14 @@ func ResolveAddresses(network *wasi_sockets_network.Network, name string) witTyp
 	utf8 := unsafe.Pointer(unsafe.StringData(name))
 	pinner.Pin(utf8)
 	wasm_import_resolve_addresses((network).Handle(), uintptr(utf8), uint32(len(name)), returnArea)
-	var result witTypes.Result[*ResolveAddressStream, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[*ResolveAddressStream, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[*ResolveAddressStream, wasi_sockets_network.ErrorCode](ResolveAddressStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 4))))))
+		result = witTypes.Ok[*ResolveAddressStream, wasi_sockets_0_2_6_network.ErrorCode](ResolveAddressStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 4))))))
 	case 1:
 
-		result = witTypes.Err[*ResolveAddressStream, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
+		result = witTypes.Err[*ResolveAddressStream, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
 	default:
 		panic("unreachable")
 	}

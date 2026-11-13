@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Work around three wit-bindgen (Go) issues in the generated bindings.
+"""Work around four wit-bindgen (Go) issues in the generated bindings.
 
 1. `jobs-read.job-failure-policy` has a case `constant(job-failure-policy-constant)`:
    the generator names the case's tag constant `JobFailurePolicyConstant`, the
@@ -13,6 +13,10 @@
    match Go's generated-code marker (`^// Code generated .* DO NOT EDIT\\.$`,
    https://go.dev/s/generatedcode), so Go tools treat the bindings as
    hand-written. Rewrite it in every generated file.
+4. An async export whose result is passed through the return area (here
+   `events.next-event`) declares its `task.return` import with an `int32`
+   parameter but passes `exportReturnArea` (a `uintptr`), which does not
+   compile. Convert it.
 
 Every replacement is asserted, so a generator fix (or change) fails loudly
 here instead of silently.
@@ -54,6 +58,8 @@ FIXES = {
     EXPORTS: [
         ("case dapr_wasm_components_interfaces_jobs_read.JobFailurePolicyConstant:",
          "case dapr_wasm_components_interfaces_jobs_read.JobFailurePolicyTagConstant:", None),
+        ("wasm_export_task_return_dapr_wasm_components_go_events_next_event(exportReturnArea)",
+         "wasm_export_task_return_dapr_wasm_components_go_events_next_event(int32(exportReturnArea))", 1),
     ],
 }
 

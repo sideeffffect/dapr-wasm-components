@@ -150,3 +150,7 @@
 
 ## [2026-11-14] lint | 1 issues found, 0 auto-fixed
 - Reported: raw 2026-11-13 go-async research says Spin 4.3.0 is on Wasmtime 49.0.3; Spin's `Cargo.toml` at `v4.3.0` pins wasmtime 50.0.1 (noted in the 2026-11-14 raw file; no wiki article carries the claim)
+
+## [2026-11-13] update | go pair on the WASI 0.3 event loop (go@0.2.0)
+- Updated: dapr-wasm-components go Family (async run/next-event, timer-aimed tick, glue rules, 4th fix-bindings workaround)
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (step 2 done)

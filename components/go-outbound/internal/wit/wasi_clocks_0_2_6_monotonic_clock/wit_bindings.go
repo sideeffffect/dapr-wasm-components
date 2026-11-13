@@ -5,12 +5,17 @@
 //     wasi:io@0.2.6
 //     wasi:clocks@0.2.6
 //     wasi:sockets@0.2.6
+//     wasi:clocks@0.3.0
+//     wasi:filesystem@0.3.0
+//     wasi:sockets@0.3.0
+//     wasi:random@0.3.0
+//     wasi:cli@0.3.0
+//     dapr-wasm-components:go@0.2.0
 //     wasi:filesystem@0.2.6
 //     wasi:random@0.2.6
 //     wasi:cli@0.2.6
-//     dapr-wasm-components:go@0.1.0
 
-package wasi_clocks_monotonic_clock
+package wasi_clocks_0_2_6_monotonic_clock
 
 import (
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_io_poll"

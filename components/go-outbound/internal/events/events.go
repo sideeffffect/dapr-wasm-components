@@ -5,14 +5,14 @@
 // call Deliver, which queues the event and waits. The go-inbound pump
 // pulls it with Next (an export call, during which the Go scheduler keeps
 // running every goroutine), calls the app's matching callback, and hands
-// the answer back with Complete, which wakes the waiting Deliver.
+// the answer back with Complete, which wakes the waiting Deliver. Run (the
+// async `run` export, see drive.go) keeps the runtime going in between.
 package events
 
 import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	ev "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/dapr_wasm_components_go_events"
 )
@@ -64,21 +64,15 @@ func Deliver(e ev.Event) (ev.EventResult, error) {
 	return <-p.done, nil
 }
 
-// Next blocks until an event is queued and returns it with its id. While
-// it waits, the Go scheduler runs Dapr's goroutines. The periodic wake-up
-// keeps a timer pending, so the Go runtime never mistakes an idle wait for
-// a deadlock ("all goroutines are asleep").
+// Next waits until an event is queued and returns it with its id. It runs
+// in the task of the async `next-event` export, so it waits with Wait: the
+// task's own clock wait keeps it alive and resumes it.
 func Next() (uint64, ev.Event) {
-	for {
-		select {
-		case id := <-queue:
-			mu.Lock()
-			p := inflight[id]
-			mu.Unlock()
-			return id, p.event
-		case <-time.After(time.Second):
-		}
-	}
+	id := Wait(queue)
+	mu.Lock()
+	p := inflight[id]
+	mu.Unlock()
+	return id, p.event
 }
 
 // Complete hands the app's result for event id back to its Deliver. An
