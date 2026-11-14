@@ -44,10 +44,10 @@ interface state {
   }
 
   /// Save one or more key/value pairs (not transactional).
-  save: func(store-name: string, items: list<state-item>, metadata: metadata) -> result<_, write-error>;
+  save: async func(store-name: string, items: list<state-item>, metadata: metadata) -> result<_, write-error>;
 
   /// Delete the value of `key`.
-  delete: func(
+  delete: async func(
     store-name: string,
     key: string,
     etag: option<string>,
@@ -56,7 +56,7 @@ interface state {
   ) -> result<_, write-error>;
 
   /// Execute upserts and deletes atomically (requires a transactional store).
-  execute-transaction: func(
+  execute-transaction: async func(
     store-name: string,
     operations: list<transaction-request>,
     metadata: metadata,

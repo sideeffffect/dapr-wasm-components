@@ -1,4 +1,6 @@
-# Interfaces at a glance (`dapr-wasm-components:interfaces@0.7.5`)
+# Interfaces at a glance (`dapr-wasm-components:interfaces@0.8.0`)
+
+Every top-level function below is an `async func` (since 0.8.0); resource methods are sync.
 
 Diagrams of the WIT package in this directory. The `.wit` files are the source of truth. The [README](../../README.md#interfaces-dapr-wasm-componentsinterfaces070) has the tables. Its [runtime diagram](../../README.md#two-directions-calling-dapr-vs-being-called-by-dapr--both-typed) shows how the composed component talks to the sidecar.
 

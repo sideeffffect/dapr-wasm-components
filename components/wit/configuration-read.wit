@@ -20,5 +20,5 @@ interface configuration-read {
 
   /// Get the configuration items named `keys` (all items when empty)
   /// from the configuration store `store-name`, as (key, item) pairs.
-  get: func(store-name: string, keys: list<string>, metadata: metadata) -> result<list<tuple<string, configuration-item>>, configuration-error>;
+  get: async func(store-name: string, keys: list<string>, metadata: metadata) -> result<list<tuple<string, configuration-item>>, configuration-error>;
 }

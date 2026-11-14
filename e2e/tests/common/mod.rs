@@ -484,12 +484,6 @@ pub struct Endpoints<'a> {
     /// gRPC provider can do that (raw protobuf bytes), so only the wasi-grpc
     /// suite sets this; the HTTP provider's JSON envelope can't.
     pub binary_state_exact: bool,
-    /// Whether the app can invoke its own app id from inside a callback.
-    /// The sidecar suites serve each request with a fresh instance, so it
-    /// works; the go family runs one long-lived app instance that is busy in
-    /// the calling callback, so it must fail fast with `app-unreachable`
-    /// instead of deadlocking.
-    pub self_invocation: bool,
 }
 
 /// The scenario both real-Dapr suites run, identical regardless of provider or
@@ -503,7 +497,6 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
         publisher_base,
         consumer_base,
         binary_state_exact,
-        self_invocation,
     } = endpoints;
 
     // 1. State: JSON-value roundtrip + etag CAS + delete + metadata.
@@ -522,18 +515,12 @@ pub fn run_mirrored_scenario(endpoints: Endpoints) {
     let secrets = get_json(&format!("{publisher_base}/secrets"));
     assert_eq!(secrets["ok"], true, "secrets failed: {secrets}");
 
-    // 4. Service invocation out and back into the same app.
-    if self_invocation {
-        let invoked = get_json(&format!("{publisher_base}/invoke-self"));
-        assert_eq!(invoked["ok"], true, "invoke-self failed: {invoked}");
-    } else {
-        let (status, body) = get_status_json(&format!("{publisher_base}/invoke-self"));
-        let error = body["error"].as_str().unwrap_or_default();
-        assert!(
-            status == 500 && error.contains("self-invocation is not supported"),
-            "invoke-self did not fail fast: {status} {body}"
-        );
-    }
+    // 4. Service invocation out and back into the same app. The sidecar
+    //    suites serve the nested request with another instance; the go
+    //    family re-enters the one app instance, busy in this very callback
+    //    (async callbacks, interfaces 0.8.0).
+    let invoked = get_json(&format!("{publisher_base}/invoke-self"));
+    assert_eq!(invoked["ok"], true, "invoke-self failed: {invoked}");
 
     // 5. Publish three orders.
     let published = get_json(&format!("{publisher_base}/publish?n=3"));

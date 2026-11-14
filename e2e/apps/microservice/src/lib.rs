@@ -89,7 +89,7 @@ fn subscribes() -> bool {
 struct Microservice;
 
 impl DaprApp for Microservice {
-    fn list_topic_subscriptions() -> Vec<TopicSubscription> {
+    async fn list_topic_subscriptions() -> Vec<TopicSubscription> {
         if subscribes() {
             vec![
                 TopicSubscription::new(PUBSUB, TOPIC)
@@ -104,7 +104,7 @@ impl DaprApp for Microservice {
         }
     }
 
-    fn on_topic_event(event: TopicEvent) -> TopicEventResponse {
+    async fn on_topic_event(event: TopicEvent) -> TopicEventResponse {
         // `event.data` is the domain payload; the envelope is already parsed.
         let (prefix, counter, route_prefix) = if event.topic == BULK_TOPIC {
             ("bulk-order", BULK_COUNTER_KEY, "bulk-route")
@@ -117,7 +117,9 @@ impl DaprApp for Microservice {
             prefix,
             counter,
             route_prefix,
-        ) {
+        )
+        .await
+        {
             Ok(()) => TopicEventResponse::Success,
             Err(error) => {
                 eprintln!("order processing failed: {error}");
@@ -126,16 +128,16 @@ impl DaprApp for Microservice {
         }
     }
 
-    fn on_bulk_topic_event(event: BulkTopicEvent) -> Vec<BulkTopicEventEntryResponse> {
+    async fn on_bulk_topic_event(event: BulkTopicEvent) -> Vec<BulkTopicEventEntryResponse> {
         // Count the batch (proves delivery came through the bulk path), then
         // let the SDK hand each entry to `on_topic_event`.
-        if let Err(error) = increment(BULK_BATCHES_KEY) {
+        if let Err(error) = increment(BULK_BATCHES_KEY).await {
             eprintln!("counting bulk batch failed: {error}");
         }
-        dapr_app::bulk_to_single(event, <Self as DaprApp>::on_topic_event)
+        dapr_app::bulk_to_single(event, <Self as DaprApp>::on_topic_event).await
     }
 
-    fn list_input_bindings() -> Vec<String> {
+    async fn list_input_bindings() -> Vec<String> {
         if subscribes() {
             vec![TICKS_BINDING.to_string()]
         } else {
@@ -143,14 +145,16 @@ impl DaprApp for Microservice {
         }
     }
 
-    fn on_binding_event(event: BindingEvent) -> Result<BindingEventResponse, AppError> {
+    async fn on_binding_event(event: BindingEvent) -> Result<BindingEventResponse, AppError> {
         if event.name != TICKS_BINDING {
             return Err(AppError {
                 message: format!("unexpected input binding {}", event.name),
             });
         }
         // Count the delivery ourselves, so delivery is observable on its own.
-        increment(TICKS_KEY).map_err(|message| AppError { message })?;
+        increment(TICKS_KEY)
+            .await
+            .map_err(|message| AppError { message })?;
         // Then ask the sidecar to persist one more item for us.
         Ok(BindingEventResponse {
             store_name: Some(STATE_STORE.to_string()),
@@ -167,51 +171,61 @@ impl DaprApp for Microservice {
         })
     }
 
-    fn on_configuration_event(update: ConfigurationUpdate) {
+    async fn on_configuration_event(update: ConfigurationUpdate) {
         // Persist each delivered item under `config-<key>` so the round-trip is
         // observable from outside (the harness asserts on the state writes).
         for (key, item) in &update.items {
             if let Err(error) = state::save(
-                STATE_STORE,
-                &[state_read::StateItem {
+                STATE_STORE.into(),
+                vec![state_read::StateItem {
                     key: format!("config-{key}"),
                     value: item.value.clone().into_bytes(),
                     etag: None,
                     metadata: Vec::new(),
                     options: None,
                 }],
-                &[],
-            ) {
+                Vec::new(),
+            )
+            .await
+            {
                 eprintln!("persisting config item {key} failed: {error:?}");
             }
         }
     }
 
-    fn on_invoke(request: InvokeRequest) -> HttpResponse {
+    async fn on_invoke(request: InvokeRequest) -> HttpResponse {
+        let query = request.query.as_deref();
         let result = match request.method.as_str() {
-            "count" | "summary" => read_counter(COUNTER_KEY).map(|c| json!({ "processed": c })),
-            "count-bulk" => read_counter(BULK_COUNTER_KEY).and_then(|processed| {
-                let batches = read_counter(BULK_BATCHES_KEY)?;
-                Ok(json!({ "processed": processed, "batches": batches }))
-            }),
-            "publish" => publish_orders(TOPIC, query_n(request.query.as_deref()))
+            "count" | "summary" => read_counter(COUNTER_KEY)
+                .await
+                .map(|c| json!({ "processed": c })),
+            "count-bulk" => match read_counter(BULK_COUNTER_KEY).await {
+                Ok(processed) => read_counter(BULK_BATCHES_KEY)
+                    .await
+                    .map(|batches| json!({ "processed": processed, "batches": batches })),
+                Err(error) => Err(error),
+            },
+            "publish" => publish_orders(TOPIC, query_n(query))
+                .await
                 .map(|n| json!({ "published": n })),
-            "publish-bulk" => publish_orders(BULK_TOPIC, query_n(request.query.as_deref()))
+            "publish-bulk" => publish_orders(BULK_TOPIC, query_n(query))
+                .await
                 .map(|n| json!({ "published": n })),
-            "bulk-route" => read_route_at(
-                "bulk-route",
-                query_u64(request.query.as_deref(), "order").unwrap_or(0),
-            ),
-            "binding" => binding_status(),
-            "publish-priority" => publish_priority_order().map(|id| json!({ "published": id })),
-            "route" => read_route(query_u64(request.query.as_deref(), "order").unwrap_or(0)),
-            "smoke" => smoke(StateValue::Json),
-            "smoke-binary" => smoke(StateValue::Binary),
-            "invoke-self" => invoke_self(),
-            "secrets" => check_secrets(),
-            "invoke-peer" => invoke_peer(),
+            "bulk-route" => {
+                read_route_at("bulk-route", query_u64(query, "order").unwrap_or(0)).await
+            }
+            "binding" => binding_status().await,
+            "publish-priority" => publish_priority_order()
+                .await
+                .map(|id| json!({ "published": id })),
+            "route" => read_route(query_u64(query, "order").unwrap_or(0)).await,
+            "smoke" => smoke(StateValue::Json).await,
+            "smoke-binary" => smoke(StateValue::Binary).await,
+            "invoke-self" => invoke_self().await,
+            "secrets" => check_secrets().await,
+            "invoke-peer" => invoke_peer().await,
             "echo" => Ok(json!({ "echo": String::from_utf8_lossy(&request.data).into_owned() })),
-            "crypto" => crypto_check(request.query.as_deref()),
+            "crypto" => crypto_check(query).await,
             _ => return json_response(404, &json!({ "error": "not found" })),
         };
         match result {
@@ -250,7 +264,7 @@ const CRYPTO_CHUNK: usize = 64 * 1024;
 /// ciphertext in chunks, decrypt it the same way and compare; decrypt the
 /// same ciphertext one-shot; and expect `component-not-found` for an unknown
 /// component.
-fn crypto_check(query: Option<&str>) -> Result<serde_json::Value, String> {
+async fn crypto_check(query: Option<&str>) -> Result<serde_json::Value, String> {
     use dapr_app::dapr::crypto::{
         CryptoError, CryptoOutput, Decryptor, EncryptError, EncryptOptions, Encryptor,
     };
@@ -292,7 +306,8 @@ fn crypto_check(query: Option<&str>) -> Result<serde_json::Value, String> {
         return Err("streaming crypto roundtrip mismatch".to_string());
     }
 
-    let one_shot = dapr_app::dapr::crypto::decrypt(component, &ciphertext, None)
+    let one_shot = dapr_app::dapr::crypto::decrypt(component.into(), ciphertext.clone(), None)
+        .await
         .map_err(|e| format!("one-shot decrypt: {e:?}"))?;
     if one_shot != plaintext {
         return Err("one-shot decrypt mismatch".to_string());
@@ -325,28 +340,36 @@ fn query_u64(query: Option<&str>, name: &str) -> Option<u64> {
 }
 
 /// Publish one order the CEL rule routes to [`PRIORITY_ROUTE`].
-fn publish_priority_order() -> Result<u64, String> {
+async fn publish_priority_order() -> Result<u64, String> {
     dapr_app::dapr::pubsub::publish(
-        PUBSUB,
-        TOPIC,
+        PUBSUB.into(),
+        TOPIC.into(),
         json!({ "orderId": PRIORITY_ORDER_ID, "priority": true })
             .to_string()
-            .as_bytes(),
-        Some("application/json"),
-        &[],
+            .into_bytes(),
+        Some("application/json".into()),
+        Vec::new(),
     )
+    .await
     .map_err(|e| format!("publishing priority order failed: {e:?}"))?;
     Ok(PRIORITY_ORDER_ID)
 }
 
 /// The route an order was delivered on (`null` if not delivered yet).
-fn read_route(order_id: u64) -> Result<serde_json::Value, String> {
-    read_route_at("route", order_id)
+async fn read_route(order_id: u64) -> Result<serde_json::Value, String> {
+    read_route_at("route", order_id).await
 }
 
 /// The route stored under `<prefix>-<order_id>` (`null` if not delivered yet).
-fn read_route_at(prefix: &str, order_id: u64) -> Result<serde_json::Value, String> {
-    match state_read::get(STATE_STORE, &format!("{prefix}-{order_id}"), None, &[]) {
+async fn read_route_at(prefix: &str, order_id: u64) -> Result<serde_json::Value, String> {
+    match state_read::get(
+        STATE_STORE.into(),
+        format!("{prefix}-{order_id}"),
+        None,
+        Vec::new(),
+    )
+    .await
+    {
         Ok(response) if response.data.is_empty() => Ok(json!({ "route": null })),
         Ok(response) => {
             let route: serde_json::Value = serde_json::from_slice(&response.data)
@@ -358,15 +381,16 @@ fn read_route_at(prefix: &str, order_id: u64) -> Result<serde_json::Value, Strin
     }
 }
 
-fn publish_orders(topic: &str, n: u64) -> Result<u64, String> {
+async fn publish_orders(topic: &str, n: u64) -> Result<u64, String> {
     for order_id in 1..=n {
         dapr_app::dapr::pubsub::publish(
-            PUBSUB,
-            topic,
-            json!({ "orderId": order_id }).to_string().as_bytes(),
-            Some("application/json"),
-            &[],
+            PUBSUB.into(),
+            topic.into(),
+            json!({ "orderId": order_id }).to_string().into_bytes(),
+            Some("application/json".into()),
+            Vec::new(),
         )
+        .await
         .map_err(|e| format!("publishing order {order_id} failed: {e:?}"))?;
     }
     Ok(n)
@@ -383,7 +407,7 @@ enum StateValue {
 
 /// State end to end: byte-exact roundtrip, etag CAS (stale write rejected),
 /// delete, and a metadata sanity check.
-fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
+async fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
     let (key, value): (&str, Vec<u8>) = match kind {
         StateValue::Json => ("smoke-json", br#"{"v":42}"#.to_vec()),
         StateValue::Binary => (
@@ -393,22 +417,25 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
     };
 
     state::save(
-        STATE_STORE,
-        &[state_read::StateItem {
+        STATE_STORE.into(),
+        vec![state_read::StateItem {
             key: key.into(),
             value: value.clone(),
             etag: None,
             metadata: Vec::new(),
             options: None,
         }],
-        &[],
+        Vec::new(),
     )
+    .await
     .map_err(|e| format!("save failed: {e:?}"))?;
 
-    let read = state_read::get(STATE_STORE, key, None, &[]).map_err(|e| match e {
-        state_read::GetError::KeyNotFound => "get returned not-found after save".to_string(),
-        other => format!("get failed: {other:?}"),
-    })?;
+    let read = state_read::get(STATE_STORE.into(), key.into(), None, Vec::new())
+        .await
+        .map_err(|e| match e {
+            state_read::GetError::KeyNotFound => "get returned not-found after save".to_string(),
+            other => format!("get failed: {other:?}"),
+        })?;
     if read.data != value {
         return Err(format!(
             "value did not roundtrip: wrote {value:?}, read {:?}",
@@ -419,16 +446,27 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
     // CAS: a write with a fresh etag succeeds, a second write with the now
     // stale etag must be rejected.
     let etag = read.etag.clone().ok_or("store returned no etag")?;
-    state::save(STATE_STORE, &[cas_item(key, b"second", etag.clone())], &[])
-        .map_err(|e| format!("etag save failed: {e:?}"))?;
-    let stale = state::save(STATE_STORE, &[cas_item(key, b"third", etag)], &[]);
+    state::save(
+        STATE_STORE.into(),
+        vec![cas_item(key, b"second", etag.clone())],
+        Vec::new(),
+    )
+    .await
+    .map_err(|e| format!("etag save failed: {e:?}"))?;
+    let stale = state::save(
+        STATE_STORE.into(),
+        vec![cas_item(key, b"third", etag)],
+        Vec::new(),
+    )
+    .await;
     if !matches!(stale, Err(state::WriteError::EtagMismatch(_))) {
         return Err(format!("stale etag write was not rejected: {stale:?}"));
     }
 
-    state::delete(STATE_STORE, key, None, None, &[])
+    state::delete(STATE_STORE.into(), key.into(), None, None, Vec::new())
+        .await
         .map_err(|e| format!("delete failed: {e:?}"))?;
-    match state_read::get(STATE_STORE, key, None, &[]) {
+    match state_read::get(STATE_STORE.into(), key.into(), None, Vec::new()).await {
         // HTTP surfaces a deleted key as not-found; the gRPC API has no 204
         // analogue, so absence shows up as an empty (Ok) value instead.
         Err(state_read::GetError::KeyNotFound) => {}
@@ -437,7 +475,9 @@ fn smoke(kind: StateValue) -> Result<serde_json::Value, String> {
         Err(other) => return Err(format!("get after delete failed: {other:?}")),
     }
 
-    let metadata = runtime::get_metadata().map_err(|e| format!("get-metadata failed: {e:?}"))?;
+    let metadata = runtime::get_metadata()
+        .await
+        .map_err(|e| format!("get-metadata failed: {e:?}"))?;
     let document: serde_json::Value =
         serde_json::from_str(&metadata).map_err(|e| format!("metadata is not JSON: {e}"))?;
     let id = document["id"].as_str().unwrap_or_default().to_string();
@@ -465,13 +505,14 @@ fn cas_item(key: &str, value: &[u8], etag: String) -> state_read::StateItem {
 /// in through our app channel.
 /// Read the `local.file` secret store: `db` exists, `missing` must be the
 /// typed `secret-not-found` (daprd reports it as a generic ERR_SECRET_GET).
-fn check_secrets() -> Result<serde_json::Value, String> {
-    let secret = secrets_read::get_secret(SECRET_STORE, "db", &[])
+async fn check_secrets() -> Result<serde_json::Value, String> {
+    let secret = secrets_read::get_secret(SECRET_STORE.into(), "db".into(), Vec::new())
+        .await
         .map_err(|e| format!("get-secret db failed: {e:?}"))?;
     if secret != [("db".to_string(), "s3cret".to_string())] {
         return Err(format!("unexpected secret db: {secret:?}"));
     }
-    match secrets_read::get_secret(SECRET_STORE, "missing", &[]) {
+    match secrets_read::get_secret(SECRET_STORE.into(), "missing".into(), Vec::new()).await {
         Err(secrets_read::GetSecretError::SecretNotFound) => Ok(json!({ "ok": true })),
         other => Err(format!(
             "missing secret: expected secret-not-found, got {other:?}"
@@ -479,15 +520,16 @@ fn check_secrets() -> Result<serde_json::Value, String> {
     }
 }
 
-fn invoke_self() -> Result<serde_json::Value, String> {
+async fn invoke_self() -> Result<serde_json::Value, String> {
     let response = invocation::invoke(
-        &app_id(),
-        "echo",
+        app_id(),
+        "echo".into(),
         invocation::HttpVerb::Post,
-        &[("content-type".to_string(), "text/plain".to_string())],
+        vec![("content-type".to_string(), "text/plain".to_string())],
         None,
-        b"ping",
+        b"ping".to_vec(),
     )
+    .await
     .map_err(|e| format!("invoke failed: {e:?}"))?;
     if response.status / 100 != 2 {
         return Err(format!(
@@ -506,13 +548,21 @@ fn invoke_self() -> Result<serde_json::Value, String> {
 
 /// Cross-app service invocation of `PEER_APP_ID`'s `summary` (needs the
 /// sidecars to resolve each other's app ids).
-fn invoke_peer() -> Result<serde_json::Value, String> {
+async fn invoke_peer() -> Result<serde_json::Value, String> {
     let peer = peer_app_id();
     if peer.is_empty() {
         return Err("PEER_APP_ID not set".to_string());
     }
-    let response = invocation::invoke(&peer, "summary", invocation::HttpVerb::Post, &[], None, &[])
-        .map_err(|e| format!("invoking {peer}/summary failed: {e:?}"))?;
+    let response = invocation::invoke(
+        peer.clone(),
+        "summary".into(),
+        invocation::HttpVerb::Post,
+        Vec::new(),
+        None,
+        Vec::new(),
+    )
+    .await
+    .map_err(|e| format!("invoking {peer}/summary failed: {e:?}"))?;
     if response.status / 100 != 2 {
         return Err(format!(
             "{peer}/summary returned status {}: {}",
@@ -525,7 +575,7 @@ fn invoke_peer() -> Result<serde_json::Value, String> {
     Ok(json!({ "processed": summary["processed"].as_u64().unwrap_or(0) }))
 }
 
-fn process_order(
+async fn process_order(
     order: &[u8],
     path: Option<&str>,
     key_prefix: &str,
@@ -539,8 +589,8 @@ fn process_order(
         .ok_or_else(|| format!("order without orderId: {order}"))?;
 
     state::save(
-        STATE_STORE,
-        &[
+        STATE_STORE.into(),
+        vec![
             state_read::StateItem {
                 key: format!("{key_prefix}-{order_id}"),
                 value: order.to_string().into_bytes(),
@@ -557,33 +607,35 @@ fn process_order(
                 options: None,
             },
         ],
-        &[],
+        Vec::new(),
     )
+    .await
     .map_err(|e| format!("saving order failed: {e:?}"))?;
 
-    increment(counter_key)?;
+    increment(counter_key).await?;
     println!("processed {key_prefix} {order_id}");
     Ok(())
 }
 
 /// CAS-increment the counter at `key` (deliveries may be concurrent): read
 /// value + etag, write back first-write, retry on conflict.
-fn increment(key: &str) -> Result<(), String> {
+async fn increment(key: &str) -> Result<(), String> {
     for _ in 0..16 {
-        let (count, etag) = match state_read::get(STATE_STORE, key, None, &[]) {
-            Ok(response) => (
-                String::from_utf8_lossy(&response.data)
-                    .parse::<u64>()
-                    .unwrap_or(0),
-                response.etag,
-            ),
-            Err(state_read::GetError::KeyNotFound) => (0, None),
-            Err(other) => return Err(format!("reading counter failed: {other:?}")),
-        };
+        let (count, etag) =
+            match state_read::get(STATE_STORE.into(), key.into(), None, Vec::new()).await {
+                Ok(response) => (
+                    String::from_utf8_lossy(&response.data)
+                        .parse::<u64>()
+                        .unwrap_or(0),
+                    response.etag,
+                ),
+                Err(state_read::GetError::KeyNotFound) => (0, None),
+                Err(other) => return Err(format!("reading counter failed: {other:?}")),
+            };
 
         let result = state::save(
-            STATE_STORE,
-            &[state_read::StateItem {
+            STATE_STORE.into(),
+            vec![state_read::StateItem {
                 key: key.to_string(),
                 value: (count + 1).to_string().into_bytes(),
                 etag,
@@ -593,8 +645,9 @@ fn increment(key: &str) -> Result<(), String> {
                     consistency: state_read::Consistency::Strong,
                 }),
             }],
-            &[],
-        );
+            Vec::new(),
+        )
+        .await;
         match result {
             Ok(()) => return Ok(()),
             Err(state::WriteError::EtagMismatch(_)) => continue,
@@ -604,8 +657,8 @@ fn increment(key: &str) -> Result<(), String> {
     Err("incrementing counter failed: too many etag conflicts".to_string())
 }
 
-fn read_counter(key: &str) -> Result<u64, String> {
-    match state_read::get(STATE_STORE, key, None, &[]) {
+async fn read_counter(key: &str) -> Result<u64, String> {
+    match state_read::get(STATE_STORE.into(), key.into(), None, Vec::new()).await {
         Ok(response) => Ok(String::from_utf8_lossy(&response.data)
             .parse::<u64>()
             .unwrap_or(0)),
@@ -616,9 +669,16 @@ fn read_counter(key: &str) -> Result<u64, String> {
 
 /// Input-binding status: how many `ticks` events were delivered, and what the
 /// sidecar persisted from our binding responses (`null` if nothing).
-fn binding_status() -> Result<serde_json::Value, String> {
-    let ticks = read_counter(TICKS_KEY)?;
-    let persisted = match state_read::get(STATE_STORE, BINDING_RESPONSE_KEY, None, &[]) {
+async fn binding_status() -> Result<serde_json::Value, String> {
+    let ticks = read_counter(TICKS_KEY).await?;
+    let persisted = match state_read::get(
+        STATE_STORE.into(),
+        BINDING_RESPONSE_KEY.into(),
+        None,
+        Vec::new(),
+    )
+    .await
+    {
         Ok(response) if !response.data.is_empty() => {
             Some(String::from_utf8_lossy(&response.data).into_owned())
         }

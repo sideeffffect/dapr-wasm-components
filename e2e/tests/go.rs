@@ -242,6 +242,5 @@ fn microservices_through_embedded_dapr() {
         consumer_base: &format!("http://127.0.0.1:{CONS_DAPR_HTTP}/v1.0/invoke/consumer/method"),
         // In-process: values are raw bytes, no JSON envelope.
         binary_state_exact: true,
-        self_invocation: false,
     });
 }

@@ -16,8 +16,8 @@ interface jobs {
 
   /// Create the named job. `overwrite` replaces an existing job of the
   /// same name instead of failing with `already-exists`.
-  schedule: func(name: string, job: job, overwrite: bool) -> result<_, schedule-error>;
+  schedule: async func(name: string, job: job, overwrite: bool) -> result<_, schedule-error>;
 
   /// Delete the named job (idempotent — deleting an absent job succeeds).
-  delete: func(name: string) -> result<_, jobs-error>;
+  delete: async func(name: string) -> result<_, jobs-error>;
 }

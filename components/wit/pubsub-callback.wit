@@ -125,13 +125,13 @@ interface pubsub-callback {
   }
 
   /// Declares the topics this app subscribes to. Called at startup.
-  list-topic-subscriptions: func() -> list<topic-subscription>;
+  list-topic-subscriptions: async func() -> list<topic-subscription>;
 
   /// Handle one delivered event. Dispatch on (`pubsub-name`, `topic`) and,
   /// for routed subscriptions, on `path`.
-  on-topic-event: func(event: topic-event) -> topic-event-response;
+  on-topic-event: async func(event: topic-event) -> topic-event-response;
 
   /// Handle one batch of events for a bulk-subscribed topic. Return one
   /// status per entry, keyed by `entry-id`.
-  on-bulk-topic-event: func(event: bulk-topic-event) -> list<bulk-topic-event-entry-response>;
+  on-bulk-topic-event: async func(event: bulk-topic-event) -> list<bulk-topic-event-entry-response>;
 }

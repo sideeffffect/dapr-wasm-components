@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Work around four wit-bindgen (Go) issues in the generated bindings.
+"""Work around four wit-bindgen (Go) issues, and run async export bodies off the export goroutine in the generated bindings.
 
 1. `jobs-read.job-failure-policy` has a case `constant(job-failure-policy-constant)`:
    the generator names the case's tag constant `JobFailurePolicyConstant`, the
@@ -13,10 +13,16 @@
    match Go's generated-code marker (`^// Code generated .* DO NOT EDIT\\.$`,
    https://go.dev/s/generatedcode), so Go tools treat the bindings as
    hand-written. Rewrite it in every generated file.
-4. An async export whose result is passed through the return area (here
-   `events.next-event`) declares its `task.return` import with an `int32`
-   parameter but passes `exportReturnArea` (a `uintptr`), which does not
-   compile. Convert it.
+4. An async export whose result is passed through the return area declares
+   its `task.return` import with an `int32` parameter but passes
+   `exportReturnArea` (a `uintptr`), which does not compile. Convert it.
+
+Not a bug fix: in every async building-block export, the call of the
+hand-written body (`resultN := export_x.F(args)`) becomes
+`resultN := events.CallK(export_x.F, args)`, which runs the body in a
+goroutine of its own and waits with a clock wait of the task (see
+internal/events/drive.go for why the export goroutine must not wait on Dapr
+directly). `events.next-event` and `events.run` wait correctly by themselves.
 
 Every replacement is asserted, so a generator fix (or change) fails loudly
 here instead of silently.
@@ -58,8 +64,6 @@ FIXES = {
     EXPORTS: [
         ("case dapr_wasm_components_interfaces_jobs_read.JobFailurePolicyConstant:",
          "case dapr_wasm_components_interfaces_jobs_read.JobFailurePolicyTagConstant:", None),
-        ("wasm_export_task_return_dapr_wasm_components_go_events_next_event(exportReturnArea)",
-         "wasm_export_task_return_dapr_wasm_components_go_events_next_event(int32(exportReturnArea))", 1),
     ],
 }
 
@@ -71,6 +75,49 @@ for path, fixes in FIXES.items():
             sys.exit(f"fix-bindings: {path}: expected {expected or '>=1'} of {old!r}, found {n}")
         text = text.replace(old, new)
     open(path, "w").write(text)
+
+# 4. task.return with the return area: uintptr -> int32.
+text = open(EXPORTS).read()
+text, n = re.subn(r"(wasm_export_task_return_\w+)\(exportReturnArea\)", r"\1(int32(exportReturnArea))", text)
+if n == 0:
+    sys.exit("fix-bindings: no task.return with the return area found")
+
+# Async building-block exports: run the body off the export goroutine.
+CALL = re.compile(r"^(\t\t(?:\w+ := )?)(export_dapr_wasm_components_interfaces_\w+\.\w+)\((.*)\)$", re.M)
+
+
+def arity(args):
+    depth, n = 0, (1 if args.strip() else 0)
+    for c in args:
+        depth += c in "({["
+        depth -= c in ")}]"
+        n += c == "," and depth == 0
+    return n
+
+
+def offload(block):
+    body = block.group(0)
+    calls = CALL.findall(body)
+    if "export_dapr_wasm_components_go_events." in body:
+        return body
+    if len(calls) != 1:
+        sys.exit(f"fix-bindings: expected one export call in an async closure, found {len(calls)}")
+    prefix, func, args = calls[0]
+    k = arity(args)
+    if k > 8:
+        sys.exit(f"fix-bindings: {func} has {k} parameters; add Call{k} to internal/events/call.go")
+    new = f"{prefix}events.Call{k}({func}" + (f", {args})" if args.strip() else ")")
+    return CALL.sub(lambda _: new, body, count=1)
+
+
+text, n = re.subn(r"witAsync\.Run\(func\(\) \{.*?\n\t\}\)\)", offload, text, flags=re.S)
+if n == 0:
+    sys.exit("fix-bindings: no async exports found")
+imp = '\twitAsync "go.bytecodealliance.org/pkg/wit/async"\n'
+if text.count(imp) != 1:
+    sys.exit("fix-bindings: witAsync import not found")
+text = text.replace(imp, imp + '\t"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/events"\n')
+open(EXPORTS, "w").write(text)
 
 GENERATED = sorted(glob.glob("internal/wit/**/wit_bindings.go", recursive=True)
                    + glob.glob("internal/wit/**/wit_exports.go", recursive=True))
