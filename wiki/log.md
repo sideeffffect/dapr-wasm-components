@@ -159,3 +159,6 @@
 
 ## [2026-11-14] ingest | scala-wasm upstream contribution facts
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (item 1 scope corrected: serialized IR + compiler plugin; order of the items; how to bring them upstream)
+
+## [2026-11-14] ingest | scala-wasm @WitAsync PR notes
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (scala-wasm item 1 opened as scala-wasm#273)
