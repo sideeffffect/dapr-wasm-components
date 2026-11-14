@@ -162,3 +162,5 @@
 
 ## [2026-11-14] ingest | scala-wasm @WitAsync PR notes
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (scala-wasm item 1 opened as scala-wasm#273)
+
+## [2026-11-14] ingest | dapr-wasm-components go async (scala-wasm#273 Rust caller)
