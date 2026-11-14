@@ -1,7 +1,7 @@
 # dapr-wasm-components go Family: Async, Threads and Queues
 
-> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09; go family without async-typed WIT research, 2026-11-14; async WIT with sync-ABI guests check, 2026-11-14
-> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md); [without async-typed WIT](../../raw/dapr/2026-11-14-go-family-without-async-wit-research.md); [async WIT with sync-ABI guests](../../raw/dapr/2026-11-14-async-wit-sync-abi-guest-check.md)
+> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09; go family without async-typed WIT research, 2026-11-14; async WIT with sync-ABI guests check, 2026-11-14; scala-wasm Future and async gaps, 2026-11-14
+> Raw: [scala-wasm Future and async gaps](../../raw/dapr/2026-11-14-scala-wasm-future-and-async-gaps.md); [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md); [without async-typed WIT](../../raw/dapr/2026-11-14-go-family-without-async-wit-research.md); [async WIT with sync-ABI guests](../../raw/dapr/2026-11-14-async-wit-sync-abi-guest-check.md)
 
 ## Overview
 
@@ -81,6 +81,29 @@ Checked 2026-11-14 for scala-wasm, the toolchain of dapr4s ([raw](../../raw/dapr
 - A bindings generator can ignore `async`: wit-bindgen-scala 0.1.0 gives byte-identical output for `func` and `async func`. It panics on `stream`/`future` types.
 - The component type must come from the real WIT. scala-wasm's linker reconstructs the type from its IR, which has no async flag. dapr4s re-embeds the WIT with wasm-tools, so it is not affected while it keeps that step.
 - Such a guest is sync-lifted: one delivery at a time per instance, and self-invocation in the go family waits on itself (see C above). With the sidecar families the host makes the instances, so nothing changes.
+
+### `async func`, `future<T>` and a guest `Future`
+
+Three different layers ([raw](../../raw/dapr/2026-11-14-scala-wasm-future-and-async-gaps.md)):
+
+| Thing | What it is | Who sees it |
+|---|---|---|
+| WIT `async func` | A marker on the function type: the call may block | Both components; checked at composition |
+| Subtask | A handle to a call in progress, returned by an async-lowered import | The caller only (Canonical ABI, not a WIT type) |
+| WIT `future<T>` | A value type: a one-shot channel passed as a parameter or result | Both components |
+| Scala `Future[T]` | A library type with an execution context | Scala code only |
+
+- interfaces 0.8.0 uses only `async func`. It has no `future<T>` or `stream<T>`.
+- The bindings generator chooses the mapping: an async-lowered import can become a `Future[T]` (as Rust gets `async fn`) or stay a blocking direct-style call.
+- scala-wasm today: `ExecutionContext.global` in component mode is a single-threaded queue that runs every task before the call returns. A `Future` works but cannot wait on anything outside the instance. There is no event loop; the maintainers want one as an external library (scala-wasm#218), because the core must not know WASI.
+
+What scala-wasm needs, smallest first:
+
+1. An async flag in the IR `FuncType`, written by wit-bindgen-scala and emitted by the linker. Then the linker's own component type is correct and the wasm-tools re-embed step can go.
+2. Async lower for imports (subtasks, waitable sets). One handler can then run several calls at the same time.
+3. Async lift for exports. The callback ABI fits `Future`-style code. Direct-style code (dapr4s) needs the stackful ABI (wasmtime 49: opt-in flag), Component Model threads or core stack switching. This is the step that removes "one delivery at a time".
+4. An event-loop execution context driven by waitable sets (the library of scala-wasm#218).
+5. `future<T>`, `stream<T>` and `error-context` in the IR, the linker and wit-bindgen-scala. Necessary for WASI 0.3 interfaces such as `wasi:http@0.3`.
 
 ## Other alternatives
 

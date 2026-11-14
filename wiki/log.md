@@ -153,3 +153,6 @@
 
 ## [2026-11-14] ingest | async WIT with sync-ABI guests (scala-wasm / dapr4s)
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (new section: async WIT and guests that know only the sync ABI)
+
+## [2026-11-14] ingest | scala-wasm Future and Component Model async gaps
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (new subsection: `async func`, `future<T>` and a guest `Future`; what scala-wasm needs)
