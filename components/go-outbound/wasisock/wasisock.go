@@ -22,11 +22,11 @@ import (
 	_ "unsafe" // go:linkname
 
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_io_streams"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_instance_network"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_ip_name_lookup"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_network"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_tcp"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_tcp_create_socket"
+	wasi_sockets_instance_network "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_0_2_6_instance_network"
+	wasi_sockets_ip_name_lookup "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_0_2_6_ip_name_lookup"
+	wasi_sockets_network "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_0_2_6_network"
+	wasi_sockets_tcp "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_0_2_6_tcp"
+	wasi_sockets_tcp_create_socket "github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_0_2_6_tcp_create_socket"
 
 	witTypes "go.bytecodealliance.org/pkg/wit/types"
 )

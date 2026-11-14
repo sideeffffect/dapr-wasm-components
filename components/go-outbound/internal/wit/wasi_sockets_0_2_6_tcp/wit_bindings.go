@@ -5,17 +5,22 @@
 //     wasi:io@0.2.6
 //     wasi:clocks@0.2.6
 //     wasi:sockets@0.2.6
+//     wasi:clocks@0.3.0
+//     wasi:filesystem@0.3.0
+//     wasi:sockets@0.3.0
+//     wasi:random@0.3.0
+//     wasi:cli@0.3.0
+//     dapr-wasm-components:go@0.2.0
 //     wasi:filesystem@0.2.6
 //     wasi:random@0.2.6
 //     wasi:cli@0.2.6
-//     dapr-wasm-components:go@0.1.0
 
-package wasi_sockets_tcp
+package wasi_sockets_0_2_6_tcp
 
 import (
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_io_poll"
 	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_io_streams"
-	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_network"
+	"github.com/sideeffffect/dapr-wasm-components/components/go-outbound/internal/wit/wasi_sockets_0_2_6_network"
 	witRuntime "go.bytecodealliance.org/pkg/wit/runtime"
 	witTypes "go.bytecodealliance.org/pkg/wit/types"
 	"runtime"
@@ -26,10 +31,10 @@ type InputStream = wasi_io_streams.InputStream
 type OutputStream = wasi_io_streams.OutputStream
 type Pollable = wasi_io_poll.Pollable
 type Duration = uint64
-type Network = wasi_sockets_network.Network
-type ErrorCode = wasi_sockets_network.ErrorCode
-type IpSocketAddress = wasi_sockets_network.IpSocketAddress
-type IpAddressFamily = wasi_sockets_network.IpAddressFamily
+type Network = wasi_sockets_0_2_6_network.Network
+type ErrorCode = wasi_sockets_0_2_6_network.ErrorCode
+type IpSocketAddress = wasi_sockets_0_2_6_network.IpSocketAddress
+type IpAddressFamily = wasi_sockets_0_2_6_network.IpAddressFamily
 
 const (
 	// Similar to `SHUT_RD` in POSIX.
@@ -109,7 +114,7 @@ func TcpSocketFromBorrowHandle(handleValue int32) *TcpSocket {
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.start-bind
 func wasm_import_method_tcp_socket_start_bind(arg0 int32, arg1 int32, arg2 int32, arg3 int32, arg4 int32, arg5 int32, arg6 int32, arg7 int32, arg8 int32, arg9 int32, arg10 int32, arg11 int32, arg12 int32, arg13 int32, arg14 uintptr)
 
-func (self *TcpSocket) StartBind(network *wasi_sockets_network.Network, localAddress wasi_sockets_network.IpSocketAddress) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) StartBind(network *wasi_sockets_0_2_6_network.Network, localAddress wasi_sockets_0_2_6_network.IpSocketAddress) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
@@ -127,7 +132,7 @@ func (self *TcpSocket) StartBind(network *wasi_sockets_network.Network, localAdd
 	var variant9 int32
 	var variant10 int32
 	switch localAddress.Tag() {
-	case wasi_sockets_network.IpSocketAddressIpv4:
+	case wasi_sockets_0_2_6_network.IpSocketAddressIpv4:
 		payload := localAddress.Ipv4()
 
 		variant = int32(0)
@@ -143,7 +148,7 @@ func (self *TcpSocket) StartBind(network *wasi_sockets_network.Network, localAdd
 		variant9 = 0
 		variant10 = 0
 
-	case wasi_sockets_network.IpSocketAddressIpv6:
+	case wasi_sockets_0_2_6_network.IpSocketAddressIpv6:
 		payload := localAddress.Ipv6()
 
 		variant = int32(1)
@@ -163,14 +168,14 @@ func (self *TcpSocket) StartBind(network *wasi_sockets_network.Network, localAdd
 		panic("unreachable")
 	}
 	wasm_import_method_tcp_socket_start_bind((self).Handle(), (network).Handle(), variant, variant0, variant1, variant2, variant3, variant4, variant5, variant6, variant7, variant8, variant9, variant10, returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -182,20 +187,20 @@ func (self *TcpSocket) StartBind(network *wasi_sockets_network.Network, localAdd
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.finish-bind
 func wasm_import_method_tcp_socket_finish_bind(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) FinishBind() witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) FinishBind() witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_finish_bind((self).Handle(), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -207,7 +212,7 @@ func (self *TcpSocket) FinishBind() witTypes.Result[witTypes.Unit, wasi_sockets_
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.start-connect
 func wasm_import_method_tcp_socket_start_connect(arg0 int32, arg1 int32, arg2 int32, arg3 int32, arg4 int32, arg5 int32, arg6 int32, arg7 int32, arg8 int32, arg9 int32, arg10 int32, arg11 int32, arg12 int32, arg13 int32, arg14 uintptr)
 
-func (self *TcpSocket) StartConnect(network *wasi_sockets_network.Network, remoteAddress wasi_sockets_network.IpSocketAddress) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) StartConnect(network *wasi_sockets_0_2_6_network.Network, remoteAddress wasi_sockets_0_2_6_network.IpSocketAddress) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
@@ -225,7 +230,7 @@ func (self *TcpSocket) StartConnect(network *wasi_sockets_network.Network, remot
 	var variant9 int32
 	var variant10 int32
 	switch remoteAddress.Tag() {
-	case wasi_sockets_network.IpSocketAddressIpv4:
+	case wasi_sockets_0_2_6_network.IpSocketAddressIpv4:
 		payload := remoteAddress.Ipv4()
 
 		variant = int32(0)
@@ -241,7 +246,7 @@ func (self *TcpSocket) StartConnect(network *wasi_sockets_network.Network, remot
 		variant9 = 0
 		variant10 = 0
 
-	case wasi_sockets_network.IpSocketAddressIpv6:
+	case wasi_sockets_0_2_6_network.IpSocketAddressIpv6:
 		payload := remoteAddress.Ipv6()
 
 		variant = int32(1)
@@ -261,14 +266,14 @@ func (self *TcpSocket) StartConnect(network *wasi_sockets_network.Network, remot
 		panic("unreachable")
 	}
 	wasm_import_method_tcp_socket_start_connect((self).Handle(), (network).Handle(), variant, variant0, variant1, variant2, variant3, variant4, variant5, variant6, variant7, variant8, variant9, variant10, returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -280,20 +285,20 @@ func (self *TcpSocket) StartConnect(network *wasi_sockets_network.Network, remot
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.finish-connect
 func wasm_import_method_tcp_socket_finish_connect(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) FinishConnect() witTypes.Result[witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) FinishConnect() witTypes.Result[witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 12, 4))
 	wasm_import_method_tcp_socket_finish_connect((self).Handle(), returnArea)
-	var result witTypes.Result[witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_network.ErrorCode](witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream]{F0: wasi_io_streams.InputStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 4))))), F1: wasi_io_streams.OutputStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))})
+		result = witTypes.Ok[witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_0_2_6_network.ErrorCode](witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream]{F0: wasi_io_streams.InputStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 4))))), F1: wasi_io_streams.OutputStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))})
 	case 1:
 
-		result = witTypes.Err[witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
+		result = witTypes.Err[witTypes.Tuple2[*wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
 	default:
 		panic("unreachable")
 	}
@@ -305,20 +310,20 @@ func (self *TcpSocket) FinishConnect() witTypes.Result[witTypes.Tuple2[*wasi_io_
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.start-listen
 func wasm_import_method_tcp_socket_start_listen(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) StartListen() witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) StartListen() witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_start_listen((self).Handle(), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -330,20 +335,20 @@ func (self *TcpSocket) StartListen() witTypes.Result[witTypes.Unit, wasi_sockets
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.finish-listen
 func wasm_import_method_tcp_socket_finish_listen(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) FinishListen() witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) FinishListen() witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_finish_listen((self).Handle(), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -355,20 +360,20 @@ func (self *TcpSocket) FinishListen() witTypes.Result[witTypes.Unit, wasi_socket
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.accept
 func wasm_import_method_tcp_socket_accept(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) Accept() witTypes.Result[witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) Accept() witTypes.Result[witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 16, 4))
 	wasm_import_method_tcp_socket_accept((self).Handle(), returnArea)
-	var result witTypes.Result[witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_network.ErrorCode](witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream]{F0: TcpSocketFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 4))))), F1: wasi_io_streams.InputStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 8))))), F2: wasi_io_streams.OutputStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 12)))))})
+		result = witTypes.Ok[witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_0_2_6_network.ErrorCode](witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream]{F0: TcpSocketFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 4))))), F1: wasi_io_streams.InputStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 8))))), F2: wasi_io_streams.OutputStreamFromOwnHandle(int32(uintptr(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 12)))))})
 	case 1:
 
-		result = witTypes.Err[witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
+		result = witTypes.Err[witTypes.Tuple3[*TcpSocket, *wasi_io_streams.InputStream, *wasi_io_streams.OutputStream], wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
 	default:
 		panic("unreachable")
 	}
@@ -380,33 +385,33 @@ func (self *TcpSocket) Accept() witTypes.Result[witTypes.Tuple3[*TcpSocket, *was
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.local-address
 func wasm_import_method_tcp_socket_local_address(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) LocalAddress() witTypes.Result[wasi_sockets_network.IpSocketAddress, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) LocalAddress() witTypes.Result[wasi_sockets_0_2_6_network.IpSocketAddress, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 36, 4))
 	wasm_import_method_tcp_socket_local_address((self).Handle(), returnArea)
-	var result witTypes.Result[wasi_sockets_network.IpSocketAddress, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[wasi_sockets_0_2_6_network.IpSocketAddress, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
-		var variant wasi_sockets_network.IpSocketAddress
+		var variant wasi_sockets_0_2_6_network.IpSocketAddress
 		switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4))) {
 		case 0:
 
-			variant = wasi_sockets_network.MakeIpSocketAddressIpv4(wasi_sockets_network.Ipv4SocketAddress{Port: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), Address: witTypes.Tuple4[uint8, uint8, uint8, uint8]{F0: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 10)))), F1: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 11)))), F2: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 12)))), F3: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 13))))}})
+			variant = wasi_sockets_0_2_6_network.MakeIpSocketAddressIpv4(wasi_sockets_0_2_6_network.Ipv4SocketAddress{Port: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), Address: witTypes.Tuple4[uint8, uint8, uint8, uint8]{F0: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 10)))), F1: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 11)))), F2: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 12)))), F3: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 13))))}})
 
 		case 1:
 
-			variant = wasi_sockets_network.MakeIpSocketAddressIpv6(wasi_sockets_network.Ipv6SocketAddress{Port: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), FlowInfo: uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 12))), Address: witTypes.Tuple8[uint16, uint16, uint16, uint16, uint16, uint16, uint16, uint16]{F0: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 16)))), F1: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 18)))), F2: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 20)))), F3: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 22)))), F4: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 24)))), F5: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 26)))), F6: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 28)))), F7: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 30))))}, ScopeId: uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 32)))})
+			variant = wasi_sockets_0_2_6_network.MakeIpSocketAddressIpv6(wasi_sockets_0_2_6_network.Ipv6SocketAddress{Port: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), FlowInfo: uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 12))), Address: witTypes.Tuple8[uint16, uint16, uint16, uint16, uint16, uint16, uint16, uint16]{F0: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 16)))), F1: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 18)))), F2: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 20)))), F3: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 22)))), F4: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 24)))), F5: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 26)))), F6: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 28)))), F7: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 30))))}, ScopeId: uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 32)))})
 
 		default:
 			panic("unreachable")
 		}
 
-		result = witTypes.Ok[wasi_sockets_network.IpSocketAddress, wasi_sockets_network.ErrorCode](variant)
+		result = witTypes.Ok[wasi_sockets_0_2_6_network.IpSocketAddress, wasi_sockets_0_2_6_network.ErrorCode](variant)
 	case 1:
 
-		result = witTypes.Err[wasi_sockets_network.IpSocketAddress, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
+		result = witTypes.Err[wasi_sockets_0_2_6_network.IpSocketAddress, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
 	default:
 		panic("unreachable")
 	}
@@ -418,33 +423,33 @@ func (self *TcpSocket) LocalAddress() witTypes.Result[wasi_sockets_network.IpSoc
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.remote-address
 func wasm_import_method_tcp_socket_remote_address(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) RemoteAddress() witTypes.Result[wasi_sockets_network.IpSocketAddress, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) RemoteAddress() witTypes.Result[wasi_sockets_0_2_6_network.IpSocketAddress, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 36, 4))
 	wasm_import_method_tcp_socket_remote_address((self).Handle(), returnArea)
-	var result witTypes.Result[wasi_sockets_network.IpSocketAddress, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[wasi_sockets_0_2_6_network.IpSocketAddress, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
-		var variant wasi_sockets_network.IpSocketAddress
+		var variant wasi_sockets_0_2_6_network.IpSocketAddress
 		switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4))) {
 		case 0:
 
-			variant = wasi_sockets_network.MakeIpSocketAddressIpv4(wasi_sockets_network.Ipv4SocketAddress{Port: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), Address: witTypes.Tuple4[uint8, uint8, uint8, uint8]{F0: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 10)))), F1: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 11)))), F2: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 12)))), F3: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 13))))}})
+			variant = wasi_sockets_0_2_6_network.MakeIpSocketAddressIpv4(wasi_sockets_0_2_6_network.Ipv4SocketAddress{Port: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), Address: witTypes.Tuple4[uint8, uint8, uint8, uint8]{F0: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 10)))), F1: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 11)))), F2: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 12)))), F3: uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 13))))}})
 
 		case 1:
 
-			variant = wasi_sockets_network.MakeIpSocketAddressIpv6(wasi_sockets_network.Ipv6SocketAddress{Port: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), FlowInfo: uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 12))), Address: witTypes.Tuple8[uint16, uint16, uint16, uint16, uint16, uint16, uint16, uint16]{F0: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 16)))), F1: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 18)))), F2: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 20)))), F3: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 22)))), F4: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 24)))), F5: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 26)))), F6: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 28)))), F7: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 30))))}, ScopeId: uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 32)))})
+			variant = wasi_sockets_0_2_6_network.MakeIpSocketAddressIpv6(wasi_sockets_0_2_6_network.Ipv6SocketAddress{Port: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))), FlowInfo: uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 12))), Address: witTypes.Tuple8[uint16, uint16, uint16, uint16, uint16, uint16, uint16, uint16]{F0: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 16)))), F1: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 18)))), F2: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 20)))), F3: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 22)))), F4: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 24)))), F5: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 26)))), F6: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 28)))), F7: uint16(uint16(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 30))))}, ScopeId: uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 32)))})
 
 		default:
 			panic("unreachable")
 		}
 
-		result = witTypes.Ok[wasi_sockets_network.IpSocketAddress, wasi_sockets_network.ErrorCode](variant)
+		result = witTypes.Ok[wasi_sockets_0_2_6_network.IpSocketAddress, wasi_sockets_0_2_6_network.ErrorCode](variant)
 	case 1:
 
-		result = witTypes.Err[wasi_sockets_network.IpSocketAddress, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
+		result = witTypes.Err[wasi_sockets_0_2_6_network.IpSocketAddress, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
 	default:
 		panic("unreachable")
 	}
@@ -466,7 +471,7 @@ func (self *TcpSocket) IsListening() bool {
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.address-family
 func wasm_import_method_tcp_socket_address_family(arg0 int32) int32
 
-func (self *TcpSocket) AddressFamily() wasi_sockets_network.IpAddressFamily {
+func (self *TcpSocket) AddressFamily() wasi_sockets_0_2_6_network.IpAddressFamily {
 
 	result := wasm_import_method_tcp_socket_address_family((self).Handle())
 	return uint8(result)
@@ -476,20 +481,20 @@ func (self *TcpSocket) AddressFamily() wasi_sockets_network.IpAddressFamily {
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.set-listen-backlog-size
 func wasm_import_method_tcp_socket_set_listen_backlog_size(arg0 int32, arg1 int64, arg2 uintptr)
 
-func (self *TcpSocket) SetListenBacklogSize(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SetListenBacklogSize(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_set_listen_backlog_size((self).Handle(), int64(value), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -501,20 +506,20 @@ func (self *TcpSocket) SetListenBacklogSize(value uint64) witTypes.Result[witTyp
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.keep-alive-enabled
 func wasm_import_method_tcp_socket_keep_alive_enabled(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) KeepAliveEnabled() witTypes.Result[bool, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) KeepAliveEnabled() witTypes.Result[bool, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_keep_alive_enabled((self).Handle(), returnArea)
-	var result witTypes.Result[bool, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[bool, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[bool, wasi_sockets_network.ErrorCode]((uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1))) != 0))
+		result = witTypes.Ok[bool, wasi_sockets_0_2_6_network.ErrorCode]((uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1))) != 0))
 	case 1:
 
-		result = witTypes.Err[bool, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[bool, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -526,7 +531,7 @@ func (self *TcpSocket) KeepAliveEnabled() witTypes.Result[bool, wasi_sockets_net
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.set-keep-alive-enabled
 func wasm_import_method_tcp_socket_set_keep_alive_enabled(arg0 int32, arg1 int32, arg2 uintptr)
 
-func (self *TcpSocket) SetKeepAliveEnabled(value bool) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SetKeepAliveEnabled(value bool) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
@@ -538,14 +543,14 @@ func (self *TcpSocket) SetKeepAliveEnabled(value bool) witTypes.Result[witTypes.
 		result = 0
 	}
 	wasm_import_method_tcp_socket_set_keep_alive_enabled((self).Handle(), result, returnArea)
-	var result0 witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result0 witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result0 = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result0 = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result0 = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result0 = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -557,20 +562,20 @@ func (self *TcpSocket) SetKeepAliveEnabled(value bool) witTypes.Result[witTypes.
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.keep-alive-idle-time
 func wasm_import_method_tcp_socket_keep_alive_idle_time(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) KeepAliveIdleTime() witTypes.Result[uint64, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) KeepAliveIdleTime() witTypes.Result[uint64, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 16, 8))
 	wasm_import_method_tcp_socket_keep_alive_idle_time((self).Handle(), returnArea)
-	var result witTypes.Result[uint64, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[uint64, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[uint64, wasi_sockets_network.ErrorCode](uint64(*(*int64)(unsafe.Add(unsafe.Pointer(returnArea), 8))))
+		result = witTypes.Ok[uint64, wasi_sockets_0_2_6_network.ErrorCode](uint64(*(*int64)(unsafe.Add(unsafe.Pointer(returnArea), 8))))
 	case 1:
 
-		result = witTypes.Err[uint64, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))
+		result = witTypes.Err[uint64, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))
 	default:
 		panic("unreachable")
 	}
@@ -582,20 +587,20 @@ func (self *TcpSocket) KeepAliveIdleTime() witTypes.Result[uint64, wasi_sockets_
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.set-keep-alive-idle-time
 func wasm_import_method_tcp_socket_set_keep_alive_idle_time(arg0 int32, arg1 int64, arg2 uintptr)
 
-func (self *TcpSocket) SetKeepAliveIdleTime(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SetKeepAliveIdleTime(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_set_keep_alive_idle_time((self).Handle(), int64(value), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -607,20 +612,20 @@ func (self *TcpSocket) SetKeepAliveIdleTime(value uint64) witTypes.Result[witTyp
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.keep-alive-interval
 func wasm_import_method_tcp_socket_keep_alive_interval(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) KeepAliveInterval() witTypes.Result[uint64, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) KeepAliveInterval() witTypes.Result[uint64, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 16, 8))
 	wasm_import_method_tcp_socket_keep_alive_interval((self).Handle(), returnArea)
-	var result witTypes.Result[uint64, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[uint64, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[uint64, wasi_sockets_network.ErrorCode](uint64(*(*int64)(unsafe.Add(unsafe.Pointer(returnArea), 8))))
+		result = witTypes.Ok[uint64, wasi_sockets_0_2_6_network.ErrorCode](uint64(*(*int64)(unsafe.Add(unsafe.Pointer(returnArea), 8))))
 	case 1:
 
-		result = witTypes.Err[uint64, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))
+		result = witTypes.Err[uint64, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))
 	default:
 		panic("unreachable")
 	}
@@ -632,20 +637,20 @@ func (self *TcpSocket) KeepAliveInterval() witTypes.Result[uint64, wasi_sockets_
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.set-keep-alive-interval
 func wasm_import_method_tcp_socket_set_keep_alive_interval(arg0 int32, arg1 int64, arg2 uintptr)
 
-func (self *TcpSocket) SetKeepAliveInterval(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SetKeepAliveInterval(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_set_keep_alive_interval((self).Handle(), int64(value), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -657,20 +662,20 @@ func (self *TcpSocket) SetKeepAliveInterval(value uint64) witTypes.Result[witTyp
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.keep-alive-count
 func wasm_import_method_tcp_socket_keep_alive_count(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) KeepAliveCount() witTypes.Result[uint32, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) KeepAliveCount() witTypes.Result[uint32, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 8, 4))
 	wasm_import_method_tcp_socket_keep_alive_count((self).Handle(), returnArea)
-	var result witTypes.Result[uint32, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[uint32, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[uint32, wasi_sockets_network.ErrorCode](uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 4))))
+		result = witTypes.Ok[uint32, wasi_sockets_0_2_6_network.ErrorCode](uint32(*(*int32)(unsafe.Add(unsafe.Pointer(returnArea), 4))))
 	case 1:
 
-		result = witTypes.Err[uint32, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
+		result = witTypes.Err[uint32, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 4)))))
 	default:
 		panic("unreachable")
 	}
@@ -682,20 +687,20 @@ func (self *TcpSocket) KeepAliveCount() witTypes.Result[uint32, wasi_sockets_net
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.set-keep-alive-count
 func wasm_import_method_tcp_socket_set_keep_alive_count(arg0 int32, arg1 int32, arg2 uintptr)
 
-func (self *TcpSocket) SetKeepAliveCount(value uint32) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SetKeepAliveCount(value uint32) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_set_keep_alive_count((self).Handle(), int32(value), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -707,20 +712,20 @@ func (self *TcpSocket) SetKeepAliveCount(value uint32) witTypes.Result[witTypes.
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.hop-limit
 func wasm_import_method_tcp_socket_hop_limit(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) HopLimit() witTypes.Result[uint8, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) HopLimit() witTypes.Result[uint8, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_hop_limit((self).Handle(), returnArea)
-	var result witTypes.Result[uint8, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[uint8, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[uint8, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Ok[uint8, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	case 1:
 
-		result = witTypes.Err[uint8, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[uint8, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -732,20 +737,20 @@ func (self *TcpSocket) HopLimit() witTypes.Result[uint8, wasi_sockets_network.Er
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.set-hop-limit
 func wasm_import_method_tcp_socket_set_hop_limit(arg0 int32, arg1 int32, arg2 uintptr)
 
-func (self *TcpSocket) SetHopLimit(value uint8) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SetHopLimit(value uint8) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_set_hop_limit((self).Handle(), int32(value), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -757,20 +762,20 @@ func (self *TcpSocket) SetHopLimit(value uint8) witTypes.Result[witTypes.Unit, w
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.receive-buffer-size
 func wasm_import_method_tcp_socket_receive_buffer_size(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) ReceiveBufferSize() witTypes.Result[uint64, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) ReceiveBufferSize() witTypes.Result[uint64, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 16, 8))
 	wasm_import_method_tcp_socket_receive_buffer_size((self).Handle(), returnArea)
-	var result witTypes.Result[uint64, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[uint64, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[uint64, wasi_sockets_network.ErrorCode](uint64(*(*int64)(unsafe.Add(unsafe.Pointer(returnArea), 8))))
+		result = witTypes.Ok[uint64, wasi_sockets_0_2_6_network.ErrorCode](uint64(*(*int64)(unsafe.Add(unsafe.Pointer(returnArea), 8))))
 	case 1:
 
-		result = witTypes.Err[uint64, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))
+		result = witTypes.Err[uint64, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))
 	default:
 		panic("unreachable")
 	}
@@ -782,20 +787,20 @@ func (self *TcpSocket) ReceiveBufferSize() witTypes.Result[uint64, wasi_sockets_
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.set-receive-buffer-size
 func wasm_import_method_tcp_socket_set_receive_buffer_size(arg0 int32, arg1 int64, arg2 uintptr)
 
-func (self *TcpSocket) SetReceiveBufferSize(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SetReceiveBufferSize(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_set_receive_buffer_size((self).Handle(), int64(value), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -807,20 +812,20 @@ func (self *TcpSocket) SetReceiveBufferSize(value uint64) witTypes.Result[witTyp
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.send-buffer-size
 func wasm_import_method_tcp_socket_send_buffer_size(arg0 int32, arg1 uintptr)
 
-func (self *TcpSocket) SendBufferSize() witTypes.Result[uint64, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SendBufferSize() witTypes.Result[uint64, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 16, 8))
 	wasm_import_method_tcp_socket_send_buffer_size((self).Handle(), returnArea)
-	var result witTypes.Result[uint64, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[uint64, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[uint64, wasi_sockets_network.ErrorCode](uint64(*(*int64)(unsafe.Add(unsafe.Pointer(returnArea), 8))))
+		result = witTypes.Ok[uint64, wasi_sockets_0_2_6_network.ErrorCode](uint64(*(*int64)(unsafe.Add(unsafe.Pointer(returnArea), 8))))
 	case 1:
 
-		result = witTypes.Err[uint64, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))
+		result = witTypes.Err[uint64, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 8)))))
 	default:
 		panic("unreachable")
 	}
@@ -832,20 +837,20 @@ func (self *TcpSocket) SendBufferSize() witTypes.Result[uint64, wasi_sockets_net
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.set-send-buffer-size
 func wasm_import_method_tcp_socket_set_send_buffer_size(arg0 int32, arg1 int64, arg2 uintptr)
 
-func (self *TcpSocket) SetSendBufferSize(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) SetSendBufferSize(value uint64) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_set_send_buffer_size((self).Handle(), int64(value), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}
@@ -867,20 +872,20 @@ func (self *TcpSocket) Subscribe() *wasi_io_poll.Pollable {
 //go:wasmimport wasi:sockets/tcp@0.2.6 [method]tcp-socket.shutdown
 func wasm_import_method_tcp_socket_shutdown(arg0 int32, arg1 int32, arg2 uintptr)
 
-func (self *TcpSocket) Shutdown(shutdownType ShutdownType) witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode] {
+func (self *TcpSocket) Shutdown(shutdownType ShutdownType) witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode] {
 	pinner := &runtime.Pinner{}
 	defer pinner.Unpin()
 
 	returnArea := uintptr(witRuntime.Allocate(pinner, 2, 1))
 	wasm_import_method_tcp_socket_shutdown((self).Handle(), int32(shutdownType), returnArea)
-	var result witTypes.Result[witTypes.Unit, wasi_sockets_network.ErrorCode]
+	var result witTypes.Result[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode]
 	switch uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 0))) {
 	case 0:
 
-		result = witTypes.Ok[witTypes.Unit, wasi_sockets_network.ErrorCode](witTypes.Unit{})
+		result = witTypes.Ok[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](witTypes.Unit{})
 	case 1:
 
-		result = witTypes.Err[witTypes.Unit, wasi_sockets_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
+		result = witTypes.Err[witTypes.Unit, wasi_sockets_0_2_6_network.ErrorCode](uint8(uint8(*(*uint32)(unsafe.Add(unsafe.Pointer(returnArea), 1)))))
 	default:
 		panic("unreachable")
 	}

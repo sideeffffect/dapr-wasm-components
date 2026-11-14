@@ -46,7 +46,7 @@ Consequences:
 ## Plan (stacked)
 
 1. **Research** (this page) **+ spikes** ([spikes/go-async](../../spikes/go-async/README.md)).
-2. **Go-only async.** Private `go.wit` goes async (`run` daemon task, async `next-event`), go-inbound becomes a WASIp3 pump (`wasi:cli/run@0.3.0`), componentize-go async build. Public interfaces unchanged. Foundation for step 3.
+2. **Go-only async.** Private `go.wit` goes async (`run` daemon task, async `next-event`), go-inbound becomes a WASIp3 pump (`wasi:cli/run@0.3.0`), componentize-go async build. Public interfaces unchanged. Foundation for step 3. **Done** (`go@0.2.0`): the real-Dapr go E2E passes unchanged. `run` aims its clock wait at the next Go timer via `runtime.wasiNextTimer` (overlay), clamped to 0.2–10 ms; `next-event` polls with 0.5→10 ms backoff. componentize-go 0.4.3 (what `go install …@v0.5.0` installs) already uses the patched `go1.27.1-wasi-on-idle`; 0.5.3 moves the bindings to `imports/`/`exports/`. Cost: idle wakeups (≤ ~100/s each for `run` and `next-event`) instead of sleeping in `poll_oneoff`.
 3. **interfaces 0.8 async.** Building blocks and `*-callback` functions become `async func` (breaks the "WIT stays sync" rule). All providers, the `dapr-app` SDK (async Rust apps) and the E2Es follow. Fixes self-invocation, concurrent deliveries and frozen Dapr while the app awaits Dapr or p3 I/O.
 
 ## Other alternatives

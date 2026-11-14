@@ -144,3 +144,7 @@
 
 ## [2026-11-13] ingest | proposal: all: add wasip3/wasm port (golang/go#77141)
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (alternative 5: status and what it would and would not change)
+
+## [2026-11-13] update | go pair on the WASI 0.3 event loop (go@0.2.0)
+- Updated: dapr-wasm-components go Family (async run/next-event, timer-aimed tick, glue rules, 4th fix-bindings workaround)
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (step 2 done)
