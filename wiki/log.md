@@ -156,3 +156,6 @@
 
 ## [2026-11-14] ingest | scala-wasm Future and Component Model async gaps
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (new subsection: `async func`, `future<T>` and a guest `Future`; what scala-wasm needs)
+
+## [2026-11-14] ingest | scala-wasm upstream contribution facts
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (item 1 scope corrected: serialized IR + compiler plugin; order of the items; how to bring them upstream)

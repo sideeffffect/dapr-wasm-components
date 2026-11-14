@@ -1,7 +1,7 @@
 # dapr-wasm-components go Family: Async, Threads and Queues
 
-> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09; go family without async-typed WIT research, 2026-11-14; async WIT with sync-ABI guests check, 2026-11-14; scala-wasm Future and async gaps, 2026-11-14
-> Raw: [scala-wasm Future and async gaps](../../raw/dapr/2026-11-14-scala-wasm-future-and-async-gaps.md); [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md); [without async-typed WIT](../../raw/dapr/2026-11-14-go-family-without-async-wit-research.md); [async WIT with sync-ABI guests](../../raw/dapr/2026-11-14-async-wit-sync-abi-guest-check.md)
+> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09; go family without async-typed WIT research, 2026-11-14; async WIT with sync-ABI guests check, 2026-11-14; scala-wasm Future and async gaps, 2026-11-14; scala-wasm pull requests #268–#271, 2026-11-14
+> Raw: [scala-wasm upstream contribution facts](../../raw/dapr/2026-11-14-scala-wasm-upstream-contribution-facts.md); [scala-wasm Future and async gaps](../../raw/dapr/2026-11-14-scala-wasm-future-and-async-gaps.md); [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md); [without async-typed WIT](../../raw/dapr/2026-11-14-go-family-without-async-wit-research.md); [async WIT with sync-ABI guests](../../raw/dapr/2026-11-14-async-wit-sync-abi-guest-check.md)
 
 ## Overview
 
@@ -99,11 +99,15 @@ Three different layers ([raw](../../raw/dapr/2026-11-14-scala-wasm-future-and-as
 
 What scala-wasm needs, smallest first:
 
-1. An async flag in the IR `FuncType`, written by wit-bindgen-scala and emitted by the linker. Then the linker's own component type is correct and the wasm-tools re-embed step can go.
+1. An async flag in the IR `FuncType`, written by wit-bindgen-scala and emitted by the linker. Then the linker's own component type is correct and the wasm-tools re-embed step can go. It spans the compiler plugin, the serialized IR (a format change), the linker and wit-bindgen-scala (a separate repository).
 2. Async lower for imports (subtasks, waitable sets). One handler can then run several calls at the same time.
 3. Async lift for exports. The callback ABI fits `Future`-style code. Direct-style code (dapr4s) needs the stackful ABI (wasmtime 49: opt-in flag), Component Model threads or core stack switching. This is the step that removes "one delivery at a time".
 4. An event-loop execution context driven by waitable sets (the library of scala-wasm#218).
 5. `future<T>`, `stream<T>` and `error-context` in the IR, the linker and wit-bindgen-scala. Necessary for WASI 0.3 interfaces such as `wasi:http@0.3`.
+
+Order: 1 → 2 → 3 and 5 (3 and 5 do not depend on each other). Item 4 has two parts: the wait loop on Component Model waitable sets is part of item 3 (no WASI in it); a general scheduler is the external library.
+
+How to bring this upstream ([raw](../../raw/dapr/2026-11-14-scala-wasm-upstream-contribution-facts.md)): one maintainer reviews everything. Small fixes merged in 2 to 27 days. The one feature PR (#270) was closed: no AI-assisted code near the javalib, and the maintainer wanted to own the design. So: an issue with the design questions first, a PR for item 1 only, and no stack of unrequested feature PRs.
 
 ## Other alternatives
 
