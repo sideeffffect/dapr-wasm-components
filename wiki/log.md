@@ -134,3 +134,13 @@
 ## [2026-10-16] update | compose.sh pulls the nested OCI names
 - Updated: dapr-wasm-components Architecture (publishing reference uses `dapr-wasm-components/<module>`)
 - Updated: wasm-pkg-tools (wkg) (interface reference uses the nested name)
+
+## [2026-11-13] ingest | dapr-wasm-components go Family: Async, Threads and Queues
+- Updated: dapr-wasm-components go Family (Limits point to the async research)
+- Updated: Component Model Overview (CM async / reentrance status as of 2026-11)
+
+## [2026-11-13] ingest | Dapr on TinyGo feasibility
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (TinyGo alternative: tested, blockers, effort; CM-threads claim corrected)
+
+## [2026-11-13] ingest | proposal: all: add wasip3/wasm port (golang/go#77141)
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (alternative 5: status and what it would and would not change)

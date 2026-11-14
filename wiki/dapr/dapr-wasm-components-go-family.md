@@ -1,6 +1,6 @@
 # dapr-wasm-components go Family (Dapr Embedded)
 
-> Sources: dapr-wasm-components go-family session, 2026-10-12; in-process app callbacks, 2026-10-14
+> Sources: dapr-wasm-components go-family session, 2026-10-12; in-process app callbacks, 2026-10-14; go-async research, 2026-11-13
 > Raw: [go family findings](../../raw/dapr/2026-10-12-go-family-embedded-dapr-findings.md)
 
 ## Overview
@@ -44,6 +44,7 @@ flowchart LR
 
 - **One app instance.** A delivery cannot reach the app while it runs a callback. Self-invocation would deadlock, so it fails fast with `app-unreachable`; the shared scenario asserts exactly that (`Endpoints::self_invocation`). An A → B → A cycle hangs unless a resiliency timeout is set. The sidecar families avoid this because their hosts instantiate per request.
 - Go goroutines run only while go-outbound is on the stack; a long callback that never calls Dapr pauses subscribers and heartbeats.
+- Both limits come from the WASI 0.2 sync model. What WASI 0.3 async can and cannot change (spikes, plan, alternatives): [go Family: Async, Threads and Queues](dapr-wasm-components-go-async.md).
 - No UDP multicast → no mDNS; `nameformat` cannot give per-app ports on one host. Use Consul (set `DAPR_HOST_IP`), Kubernetes, or another resolver. Dapr resolves even its own app id before short-circuiting to a local call.
 - Size ~264 MB (Dapr runtime ~138 MB + component SDKs); first wasmtime compile ~30 s.
 - Toolchain bugs worked around in `scripts/fix-bindings.py`: a wit-bindgen-go name clash (variant case vs record type) `FromOwnHandle` not recording the incoming handle, and a header line that is not Go's `// Code generated ... DO NOT EDIT.` marker. The generated Go is checked in (Go tools do not run generators); CI regenerates it and fails on drift, and `.gitattributes` marks it `linguist-generated`.
@@ -53,4 +54,5 @@ flowchart LR
 - [dapr-wasm-components Architecture](dapr-wasm-components-architecture.md)
 - [dapr-wasm-components Inbound Design](dapr-wasm-components-inbound-design.md)
 - [gRPC to Dapr from Wasm](dapr-grpc-from-wasm.md)
+- [go Family: Async, Threads and Queues](dapr-wasm-components-go-async.md)
 - [Component Model Overview](../wasm-component-model/component-model-overview.md)

@@ -1,11 +1,11 @@
 # WebAssembly Component Model — Overview
 
-> Sources: W3C WebAssembly Community Group / Bytecode Alliance, Unknown
-> Raw: [component-model-readme](../../raw/wasm-component-model/component-model-readme.md); [wit-design-doc](../../raw/wasm-component-model/wit-design-doc.md)
+> Sources: W3C WebAssembly Community Group / Bytecode Alliance, Unknown; dapr-wasm-components go-async research, 2026-11-13
+> Raw: [component-model-readme](../../raw/wasm-component-model/component-model-readme.md); [wit-design-doc](../../raw/wasm-component-model/wit-design-doc.md); [go-async research](../../raw/dapr/2026-11-13-go-async-wasm-research.md)
 
 ## Overview
 
-The Component Model is the standardization effort (W3C WebAssembly CG, repo `WebAssembly/component-model`) that layers a language-agnostic composition and interface system on top of core WebAssembly. Components describe their imports and exports in a typed IDL called WIT; the Canonical ABI defines how those high-level types lower to core wasm. The model was stabilized incrementally through WASI Preview 2 (a.k.a. WASI 0.2); WASI 0.3.0 (final released 2026-06-11) adds the concurrency model — native `async` functions, `future<T>` and `stream<T>` types. As of June 2026, WASI 0.2.x (latest 0.2.12) remains the production target: wasmtime 45.0.1 still tracks a 0.3 RC snapshot and cross-component async carries ~3.5x call overhead pre-Component-Model-1.0. (Update 2026-10-10: WASI 0.3.1 shipped 2026-08-11 and wasmtime 46+ enables P3 by default — see [Wasmtime Host Embedding](../wasm-tooling/wasmtime-host-embedding.md#wasi-02-vs-03-june-2026). This project still targets WASI 0.2.)
+The Component Model is the standardization effort (W3C WebAssembly CG, repo `WebAssembly/component-model`) that layers a language-agnostic composition and interface system on top of core WebAssembly. Components describe their imports and exports in a typed IDL called WIT; the Canonical ABI defines how those high-level types lower to core wasm. The model was stabilized incrementally through WASI Preview 2 (a.k.a. WASI 0.2); WASI 0.3.0 (final released 2026-06-11) adds the concurrency model — native `async` functions, `future<T>` and `stream<T>` types. As of June 2026, WASI 0.2.x (latest 0.2.12) remains the production target: wasmtime 45.0.1 still tracks a 0.3 RC snapshot and cross-component async carries ~3.5x call overhead pre-Component-Model-1.0. (Update 2026-10-10: WASI 0.3.1 shipped 2026-08-11 and wasmtime 46+ enables P3 by default — see [Wasmtime Host Embedding](../wasm-tooling/wasmtime-host-embedding.md#wasi-02-vs-03-june-2026). This project still targets WASI 0.2.) (Update 2026-11-13: wasmtime 49 has CM async on by default, CM PR #705 removed the recursive-reentrance trap, and componentize-go 0.5.x builds async Go components with a patched Go — see [go Family: Async, Threads and Queues](../dapr/dapr-wasm-components-go-async.md).)
 
 ## Key parts of the spec repo
 
@@ -28,3 +28,4 @@ The first design (v1, 2026-06-11) used a wasmtime host that implemented sync WIT
 - [Wasmtime Host Embedding](../wasm-tooling/wasmtime-host-embedding.md)
 - [wasm-pkg-tools (wkg)](../wasm-tooling/wasm-pkg-tools-wkg.md)
 - [dapr-wasm-components Architecture](../dapr/dapr-wasm-components-architecture.md)
+- [go Family: Async, Threads and Queues](../dapr/dapr-wasm-components-go-async.md)
