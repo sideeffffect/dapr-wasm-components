@@ -150,3 +150,6 @@
 
 ## [2026-11-14] lint | 1 issues found, 0 auto-fixed
 - Reported: raw 2026-11-13 go-async research says Spin 4.3.0 is on Wasmtime 49.0.3; Spin's `Cargo.toml` at `v4.3.0` pins wasmtime 50.0.1 (noted in the 2026-11-14 raw file; no wiki article carries the claim)
+
+## [2026-11-14] ingest | async WIT with sync-ABI guests (scala-wasm / dapr4s)
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (new section: async WIT and guests that know only the sync ABI)

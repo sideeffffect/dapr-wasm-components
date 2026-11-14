@@ -1,7 +1,7 @@
 # dapr-wasm-components go Family: Async, Threads and Queues
 
-> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09; go family without async-typed WIT research, 2026-11-14
-> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md); [without async-typed WIT](../../raw/dapr/2026-11-14-go-family-without-async-wit-research.md)
+> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09; go family without async-typed WIT research, 2026-11-14; async WIT with sync-ABI guests check, 2026-11-14
+> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md); [without async-typed WIT](../../raw/dapr/2026-11-14-go-family-without-async-wit-research.md); [async WIT with sync-ABI guests](../../raw/dapr/2026-11-14-async-wit-sync-abi-guest-check.md)
 
 ## Overview
 
@@ -71,6 +71,16 @@ Options that keep the WIT sync, best first:
 - **A** is the only complete fix with no async. No standard host gives typed sync WIT across stores: wRPC removed import polyfilling on 2026-11-13 ("always fragile and a potential footgun"), wasmCloud host component plugins require `async func` for calls into workloads, Spin and the wasmtime CLI have no typed cross-store call. So the boundary is HTTP/gRPC, which the sidecar families already speak.
 - **B** works because instantiation is acyclic: no provider can call the app, so a nested delivery can reach the app only on the return path of a building-block call. The SDK waits in a loop, pulls an event for this app, and runs the handler as a plain in-instance call.
 - **C** softens step 3 of the plan. `async func` is a type marker for "may block", not a demand for async code: wit-bindgen's `sync: true` gives sync Rust bindings for async WIT functions. A sync-lifted app then lets Dapr run while it waits on Dapr or p3 I/O, but it still cannot be re-entered (the spec: it "will deadlock").
+
+## Async WIT and guests that know only the sync ABI
+
+Checked 2026-11-14 for scala-wasm, the toolchain of dapr4s ([raw](../../raw/dapr/2026-11-14-async-wit-sync-abi-guest-check.md)):
+
+- A core module with the plain sync ABI builds against an async-typed WIT: `wasm-tools component embed` + `component new` give `async func` types with no `async` canon option. Two such components composed with `wac plug` and ran on wasmtime 49.0.2.
+- A component built against the sync WIT does **not** plug into an async-typed provider. Every app must be rebuilt for 0.8.0.
+- A bindings generator can ignore `async`: wit-bindgen-scala 0.1.0 gives byte-identical output for `func` and `async func`. It panics on `stream`/`future` types.
+- The component type must come from the real WIT. scala-wasm's linker reconstructs the type from its IR, which has no async flag. dapr4s re-embeds the WIT with wasm-tools, so it is not affected while it keeps that step.
+- Such a guest is sync-lifted: one delivery at a time per instance, and self-invocation in the go family waits on itself (see C above). With the sidecar families the host makes the instances, so nothing changes.
 
 ## Other alternatives
 
