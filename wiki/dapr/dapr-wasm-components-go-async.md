@@ -1,7 +1,7 @@
 # dapr-wasm-components go Family: Async, Threads and Queues
 
-> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09
-> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md)
+> Sources: dapr-wasm-components go-async research and spikes, 2026-11-13; Dapr on TinyGo feasibility test, 2026-11-13; golang/go#77141, 2026-01-09; go family without async-typed WIT research, 2026-11-14
+> Raw: [go-async research and spikes](../../raw/dapr/2026-11-13-go-async-wasm-research.md); [Dapr on TinyGo feasibility](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md); [golang/go#77141 wasip3 proposal](../../raw/dapr/2026-01-09-golang-wasip3-port-proposal.md); [without async-typed WIT](../../raw/dapr/2026-11-14-go-family-without-async-wit-research.md)
 
 ## Overview
 
@@ -21,7 +21,7 @@ Both come from the WASI 0.2 sync model: one thread of control per store, and a s
 | CM cooperative threads (`thread.new-indirect`, …) | Behind `-W component-model-threading`, "very incomplete" | Not for big Go: Go has its own scheduler. TinyGo's pending wasip3 work (go-pkg glue) maps goroutines to CM threads; released TinyGo 0.44 (`wasip2`) still uses asyncify. Dapr does not build with TinyGo (see below). |
 | wasi-threads | Legacy (WASI 0.1 only) | No: incompatible with components. |
 | shared-everything-threads | Phase 1 | Not yet: big Go has no wasm threads (golang/go#28631). |
-| Stack switching | Phase 3 | Indirect: a future Go backend (golang/go#81963); no effect today. |
+| Stack switching | Phase 3 | No: the Go backend (golang/go#81963, Go 1.28, `GOWASM=stackswitch`) is "invisible to programmers" — it changes how goroutine switches compile, not when goroutines run. |
 | Queues | — | Already used (`go-events`). A queue helps only if the consumer can run while the producer waits — that again needs async. |
 
 ## Spike results
@@ -49,11 +49,34 @@ Consequences:
 2. **Go-only async.** Private `go.wit` goes async (`run` daemon task, async `next-event`), go-inbound becomes a WASIp3 pump (`wasi:cli/run@0.3.0`), componentize-go async build. Public interfaces unchanged. Foundation for step 3.
 3. **interfaces 0.8 async.** Building blocks and `*-callback` functions become `async func` (breaks the "WIT stays sync" rule). All providers, the `dapr-app` SDK (async Rust apps) and the E2Es follow. Fixes self-invocation, concurrent deliveries and frozen Dapr while the app awaits Dapr or p3 I/O.
 
+## Can the public WIT stay sync?
+
+Researched 2026-11-14 (web only, no spikes). **In one store: no full fix.** Outside one store, or with partial fixes: yes.
+
+Why one store needs `async` in the type:
+
+- The spec makes "may block" a property of the function type: "non-`async` functions are not allowed to block". The `async` ABI option "is only allowed when used with an `async` function type". So during a sync-typed callback nothing else in the store runs except what the callback calls.
+- WASI 0.2 `pollable` cannot be forwarded by a component between the host and its caller (the "sandwich problem"). So a shim that lets Go run while the app waits in `wasi:io/poll` is not practical. WASI 0.3 exists to fix this.
+- Not levers: threads (shared-everything-threads Phase 1; CM cooperative threads off by default and "do not allow a single component instance to increase its internal parallelism"; one store = one OS thread), upstream Go (all wasm issues open), `go:wasmexport` (goroutines "will be paused" after the export returns, by design), WASIX (no Component Model), runtime instantiation (CM issue #423, no draft).
+
+Options that keep the WIT sync, best first:
+
+| Option | Limit 1 (Dapr frozen) | Limit 2 (re-entry) | Cost |
+|---|---|---|---|
+| **A. Wasm sidecar** (alternative 1 below) | Fixed, real parallelism | Fixed (host makes app instances) | Process boundary; HTTP/gRPC between provider and Dapr. The app's WIT does not change. |
+| **B. Nested pump in the SDK** | No change | Fixed for nested calls (self-invocation, A → B → A) | Additive sync WIT: a pull-based events import for the app. Handlers must tolerate nested runs. Own design, not spiked. |
+| **C. Async as an addition** | Fixed for apps that use the async interfaces | Fixed for those apps | Two interface sets to maintain. Sync apps keep both limits. |
+| **D. Yield call** | Reduced: a long callback calls a sync `yield` so Go runs | No change | Small. Cooperative only. |
+
+- **A** is the only complete fix with no async. No standard host gives typed sync WIT across stores: wRPC removed import polyfilling on 2026-11-13 ("always fragile and a potential footgun"), wasmCloud host component plugins require `async func` for calls into workloads, Spin and the wasmtime CLI have no typed cross-store call. So the boundary is HTTP/gRPC, which the sidecar families already speak.
+- **B** works because instantiation is acyclic: no provider can call the app, so a nested delivery can reach the app only on the return path of a building-block call. The SDK waits in a loop, pulls an event for this app, and runs the handler as a plain in-instance call.
+- **C** softens step 3 of the plan. `async func` is a type marker for "may block", not a demand for async code: wit-bindgen's `sync: true` gives sync Rust bindings for async WIT functions. A sync-lifted app then lets Dapr run while it waits on Dapr or p3 I/O, but it still cannot be re-entered (the spec: it "will deadlock").
+
 ## Other alternatives
 
 Ranked by value for the go family:
 
-1. **daprd as a wasm sidecar.** go-outbound already serves daprd's HTTP/gRPC API (the E2E calls `/v1.0/invoke` on it). Run it as its own `wasmtime run` process (Go always on the stack, so it always runs) with the normal app channel, and serve the app with the sidecar families under `wasmtime serve`/Spin (fresh or reused instance per request). Gives independence, concurrency and self-invocation today, without async — but gives up the typed in-process calls and adds a process boundary.
+1. **daprd as a wasm sidecar.** go-outbound already serves daprd's HTTP/gRPC API (the E2E calls `/v1.0/invoke` on it). Run it as its own `wasmtime run` process (Go always on the stack, so it always runs) with the normal app channel, and serve the app with the sidecar families under `wasmtime serve`/Spin (fresh or reused instance per request). Gives independence, concurrency and self-invocation today, without async — but gives up the typed in-process calls and adds a process boundary. wasmCloud v2 has this shape built in: one long-running "service" per workload, reached by components over in-runtime loopback TCP only ("Components **cannot** call into the service via WIT interfaces").
 2. **More app instances in the composition** (wac can instantiate the app N times). Only useful together with async (the pump must be able to wait); with sync calls the pump is on the stack and cannot dispatch.
 3. **Host-side pump.** A custom wasmtime embedding that pulls `go-events` and instantiates the app per delivery. Breaks "no native host".
 4. **TinyGo + CM threads.** Goroutines as CM threads with timer-aware waits. Tested with TinyGo 0.44.0: feasible only with heavy forks, about 10–20 person-weeks ([raw](../../raw/dapr/2026-11-13-dapr-on-tinygo-feasibility.md)):

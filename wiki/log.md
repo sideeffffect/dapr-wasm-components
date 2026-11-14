@@ -144,3 +144,9 @@
 
 ## [2026-11-13] ingest | proposal: all: add wasip3/wasm port (golang/go#77141)
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (alternative 5: status and what it would and would not change)
+
+## [2026-11-14] ingest | go family without async-typed WIT
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (new section: can the public WIT stay sync; stack-switching row corrected; wasmCloud services note)
+
+## [2026-11-14] lint | 1 issues found, 0 auto-fixed
+- Reported: raw 2026-11-13 go-async research says Spin 4.3.0 is on Wasmtime 49.0.3; Spin's `Cargo.toml` at `v4.3.0` pins wasmtime 50.0.1 (noted in the 2026-11-14 raw file; no wiki article carries the claim)
