@@ -1,0 +1,30 @@
+package spike:reent;
+
+interface prov {
+  run: async func();
+  next-event: async func() -> tuple<u32, u32>;
+  complete-event: func(id: u32, outcome: u32);
+  invoke: async func(depth: u32) -> u32;
+  /// sync-typed variant of invoke (to test whether sync works too)
+  invoke-sync: func(depth: u32) -> u32;
+}
+
+interface cb {
+  on-invoke: async func(depth: u32) -> u32;
+  on-invoke-sync: func(depth: u32) -> u32;
+}
+
+world provider {
+  import wasi:clocks/monotonic-clock@0.3.0;
+  export prov;
+}
+world app {
+  import prov;
+  export cb;
+}
+world pump {
+  import prov;
+  import cb;
+  import wasi:clocks/monotonic-clock@0.3.0;
+  export wasi:cli/run@0.3.0;
+}
