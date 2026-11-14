@@ -39,7 +39,7 @@ interface pubsub {
   /// Publish `data` to `topic` on the pub/sub component `pubsub-name`.
   /// `data-content-type` is the MIME type of `data`, e.g. `application/json`;
   /// when absent the sidecar defaults it (`text/plain`).
-  publish: func(
+  publish: async func(
     pubsub-name: string,
     topic: string,
     data: list<u8>,
@@ -49,7 +49,7 @@ interface pubsub {
 
   /// Publish several events in one request (alpha). Returns the entries
   /// that failed — an empty list means everything was published.
-  publish-bulk: func(
+  publish-bulk: async func(
     pubsub-name: string,
     topic: string,
     entries: list<bulk-publish-entry>,

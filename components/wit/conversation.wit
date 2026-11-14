@@ -177,7 +177,7 @@ interface conversation {
   }
 
   /// Send inputs to the LLM component `component-name`.
-  converse: func(
+  converse: async func(
     component-name: string,
     inputs: list<conversation-input>,
     options: option<conversation-options>,

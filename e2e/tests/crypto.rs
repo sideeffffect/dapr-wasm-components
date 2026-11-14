@@ -111,9 +111,19 @@ async fn streaming_roundtrip() {
     output.resource_drop_async(&mut store).await.unwrap();
     assert!(decrypted == plaintext, "streaming roundtrip mismatch");
 
-    let one_shot = crypto
-        .call_decrypt(&mut store, MOCK_CRYPTO_COMPONENT, &ciphertext, None)
+    let one_shot = store
+        .run_concurrent(async |a| {
+            crypto
+                .call_decrypt(
+                    a,
+                    MOCK_CRYPTO_COMPONENT.to_string(),
+                    ciphertext.clone(),
+                    None,
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     assert!(one_shot == plaintext, "one-shot decrypt mismatch");
@@ -182,9 +192,14 @@ async fn streaming_unknown_component() {
     );
 
     // The one-shot path maps the same daprd error the same way.
-    let one_shot = crypto
-        .call_encrypt(&mut store, "nope", b"hi", &options())
+    let one_shot = store
+        .run_concurrent(async |a| {
+            crypto
+                .call_encrypt(a, "nope".to_string(), b"hi".to_vec(), options())
+                .await
+        })
         .await
+        .unwrap()
         .unwrap();
     assert!(
         matches!(

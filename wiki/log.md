@@ -148,3 +148,9 @@
 ## [2026-11-13] update | go pair on the WASI 0.3 event loop (go@0.2.0)
 - Updated: dapr-wasm-components go Family (async run/next-event, timer-aimed tick, glue rules, 4th fix-bindings workaround)
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (step 2 done)
+
+## [2026-11-13] update | interfaces 0.8.0: async functions
+- Updated: dapr-wasm-components Architecture (Async WIT decision supersedes sync WIT)
+- Updated: dapr-wasm-components go Family (re-entrant app instance, body offload via events.CallN)
+- Updated: dapr-wasm-components go Family: Async, Threads and Queues (step 3 done)
+- Updated: dapr-wasm-components Inbound Design (package version)

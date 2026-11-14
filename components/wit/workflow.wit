@@ -25,28 +25,28 @@ interface workflow {
   }
 
   /// Start a new workflow instance. Returns the instance id.
-  start: func(
+  start: async func(
     workflow-name: string,
     instance-id: option<string>,
     input: list<u8>,
   ) -> result<string, start-error>;
 
   /// Terminate a running workflow instance.
-  terminate: func(instance-id: string) -> result<_, instance-error>;
+  terminate: async func(instance-id: string) -> result<_, instance-error>;
 
   /// Deliver an external event to a workflow instance.
-  raise-event: func(
+  raise-event: async func(
     instance-id: string,
     event-name: string,
     event-data: list<u8>,
   ) -> result<_, instance-error>;
 
   /// Pause a running workflow instance.
-  pause: func(instance-id: string) -> result<_, instance-error>;
+  pause: async func(instance-id: string) -> result<_, instance-error>;
 
   /// Resume a paused workflow instance.
-  resume: func(instance-id: string) -> result<_, instance-error>;
+  resume: async func(instance-id: string) -> result<_, instance-error>;
 
   /// Purge the state of a terminated/completed workflow instance.
-  purge: func(instance-id: string) -> result<_, instance-error>;
+  purge: async func(instance-id: string) -> result<_, instance-error>;
 }

@@ -13,14 +13,14 @@ interface runtime {
 
   /// Get the sidecar's metadata document (components, subscriptions,
   /// app connection details, ...) as JSON.
-  get-metadata: func() -> result<json, runtime-error>;
+  get-metadata: async func() -> result<json, runtime-error>;
 
   /// Add a custom label to the sidecar's metadata.
-  set-metadata-label: func(key: string, value: string) -> result<_, runtime-error>;
+  set-metadata-label: async func(key: string, value: string) -> result<_, runtime-error>;
 
   /// Whether the sidecar is healthy.
-  healthz: func() -> bool;
+  healthz: async func() -> bool;
 
   /// Whether the sidecar is ready for outbound calls (components initialized).
-  outbound-healthz: func() -> bool;
+  outbound-healthz: async func() -> bool;
 }

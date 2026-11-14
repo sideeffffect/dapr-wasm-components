@@ -30,49 +30,81 @@ async fn state_roundtrip() {
     let state_read = provider.dapr_wasm_components_interfaces_state_read();
 
     let value = br#"{"message":"hello"}"#.to_vec();
-    state
-        .call_save(
-            &mut store,
-            "statestore",
-            &[StateItem {
-                key: "k1".to_string(),
-                value: value.clone(),
-                etag: None,
-                metadata: Vec::new(),
-                options: None,
-            }],
-            &Vec::new(),
-        )
+    store
+        .run_concurrent(async |a| {
+            state
+                .call_save(
+                    a,
+                    "statestore".to_string(),
+                    vec![StateItem {
+                        key: "k1".to_string(),
+                        value: value.clone(),
+                        etag: None,
+                        metadata: Vec::new(),
+                        options: None,
+                    }],
+                    Vec::new(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
 
-    let got = state_read
-        .call_get(&mut store, "statestore", "k1", None, &Vec::new())
+    let got = store
+        .run_concurrent(async |a| {
+            state_read
+                .call_get(
+                    a,
+                    "statestore".to_string(),
+                    "k1".to_string(),
+                    None,
+                    Vec::new(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .expect("key should exist");
     assert_eq!(got.data, value);
     assert_eq!(got.etag.as_deref(), Some("42"));
 
-    let missing = state_read
-        .call_get(&mut store, "statestore", "nope", None, &Vec::new())
+    let missing = store
+        .run_concurrent(async |a| {
+            state_read
+                .call_get(
+                    a,
+                    "statestore".to_string(),
+                    "nope".to_string(),
+                    None,
+                    Vec::new(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap();
     assert!(
         matches!(missing, Err(GetError::KeyNotFound)),
         "missing key should be key-not-found, got {missing:?}"
     );
 
-    let bulk = state_read
-        .call_get_bulk(
-            &mut store,
-            "statestore",
-            &["k1".to_string(), "nope".to_string()],
-            None,
-            &Vec::new(),
-        )
+    let bulk = store
+        .run_concurrent(async |a| {
+            state_read
+                .call_get_bulk(
+                    a,
+                    "statestore".to_string(),
+                    vec!["k1".to_string(), "nope".to_string()],
+                    None,
+                    Vec::new(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(bulk.len(), 2);
@@ -81,9 +113,21 @@ async fn state_roundtrip() {
     assert_eq!(bulk[1].key, "nope");
     assert!(bulk[1].value.is_empty());
 
-    state
-        .call_delete(&mut store, "statestore", "k1", None, None, &Vec::new())
+    store
+        .run_concurrent(async |a| {
+            state
+                .call_delete(
+                    a,
+                    "statestore".to_string(),
+                    "k1".to_string(),
+                    None,
+                    None,
+                    Vec::new(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     assert!(sidecar.recorded.lock().unwrap().state.is_empty());
@@ -94,17 +138,22 @@ async fn pubsub_publish_records_content_type() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
 
-    provider
-        .dapr_wasm_components_interfaces_pubsub()
-        .call_publish(
-            &mut store,
-            "pubsub",
-            "orders",
-            br#"{"order":1}"#,
-            Some("application/json"),
-            &vec![("rawPayload".to_string(), "true".to_string())],
-        )
+    store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_pubsub()
+                .call_publish(
+                    a,
+                    "pubsub".to_string(),
+                    "orders".to_string(),
+                    br#"{"order":1}"#.to_vec(),
+                    Some("application/json".to_string()),
+                    vec![("rawPayload".to_string(), "true".to_string())],
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
 
@@ -123,9 +172,14 @@ async fn secrets() {
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     let secrets = provider.dapr_wasm_components_interfaces_secrets_read();
 
-    let secret = secrets
-        .call_get_secret(&mut store, "vault", "db", &Vec::new())
+    let secret = store
+        .run_concurrent(async |a| {
+            secrets
+                .call_get_secret(a, "vault".to_string(), "db".to_string(), Vec::new())
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .expect("secret should exist");
     assert_eq!(
@@ -133,9 +187,14 @@ async fn secrets() {
         vec![("password".to_string(), "hunter2".to_string())]
     );
 
-    let missing = secrets
-        .call_get_secret(&mut store, "vault", "missing", &Vec::new())
+    let missing = store
+        .run_concurrent(async |a| {
+            secrets
+                .call_get_secret(a, "vault".to_string(), "missing".to_string(), Vec::new())
+                .await
+        })
         .await
+        .unwrap()
         .unwrap();
     assert!(
         matches!(missing, Err(GetSecretError::SecretNotFound)),
@@ -143,9 +202,19 @@ async fn secrets() {
     );
 
     // Real daprd: a store's "not found" arrives as a 500 ERR_SECRET_GET.
-    let missing = secrets
-        .call_get_secret(&mut store, "vault", "missing-in-store", &Vec::new())
+    let missing = store
+        .run_concurrent(async |a| {
+            secrets
+                .call_get_secret(
+                    a,
+                    "vault".to_string(),
+                    "missing-in-store".to_string(),
+                    Vec::new(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap();
     assert!(
         matches!(missing, Err(GetSecretError::SecretNotFound)),
@@ -158,10 +227,16 @@ async fn secret_store_failure_traps() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     // Any other ERR_SECRET_GET is a store backend failure: unrecoverable.
-    let call = provider
-        .dapr_wasm_components_interfaces_secrets_read()
-        .call_get_secret(&mut store, "vault", "store-down", &Vec::new())
-        .await;
+    let call = store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_secrets_read()
+                .call_get_secret(a, "vault".to_string(), "store-down".to_string(), Vec::new())
+                .await
+        })
+        .await
+        // A trap ends the whole concurrent run: it surfaces as its error.
+        .and_then(|call| call);
     assert!(
         call.is_err(),
         "store backend failure should trap, got {call:?}"
@@ -201,9 +276,19 @@ async fn conversation_converse() {
         prompt_cache_retention: None,
     };
 
-    let response = conversation
-        .call_converse(&mut store, "openai", &inputs, Some(&options))
+    let response = store
+        .run_concurrent(async |a| {
+            conversation
+                .call_converse(
+                    a,
+                    "openai".to_string(),
+                    inputs.clone(),
+                    Some(options.clone()),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
 
@@ -247,16 +332,37 @@ async fn lock_and_unlock() {
     let lock = provider.dapr_wasm_components_interfaces_lock();
 
     // Acquired -> Ok(()).
-    lock.call_try_lock(&mut store, "lockstore", "resource", "owner", 60)
+    store
+        .run_concurrent(async |a| {
+            lock.call_try_lock(
+                a,
+                "lockstore".to_string(),
+                "resource".to_string(),
+                "owner".to_string(),
+                60,
+            )
+            .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .expect("lock should be acquired");
 
     // Already held -> Err(not-acquired). The mock keys "contended" to a
     // `success: false` response.
-    let contended = lock
-        .call_try_lock(&mut store, "lockstore", "contended", "owner", 60)
+    let contended = store
+        .run_concurrent(async |a| {
+            lock.call_try_lock(
+                a,
+                "lockstore".to_string(),
+                "contended".to_string(),
+                "owner".to_string(),
+                60,
+            )
+            .await
+        })
         .await
+        .unwrap()
         .unwrap();
     assert!(
         matches!(contended, Err(TryLockError::NotAcquired)),
@@ -264,15 +370,34 @@ async fn lock_and_unlock() {
     );
 
     // Unlock success -> Ok(()).
-    lock.call_unlock(&mut store, "lockstore", "resource", "owner")
+    store
+        .run_concurrent(async |a| {
+            lock.call_unlock(
+                a,
+                "lockstore".to_string(),
+                "resource".to_string(),
+                "owner".to_string(),
+            )
+            .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .expect("unlock should succeed");
 
     // Unlock of a non-existent lock -> Err(lock-does-not-exist).
-    let missing = lock
-        .call_unlock(&mut store, "lockstore", "missing", "owner")
+    let missing = store
+        .run_concurrent(async |a| {
+            lock.call_unlock(
+                a,
+                "lockstore".to_string(),
+                "missing".to_string(),
+                "owner".to_string(),
+            )
+            .await
+        })
         .await
+        .unwrap()
         .unwrap();
     assert!(
         matches!(missing, Err(UnlockError::LockDoesNotExist)),
@@ -280,9 +405,18 @@ async fn lock_and_unlock() {
     );
 
     // Unlock of a lock owned by someone else -> Err(lock-belongs-to-others).
-    let others = lock
-        .call_unlock(&mut store, "lockstore", "others", "owner")
+    let others = store
+        .run_concurrent(async |a| {
+            lock.call_unlock(
+                a,
+                "lockstore".to_string(),
+                "others".to_string(),
+                "owner".to_string(),
+            )
+            .await
+        })
         .await
+        .unwrap()
         .unwrap();
     assert!(
         matches!(others, Err(UnlockError::LockBelongsToOthers)),
@@ -295,18 +429,23 @@ async fn invocation_passes_non_2xx_through() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
 
-    let response = provider
-        .dapr_wasm_components_interfaces_invocation()
-        .call_invoke(
-            &mut store,
-            "other-app",
-            "orders/42",
-            HttpVerb::Post,
-            &vec![("x-mock-status".to_string(), "418".to_string())],
-            None,
-            b"teapot?",
-        )
+    let response = store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_invocation()
+                .call_invoke(
+                    a,
+                    "other-app".to_string(),
+                    "orders/42".to_string(),
+                    HttpVerb::Post,
+                    vec![("x-mock-status".to_string(), "418".to_string())],
+                    None,
+                    b"teapot?".to_vec(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
 
@@ -323,10 +462,20 @@ async fn workflow_start() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
 
-    let instance_id = provider
-        .dapr_wasm_components_interfaces_workflow()
-        .call_start(&mut store, "order-processing", None, br#"{"id":1}"#)
+    let instance_id = store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_workflow()
+                .call_start(
+                    a,
+                    "order-processing".to_string(),
+                    None,
+                    br#"{"id":1}"#.to_vec(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(instance_id, "wf-123");
@@ -340,14 +489,19 @@ async fn configuration_subscription_drop_unsubscribes() {
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     let configuration = provider.dapr_wasm_components_interfaces_configuration();
 
-    let subscription = configuration
-        .call_subscribe(
-            &mut store,
-            "configstore",
-            &["flag".to_string()],
-            &Vec::new(),
-        )
+    let subscription = store
+        .run_concurrent(async |a| {
+            configuration
+                .call_subscribe(
+                    a,
+                    "configstore".to_string(),
+                    vec!["flag".to_string()],
+                    Vec::new(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     let id = configuration
@@ -369,9 +523,14 @@ async fn configuration_subscription_drop_unsubscribes() {
         vec![("configstore".to_string(), "sub-1".to_string())]
     );
 
-    let broken = configuration
-        .call_subscribe(&mut store, MOCK_BROKEN_CONFIG_STORE, &[], &Vec::new())
+    let broken = store
+        .run_concurrent(async |a| {
+            configuration
+                .call_subscribe(a, MOCK_BROKEN_CONFIG_STORE.to_string(), vec![], Vec::new())
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     broken
@@ -392,9 +551,10 @@ async fn workflow_get_is_typed() {
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     let workflow = provider.dapr_wasm_components_interfaces_workflow_read();
 
-    let failed = workflow
-        .call_get(&mut store, "wf-failed")
+    let failed = store
+        .run_concurrent(async |a| workflow.call_get(a, "wf-failed".to_string()).await)
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(failed.instance_id, "wf-failed");
@@ -415,9 +575,10 @@ async fn workflow_get_is_typed() {
     );
 
     // An unrecognised status is `unknown`, with the raw string kept.
-    let stalled = workflow
-        .call_get(&mut store, "wf-stalled")
+    let stalled = store
+        .run_concurrent(async |a| workflow.call_get(a, "wf-stalled".to_string()).await)
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(stalled.runtime_status, RuntimeStatus::Unknown);
@@ -431,7 +592,11 @@ async fn workflow_get_is_typed() {
         )]
     );
 
-    let missing = workflow.call_get(&mut store, "nope").await.unwrap();
+    let missing = store
+        .run_concurrent(async |a| workflow.call_get(a, "nope".to_string()).await)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(
         matches!(missing, Err(WorkflowGetError::NotFound(_))),
         "missing instance should be not-found, got {missing:?}"
@@ -444,27 +609,38 @@ async fn jobs_roundtrip() {
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     let jobs = provider.dapr_wasm_components_interfaces_jobs();
 
-    jobs.call_schedule(
-        &mut store,
-        "nightly",
-        &Job {
-            schedule: Some("@every 1m".to_string()),
-            repeats: Some(5),
-            due_time: None,
-            ttl: None,
-            data: Some(r#"{"value":42}"#.to_string()),
-            failure_policy: None,
-        },
-        false,
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
-    let job = provider
-        .dapr_wasm_components_interfaces_jobs_read()
-        .call_get(&mut store, "nightly")
+    store
+        .run_concurrent(async |a| {
+            jobs.call_schedule(
+                a,
+                "nightly".to_string(),
+                Job {
+                    schedule: Some("@every 1m".to_string()),
+                    repeats: Some(5),
+                    due_time: None,
+                    ttl: None,
+                    data: Some(r#"{"value":42}"#.to_string()),
+                    failure_policy: None,
+                }
+                .clone(),
+                false,
+            )
+            .await
+        })
         .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+
+    let job = store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_jobs_read()
+                .call_get(a, "nightly".to_string())
+                .await
+        })
+        .await
+        .unwrap()
         .unwrap()
         .expect("scheduled job should exist");
     assert_eq!(job.schedule.as_deref(), Some("@every 1m"));
@@ -478,19 +654,33 @@ async fn runtime_health_and_metadata() {
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     let runtime = provider.dapr_wasm_components_interfaces_runtime();
 
-    assert!(runtime.call_healthz(&mut store).await.unwrap());
-    assert!(runtime.call_outbound_healthz(&mut store).await.unwrap());
-
-    let metadata = runtime
-        .call_get_metadata(&mut store)
+    assert!(store
+        .run_concurrent(async |a| runtime.call_healthz(a).await)
         .await
+        .unwrap()
+        .unwrap());
+    assert!(store
+        .run_concurrent(async |a| runtime.call_outbound_healthz(a).await)
+        .await
+        .unwrap()
+        .unwrap());
+
+    let metadata = store
+        .run_concurrent(async |a| runtime.call_get_metadata(a).await)
+        .await
+        .unwrap()
         .unwrap()
         .unwrap();
     assert!(metadata.contains("mock-sidecar"));
 
-    runtime
-        .call_set_metadata_label(&mut store, "is-blue", "yes")
+    store
+        .run_concurrent(async |a| {
+            runtime
+                .call_set_metadata_label(a, "is-blue".to_string(), "yes".to_string())
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -511,10 +701,22 @@ async fn unreachable_sidecar_traps() {
     // returning a recoverable error value, so the call itself errors.
     let (mut store, provider) = load_provider("http://127.0.0.1:9").await.unwrap();
 
-    let call = provider
-        .dapr_wasm_components_interfaces_state_read()
-        .call_get(&mut store, "statestore", "k", None, &Vec::new())
-        .await;
+    let call = store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_state_read()
+                .call_get(
+                    a,
+                    "statestore".to_string(),
+                    "k".to_string(),
+                    None,
+                    Vec::new(),
+                )
+                .await
+        })
+        .await
+        // A trap ends the whole concurrent run: it surfaces as its error.
+        .and_then(|call| call);
     assert!(
         call.is_err(),
         "unreachable sidecar should trap, surfacing as an errored call"
@@ -535,10 +737,21 @@ fn timer() -> Timer {
 async fn register_timer_on_a_hosted_actor_type() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
-    provider
-        .dapr_wasm_components_interfaces_actors()
-        .call_register_timer(&mut store, MOCK_HOSTED_ACTOR_TYPE, "a-1", "t", &timer())
+    store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_actors()
+                .call_register_timer(
+                    a,
+                    MOCK_HOSTED_ACTOR_TYPE.to_string(),
+                    "a-1".to_string(),
+                    "t".to_string(),
+                    timer(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .unwrap()
         .unwrap();
 }
@@ -550,10 +763,21 @@ async fn register_timer_on_an_unhosted_actor_type_is_permission_denied() {
     // daprd answers HTTP 500 ERR_ACTOR_TIMER_CREATE "... actor type not
     // registered": the caller's mistake, not a sidecar fault — a typed error,
     // not a trap.
-    let result = provider
-        .dapr_wasm_components_interfaces_actors()
-        .call_register_timer(&mut store, "ProbeActor", "probe-1", "t", &timer())
+    let result = store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_actors()
+                .call_register_timer(
+                    a,
+                    "ProbeActor".to_string(),
+                    "probe-1".to_string(),
+                    "t".to_string(),
+                    timer(),
+                )
+                .await
+        })
         .await
+        .unwrap()
         .expect("an unhosted actor type must not trap");
     match result {
         Err(ActorsError::PermissionDenied(message)) => assert_eq!(
@@ -569,16 +793,22 @@ async fn register_timer_storage_failure_traps() {
     let sidecar = MockSidecar::start().await.unwrap();
     let (mut store, provider) = load_provider(&sidecar.endpoint).await.unwrap();
     // Any other ERR_ACTOR_TIMER_CREATE is a sidecar fault: unrecoverable.
-    let call = provider
-        .dapr_wasm_components_interfaces_actors()
-        .call_register_timer(
-            &mut store,
-            MOCK_BROKEN_TIMER_ACTOR_TYPE,
-            "a-1",
-            "t",
-            &timer(),
-        )
-        .await;
+    let call = store
+        .run_concurrent(async |a| {
+            provider
+                .dapr_wasm_components_interfaces_actors()
+                .call_register_timer(
+                    a,
+                    MOCK_BROKEN_TIMER_ACTOR_TYPE.to_string(),
+                    "a-1".to_string(),
+                    "t".to_string(),
+                    timer(),
+                )
+                .await
+        })
+        .await
+        // A trap ends the whole concurrent run: it surfaces as its error.
+        .and_then(|call| call);
     assert!(
         call.is_err(),
         "timer storage failure should trap, got {call:?}"

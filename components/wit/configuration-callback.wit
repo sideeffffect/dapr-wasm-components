@@ -16,5 +16,5 @@ interface configuration-callback {
   }
 
   /// Handle a configuration update push.
-  on-configuration-event: func(update: configuration-update);
+  on-configuration-event: async func(update: configuration-update);
 }

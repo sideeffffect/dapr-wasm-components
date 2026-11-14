@@ -49,17 +49,17 @@ interface actors-callback {
   }
 
   /// Declare hosted actor types and runtime options. Called at startup.
-  config: func() -> actor-config;
+  config: async func() -> actor-config;
 
   /// Invoke `method` on the actor instance `actor-type`/`actor-id`.
-  on-invoke: func(actor-type: string, actor-id: string, method: string, data: list<u8>) -> result<list<u8>, app-error>;
+  on-invoke: async func(actor-type: string, actor-id: string, method: string, data: list<u8>) -> result<list<u8>, app-error>;
 
   /// Fire a timer on an actor instance.
-  on-timer: func(event: actor-timer-event) -> result<_, app-error>;
+  on-timer: async func(event: actor-timer-event) -> result<_, app-error>;
 
   /// Fire a reminder on an actor instance.
-  on-reminder: func(event: actor-reminder-event) -> result<_, app-error>;
+  on-reminder: async func(event: actor-reminder-event) -> result<_, app-error>;
 
   /// Deactivate (garbage-collect) an actor instance.
-  deactivate: func(actor-type: string, actor-id: string) -> result<_, app-error>;
+  deactivate: async func(actor-type: string, actor-id: string) -> result<_, app-error>;
 }

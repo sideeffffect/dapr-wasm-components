@@ -66,7 +66,7 @@ interface actors {
   }
 
   /// Invoke `method` on the actor `actor-type`/`actor-id`.
-  invoke: func(
+  invoke: async func(
     actor-type: string,
     actor-id: string,
     method: string,
@@ -76,28 +76,28 @@ interface actors {
 
   /// Get the actor state stored under `key`. Fails with `key-not-found`
   /// when absent.
-  get-state: func(actor-type: string, actor-id: string, key: string) -> result<list<u8>, get-state-error>;
+  get-state: async func(actor-type: string, actor-id: string, key: string) -> result<list<u8>, get-state-error>;
 
   /// Execute upserts and deletes of actor state atomically.
-  execute-state-transaction: func(
+  execute-state-transaction: async func(
     actor-type: string,
     actor-id: string,
     operations: list<actor-state-operation>,
   ) -> result<_, actors-error>;
 
   /// Create (or overwrite) a persistent reminder.
-  register-reminder: func(actor-type: string, actor-id: string, name: string, reminder: reminder) -> result<_, actors-error>;
+  register-reminder: async func(actor-type: string, actor-id: string, name: string, reminder: reminder) -> result<_, actors-error>;
 
   /// Get a reminder's definition as JSON. Fails with `reminder-not-found`
   /// when no such reminder exists.
-  get-reminder: func(actor-type: string, actor-id: string, name: string) -> result<json, get-reminder-error>;
+  get-reminder: async func(actor-type: string, actor-id: string, name: string) -> result<json, get-reminder-error>;
 
   /// Delete a reminder.
-  unregister-reminder: func(actor-type: string, actor-id: string, name: string) -> result<_, actors-error>;
+  unregister-reminder: async func(actor-type: string, actor-id: string, name: string) -> result<_, actors-error>;
 
   /// Create (or overwrite) a non-persistent timer.
-  register-timer: func(actor-type: string, actor-id: string, name: string, timer: timer) -> result<_, actors-error>;
+  register-timer: async func(actor-type: string, actor-id: string, name: string, timer: timer) -> result<_, actors-error>;
 
   /// Delete a timer.
-  unregister-timer: func(actor-type: string, actor-id: string, name: string) -> result<_, actors-error>;
+  unregister-timer: async func(actor-type: string, actor-id: string, name: string) -> result<_, actors-error>;
 }
