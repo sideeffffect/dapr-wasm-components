@@ -164,3 +164,6 @@
 - Updated: dapr-wasm-components go Family: Async, Threads and Queues (scala-wasm item 1 opened as scala-wasm#273)
 
 ## [2026-11-14] ingest | dapr-wasm-components go async (scala-wasm#273 Rust caller)
+
+## [2026-11-15] ingest | scala-wasm export forwarders and exported resources (PR notes)
+- Raw only: wit-bindgen-scala#9/#10, scala-wasm#274 facts (rep table, borrow-handle drop bug, Rust 1.99 `-Dwarnings` CI pin)
