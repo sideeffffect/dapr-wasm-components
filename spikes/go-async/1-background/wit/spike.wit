@@ -1,0 +1,36 @@
+package spike:bg;
+
+interface bg {
+  /// Never returns: keeps the Go runtime scheduled.
+  run: async func();
+  /// Counter incremented by a background goroutine every 10ms.
+  count: func() -> u64;
+}
+
+world go-bg {
+  import wasi:clocks/monotonic-clock@0.3.0;
+  export bg;
+}
+
+world driver {
+  import bg;
+  import wasi:clocks/monotonic-clock@0.3.0;
+  export wasi:cli/run@0.3.0;
+}
+
+interface work {
+  /// sync-typed, like today's *-callback functions
+  on-work: func();
+}
+
+world app3 {
+  import wasi:clocks/monotonic-clock@0.3.0;
+  export work;
+}
+
+world driver3 {
+  import bg;
+  import work;
+  import wasi:clocks/monotonic-clock@0.3.0;
+  export wasi:cli/run@0.3.0;
+}

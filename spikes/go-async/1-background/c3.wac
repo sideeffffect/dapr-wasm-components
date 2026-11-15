@@ -1,0 +1,5 @@
+package spike:c3;
+let g = new spike:gobg { ... };
+let a = new spike:app3 { ... };
+let d = new spike:driver3 { bg: g.bg, work: a.work, ... };
+export d["wasi:cli/run@0.3.0"];
